@@ -7,3 +7,13 @@
 pub mod anchors;
 pub mod edits;
 pub mod filesystem;
+
+pub use anchors::{
+    anchor_for, anchors_match, compute_anchor, FileAnchor,
+};
+pub use edits::{
+    apply_cut, apply_put, EditError, EditOp, EditResult, rejects_stale_hash,
+};
+pub use filesystem::{
+    DiskFilesystem, Filesystem, FilesystemError, InMemoryFilesystem,
+};
