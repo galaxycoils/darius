@@ -14,6 +14,9 @@ tokio = { workspace = true, features = ["sync", "rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
+sqlite = { workspace = true }
+uuid = { workspace = true }
 darius-core = { path = "../darius-core" }
 darius-rlm = { path = "../darius-rlm" }
 darius-hashline = { path = "../darius-hashline" }
@@ -21,4 +24,3 @@ darius-lsp = { path = "../darius-lsp" }
 darius-skills = { path = "../darius-skills" }
 darius-safety = { path = "../darius-safety" }
 darius-bench = { path = "../darius-bench" }
-
