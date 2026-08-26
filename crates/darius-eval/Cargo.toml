@@ -1,0 +1,16 @@
+[package]
+name = "darius-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Evaluation flywheel: fixtures, rubrics, AutoRater"
+
+[lib]
+name = "darius_eval"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+darius-core = { path = "../darius-core" }
+

@@ -1,0 +1,24 @@
+[package]
+name = "darius-rlm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[lib]
+name = "darius_rlm"
+path = "src/lib.rs"
+
+[features]
+default = []
+rlm-python = ["pyo3"]
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "rt"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+pyo3 = { version = "0.24", features = ["extension-module"], optional = true }
+darius-core = { path = "../darius-core" }

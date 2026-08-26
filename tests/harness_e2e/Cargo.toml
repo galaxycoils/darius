@@ -1,0 +1,17 @@
+[package]
+name = "harness_e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "E2E integration harness — MockLlm, TestDaemon, full-session pipeline"
+
+[lib]
+name = "harness_e2e"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+thiserror = { workspace = true }
+darius-core = { path = "../../crates/darius-core" }
+darius-rlm = { path = "../../crates/darius-rlm" }
+darius-daemon = { path = "../../crates/darius-daemon" }

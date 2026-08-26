@@ -1,0 +1,16 @@
+[package]
+name = "darius-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Benchmark harness: SWE-bench, long-horizon, ARC-style"
+
+[lib]
+name = "darius_bench"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+darius-core = { path = "../darius-core" }
+

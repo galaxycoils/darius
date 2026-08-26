@@ -1,0 +1,15 @@
+[package]
+name = "darius-safety"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Safety gates, capabilities, and audit"
+
+[lib]
+name = "darius_safety"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+darius-core = { path = "../darius-core" }
+

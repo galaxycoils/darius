@@ -1,0 +1,16 @@
+[package]
+name = "darius-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LSP + DAP coding surface"
+
+[lib]
+name = "darius_lsp"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+darius-core = { path = "../darius-core" }
+

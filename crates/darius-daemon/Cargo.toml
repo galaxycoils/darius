@@ -1,0 +1,24 @@
+[package]
+name = "darius-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Darius daemon — session manager, A2A hub, and service orchestrator"
+
+[lib]
+name = "darius_daemon"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "rt"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+darius-core = { path = "../darius-core" }
+darius-rlm = { path = "../darius-rlm" }
+darius-hashline = { path = "../darius-hashline" }
+darius-lsp = { path = "../darius-lsp" }
+darius-skills = { path = "../darius-skills" }
+darius-safety = { path = "../darius-safety" }
+darius-bench = { path = "../darius-bench" }
+

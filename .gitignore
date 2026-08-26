@@ -1,0 +1,30 @@
+# Rust build artifacts
+/target/
+**/target/
+**/target/**/*
+
+# Per-crate lockfiles (only root Cargo.lock is committed)
+crates/*/Cargo.lock
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust incremental metadata (should not be committed)
+*.rustc_info.json
+CACHEDIR.TAG
+.cargo-lock
+.cargo-build-lock
+fingerprint/
+invoked.timestamp
+*.d
+*.rmeta
+*.rlib
+*.o

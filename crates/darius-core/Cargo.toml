@@ -1,0 +1,20 @@
+[package]
+name = "darius-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Darius core types, IDs, and shared utilities"
+
+[lib]
+name = "darius_core"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+darius-rlm = { path = "../darius-rlm" }
+harness_e2e = { path = "../../tests/harness_e2e" }

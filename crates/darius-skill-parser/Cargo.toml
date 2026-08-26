@@ -1,0 +1,15 @@
+[package]
+name = "darius-skill-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SKILL.md parser"
+
+[lib]
+name = "darius_skill_parser"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
