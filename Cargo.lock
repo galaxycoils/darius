@@ -248,6 +248,7 @@ dependencies = [
  "blake3",
  "darius-core",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
