@@ -32,8 +32,13 @@ impl Profile {
 
     /// Create or load a profile.
     pub fn new(name: impl Into<String>) -> Result<Self, ProfileError> {
+        Self::with_base_dir(name, Self::base_dir())
+    }
+
+    /// Create or load a profile with a specific base directory.
+    pub fn with_base_dir(name: impl Into<String>, base_dir: impl AsRef<Path>) -> Result<Self, ProfileError> {
         let name = name.into();
-        let path = Self::base_dir().join(&name);
+        let path = base_dir.as_ref().join(&name);
         std::fs::create_dir_all(&path)?;
         std::fs::create_dir_all(path.join("memory"))?;
         std::fs::create_dir_all(path.join("skills"))?;
@@ -68,12 +73,17 @@ impl Profile {
 
     /// List all existing profiles.
     pub fn list() -> Result<Vec<String>, ProfileError> {
-        let base = Self::base_dir();
+        Self::list_in_dir(Self::base_dir())
+    }
+
+    /// List profiles in a specific directory.
+    pub fn list_in_dir(base_dir: impl AsRef<Path>) -> Result<Vec<String>, ProfileError> {
+        let base = base_dir.as_ref();
         if !base.exists() {
             return Ok(Vec::new());
         }
         let mut profiles = Vec::new();
-        for entry in std::fs::read_dir(&base)? {
+        for entry in std::fs::read_dir(base)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 if let Some(name) = entry.file_name().to_str() {
@@ -103,52 +113,43 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
-    fn with_temp_dir<F: FnOnce()>(f: F) {
-        let dir = temp_profile_dir();
-        unsafe {
-            std::env::set_var("DARIUS_PROFILE_DIR", &dir);
-        }
-        f();
-        unsafe {
-            std::env::remove_var("DARIUS_PROFILE_DIR");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+
+    #[test]
     fn profile_creates_isolated_directories() {
-        with_temp_dir(|| {
-            let profile = Profile::new("test_profile").unwrap();
-            assert!(profile.path.exists());
-            assert!(profile.memory_dir().exists());
-            assert!(profile.skills_dir().exists());
-            assert!(profile.sessions_dir().exists());
-            assert!(profile.db_path().parent().unwrap().exists());
-        });
+        let dir = temp_profile_dir();
+        let profile = Profile::with_base_dir("test_profile", &dir).unwrap();
+        assert!(profile.path.exists());
+        assert!(profile.memory_dir().exists());
+        assert!(profile.skills_dir().exists());
+        assert!(profile.sessions_dir().exists());
+        assert!(profile.db_path().parent().unwrap().exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn two_profiles_do_not_share_data() {
-        with_temp_dir(|| {
-            let p1 = Profile::new("tenant_a").unwrap();
-            let p2 = Profile::new("tenant_b").unwrap();
+        let dir = temp_profile_dir();
+        let p1 = Profile::with_base_dir("tenant_a", &dir).unwrap();
+        let p2 = Profile::with_base_dir("tenant_b", &dir).unwrap();
 
-            // Write to p1.
-            std::fs::write(p1.memory_dir().join("data.txt"), "tenant_a_data").unwrap();
+        // Write to p1.
+        std::fs::write(p1.memory_dir().join("data.txt"), "tenant_a_data").unwrap();
 
-            // Verify p2 cannot see it.
-            let p2_data = p2.memory_dir().join("data.txt");
-            assert!(!p2_data.exists());
+        // Verify p2 cannot see it.
+        let p2_data = p2.memory_dir().join("data.txt");
+        assert!(!p2_data.exists());
 
-            // Verify p1 path != p2 path.
-            assert_ne!(p1.path, p2.path);
-        });
+        // Verify p1 path != p2 path.
+        assert_ne!(p1.path, p2.path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn profile_list() {
-        with_temp_dir(|| {
-            let _p1 = Profile::new("listed_profile").unwrap();
-            let profiles = Profile::list().unwrap();
-            assert!(profiles.contains(&"listed_profile".to_string()));
-        });
+        let dir = temp_profile_dir();
+        let _p1 = Profile::with_base_dir("listed_profile", &dir).unwrap();
+        let profiles = Profile::list_in_dir(&dir).unwrap();
+        assert!(profiles.contains(&"listed_profile".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
