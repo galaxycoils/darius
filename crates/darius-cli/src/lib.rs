@@ -82,7 +82,7 @@ fn cmd_start(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         data: format!("profile={profile}"),
     };
     
-    if let Err(e) = crate::events::log_event(&session_id, &event) {
+    if let Err(e) = crate::events::log_event("./darius_data", &session_id, &event) {
         eprintln!("Warning: could not log event: {e}");
     }
     
@@ -106,13 +106,13 @@ fn cmd_attach(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_eval(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_eval(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("Running evaluation...");
     println!("Evaluation complete");
     Ok(())
 }
 
-fn cmd_learn(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_learn(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("Learning from trajectory...");
     println!("Learning complete");
     Ok(())

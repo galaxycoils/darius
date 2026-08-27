@@ -197,10 +197,10 @@ dependencies = [
  "clap",
  "darius-core",
  "darius-daemon",
- "darius-eval",
  "serde",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -226,6 +226,7 @@ dependencies = [
  "darius-rlm",
  "darius-safety",
  "darius-skills",
+ "parking_lot",
  "serde",
  "serde_json",
  "sqlite",

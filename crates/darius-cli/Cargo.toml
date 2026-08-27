@@ -20,5 +20,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 darius-core = { path = "../darius-core" }
 darius-daemon = { path = "../darius-daemon" }
-darius-eval = { path = "../darius-eval" }
+uuid = { workspace = true }
 

@@ -24,3 +24,4 @@ darius-lsp = { path = "../darius-lsp" }
 darius-skills = { path = "../darius-skills" }
 darius-safety = { path = "../darius-safety" }
 darius-bench = { path = "../darius-bench" }
+parking_lot = "0.12"

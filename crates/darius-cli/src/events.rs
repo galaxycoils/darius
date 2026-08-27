@@ -1,7 +1,7 @@
 //! CLI event system for session tracking and Continual Harness.
 
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Session event tracking.
@@ -22,21 +22,23 @@ pub enum EventType {
 }
 
 /// Write a session event to the event log.
-pub fn log_event(session_id: &str, event: &SessionEvent) -> Result<(), String> {
-    let events_dir = get_events_dir(session_id)?;
+pub fn log_event(base_dir: &str, session_id: &str, event: &SessionEvent) -> Result<(), String> {
+    let events_dir = get_events_dir(base_dir, session_id)?;
     let event_file = events_dir.join(format!("{}.log", event.timestamp));
     
+    let event_type_str = match &event.event_type {
+        EventType::Started => "started".to_string(),
+        EventType::Stopped => "stopped".to_string(),
+        EventType::Status => "status".to_string(),
+        EventType::Error(e) => format!("error:{e}"),
+        EventType::Message(m) => format!("message:{m}"),
+    };
+    
     let content = format!(
-        "{timestamp}|{event_type}|{data}\n",
-        timestamp = event.timestamp,
-        event_type = match &event.event_type {
-            EventType::Started => "started",
-            EventType::Stopped => "stopped",
-            EventType::Status => "status",
-            EventType::Error(e) => format!("error:{e}"),
-            EventType::Message(m) => format!("message:{m}"),
-        },
-        data = event.data
+        "{}|{}|{}\n",
+        event.timestamp,
+        event_type_str,
+        event.data
     );
     
     fs::write(&event_file, content).map_err(|e| e.to_string())?;
@@ -44,10 +46,8 @@ pub fn log_event(session_id: &str, event: &SessionEvent) -> Result<(), String> {
 }
 
 /// Get the events directory for a session.
-fn get_events_dir(session_id: &str) -> Result<PathBuf, String> {
-    let base_dir = dirs::data_local_dir()
-        .ok_or_else(|| "Could not find local data directory".to_string())?;
-    let session_dir = base_dir.join("darius").join("sessions").join(session_id);
+fn get_events_dir(base_dir: &str, session_id: &str) -> Result<PathBuf, String> {
+    let session_dir = PathBuf::from(base_dir).join("sessions").join(session_id);
     fs::create_dir_all(&session_dir).map_err(|e| e.to_string())?;
     Ok(session_dir)
 }
@@ -55,7 +55,7 @@ fn get_events_dir(session_id: &str) -> Result<PathBuf, String> {
 /// Get current timestamp in seconds since epoch.
 pub fn current_timestamp() -> u64 {
     SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+        .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
 }

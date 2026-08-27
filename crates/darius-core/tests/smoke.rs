@@ -32,7 +32,7 @@ fn rlm_evaluate_returns_structured_grade() {
     let grade: Grade =
         rlm_evaluate("target", "rubric").expect("rlm_evaluate should not fail at bootstrap");
     assert!(grade.passed);
-    assert!(grade.notes.contains("stub"));
+    assert!(grade.notes.contains("target"));
 }
 
 #[test]
