@@ -209,6 +209,7 @@ version = "0.1.0"
 dependencies = [
  "darius-rlm",
  "harness_e2e",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -219,6 +220,7 @@ dependencies = [
 name = "darius-daemon"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "darius-bench",
  "darius-core",
  "darius-hashline",
@@ -243,8 +245,11 @@ name = "darius-eval"
 version = "0.1.0"
 dependencies = [
  "darius-core",
+ "darius-daemon",
+ "parking_lot",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -289,7 +294,8 @@ name = "darius-safety"
 version = "0.1.0"
 dependencies = [
  "darius-core",
- "serde",
+ "parking_lot",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -306,8 +312,10 @@ name = "darius-skills"
 version = "0.1.0"
 dependencies = [
  "darius-core",
+ "darius-skill-parser",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -399,9 +407,11 @@ version = "0.1.0"
 dependencies = [
  "darius-core",
  "darius-daemon",
+ "darius-eval",
  "darius-rlm",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
