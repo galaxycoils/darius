@@ -226,6 +226,7 @@ dependencies = [
  "darius-rlm",
  "darius-safety",
  "darius-skills",
+ "libc",
  "parking_lot",
  "serde",
  "serde_json",
