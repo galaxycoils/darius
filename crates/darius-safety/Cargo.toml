@@ -10,6 +10,6 @@ name = "darius_safety"
 path = "src/lib.rs"
 
 [dependencies]
-serde = { workspace = true }
+parking_lot = "0.12"
+thiserror = { workspace = true }
 darius-core = { path = "../darius-core" }
-
