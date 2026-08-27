@@ -19,6 +19,7 @@ pub mod platform_adapters;
 pub mod profile;
 pub mod sandbox;
 pub mod status_projector;
+pub mod telemetry;
 pub mod tools;
 pub mod worktrees;
 
@@ -37,6 +38,7 @@ pub use model_router::{BudgetEnforcer, BudgetScope, ModelRole, ModelRouter, Prov
 pub use platform_adapters::{AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter, TelegramAdapter};
 pub use sandbox::{SandboxBackend, SandboxError, SandboxManager};
 pub use status_projector::StatusProjector;
+pub use telemetry::{OtlpExporter, Span, SpanCategory, SpanStatus, TelemetryCollector};
 pub use profile::{Profile, ProfileError};
 pub use tools::{GrepMatch, ToolError, bash, browser, glob, grep, read_file, validate_yield, write_file};
 pub use worktrees::{Worktree, WorktreeError, WorktreeManager};
