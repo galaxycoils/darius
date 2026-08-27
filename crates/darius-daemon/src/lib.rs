@@ -8,6 +8,7 @@ pub mod cache;
 pub mod chaos;
 pub mod cron;
 pub mod daemon;
+pub mod data_ownership;
 pub mod event_log;
 pub mod handoff;
 pub mod kanban;
