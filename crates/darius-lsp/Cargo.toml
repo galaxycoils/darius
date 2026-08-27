@@ -12,5 +12,8 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+parking_lot = "0.12"
 darius-core = { path = "../darius-core" }
-
+darius-hashline = { path = "../darius-hashline" }
