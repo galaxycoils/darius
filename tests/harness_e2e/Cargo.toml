@@ -12,6 +12,8 @@ path = "src/lib.rs"
 [dependencies]
 tokio = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
 darius-core = { path = "../../crates/darius-core" }
 darius-rlm = { path = "../../crates/darius-rlm" }
 darius-daemon = { path = "../../crates/darius-daemon" }
+darius-eval = { path = "../../crates/darius-eval" }
