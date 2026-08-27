@@ -3,6 +3,7 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod a2a;
+pub mod a2a_quotas;
 pub mod backup;
 pub mod cache;
 pub mod chaos;
@@ -21,6 +22,7 @@ pub mod tools;
 pub mod worktrees;
 
 pub use a2a::{AgentCard, A2aServer, Task, TaskState};
+pub use a2a_quotas::{AgentQuota, AgentState, QuotaError, QuotaManager, QueuePolicy};
 pub use backup::{BackupError, BackupManager};
 pub use cache::{CacheCoordinator, CacheMetrics};
 pub use chaos::{ChaosError, ChaosTester, ManagedProcess};
