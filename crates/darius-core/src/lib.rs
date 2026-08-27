@@ -19,6 +19,8 @@ impl Default for SubagentId {
     }
 }
 
+pub mod plugins;
+
 /// Turn-level cache statistics for the CacheCoordinator.
 ///
 /// Per turn: `prefix_bytes`, `break_offset`, `suffix_hash`,
@@ -71,6 +73,16 @@ pub enum DariusError {
     Serde(#[from] serde_json::Error),
     #[error("hashline error: {0}")]
     Hashline(String),
+}
+
+/// Isolation tier for subagent execution (ADR-002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IsolationTier {
+    Trusted,
+    Process,
+    GVisor,
+    MicroVm,
+    Wasm,
 }
 
 /// Structured grade from the independent evaluator (AutoRater).
