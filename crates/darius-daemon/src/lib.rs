@@ -7,6 +7,7 @@ pub mod a2a_quotas;
 pub mod backup;
 pub mod cache;
 pub mod chaos;
+pub mod compliance;
 pub mod cron;
 pub mod daemon;
 pub mod data_ownership;
@@ -29,6 +30,7 @@ pub use a2a_quotas::{AgentQuota, AgentState, QuotaError, QuotaManager, QueuePoli
 pub use backup::{BackupError, BackupManager};
 pub use cache::{CacheCoordinator, CacheMetrics};
 pub use chaos::{ChaosError, ChaosTester, ManagedProcess};
+pub use compliance::{AuditEvent, ComplianceError, ComplianceManager, ProfileExport, RetentionPolicy};
 pub use cron::{CronError, CronJob, CronScheduler};
 pub use daemon::{Daemon, DaemonError, DaemonStatus, Session};
 pub use event_log::{Event, EventLog, EventLogError};
