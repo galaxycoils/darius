@@ -26,3 +26,4 @@ darius-safety = { path = "../darius-safety" }
 darius-bench = { path = "../darius-bench" }
 parking_lot = "0.12"
 libc = "0.2"
+dirs = "5"
