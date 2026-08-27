@@ -13,4 +13,5 @@ path = "src/lib.rs"
 serde = { workspace = true }
 serde_json = { workspace = true }
 darius-core = { path = "../darius-core" }
-
+darius-skill-parser = { path = "../darius-skill-parser" }
+uuid = { workspace = true }

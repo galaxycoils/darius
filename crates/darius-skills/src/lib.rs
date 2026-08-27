@@ -1,6 +1,8 @@
-//! Skill registry, Curator lifecycle, and loader.
+//! Skill registry, Curator lifecycle, loader, and find-skills.
 
+use darius_skill_parser::{ParseError, Skill as ParsedSkill};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Skill source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -9,6 +11,7 @@ pub enum SkillSource {
     User,
     AgentCreated,
     Archived,
+    Discovered,
 }
 
 /// A skill with lifecycle metadata.
@@ -16,6 +19,8 @@ pub enum SkillSource {
 pub struct Skill {
     pub id: String,
     pub name: String,
+    pub description: String,
+    pub version: String,
     pub source: SkillSource,
     pub created_at: u64,
     pub last_used_at: u64,
@@ -23,6 +28,46 @@ pub struct Skill {
     pub view_count: u64,
     pub patch_count: u64,
     pub pinned: bool,
+    pub body: String,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl Skill {
+    /// Create a new skill from a parsed SKILL.md.
+    pub fn from_parsed(parsed: ParsedSkill, source: SkillSource) -> Self {
+        let now = current_timestamp();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: parsed.name,
+            description: parsed.description.unwrap_or_default(),
+            version: parsed.version,
+            source,
+            created_at: now,
+            last_used_at: now,
+            use_count: 0,
+            view_count: 0,
+            patch_count: 0,
+            pinned: false,
+            body: parsed.body,
+            metadata: parsed.metadata,
+        }
+    }
+
+    /// Record a use of this skill.
+    pub fn record_use(&mut self) {
+        self.use_count += 1;
+        self.last_used_at = current_timestamp();
+    }
+
+    /// Record a view of this skill.
+    pub fn record_view(&mut self) {
+        self.view_count += 1;
+    }
+
+    /// Record a patch to this skill.
+    pub fn record_patch(&mut self) {
+        self.patch_count += 1;
+    }
 }
 
 /// Curator metrics.
@@ -36,16 +81,47 @@ pub struct CuratorMetrics {
 /// Skill registry — manages a collection of skills.
 #[derive(Debug, Default)]
 pub struct SkillRegistry {
-    skills: Vec<Skill>,
+    skills: HashMap<String, Skill>,
 }
 
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: Vec::new() }
+        Self { skills: HashMap::new() }
     }
 
     pub fn add(&mut self, skill: Skill) {
-        self.skills.push(skill);
+        self.skills.insert(skill.id.clone(), skill);
+    }
+
+    pub fn get(&self, id: &str) -> Option<&Skill> {
+        self.skills.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut Skill> {
+        self.skills.get_mut(id)
+    }
+
+    pub fn remove(&mut self, id: &str) -> Option<Skill> {
+        self.skills.remove(id)
+    }
+
+    pub fn list(&self) -> Vec<&Skill> {
+        self.skills.values().collect()
+    }
+
+    pub fn find_by_name(&self, name: &str) -> Option<&Skill> {
+        self.skills.values().find(|s| s.name == name)
+    }
+
+    pub fn find_by_query(&self, query: &str) -> Vec<&Skill> {
+        let query_lower = query.to_lowercase();
+        self.skills
+            .values()
+            .filter(|s| {
+                s.name.to_lowercase().contains(&query_lower)
+                    || s.description.to_lowercase().contains(&query_lower)
+            })
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -55,57 +131,29 @@ impl SkillRegistry {
     pub fn is_empty(&self) -> bool {
         self.skills.is_empty()
     }
-
-    pub fn get(&self, id: &str) -> Option<&Skill> {
-        self.skills.iter().find(|s| s.id == id)
-    }
-
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut Skill> {
-        self.skills.iter_mut().find(|s| s.id == id)
-    }
-
-    pub fn remove(&mut self, id: &str) -> Option<Skill> {
-        if let Some(pos) = self.skills.iter().position(|s| s.id == id) {
-            Some(self.skills.remove(pos))
-        } else {
-            None
-        }
-    }
-
-    pub fn list(&self) -> &[Skill] {
-        &self.skills
-    }
-
-    pub fn list_mut(&mut self) -> &mut Vec<Skill> {
-        &mut self.skills
-    }
 }
 
 /// Skill loader — loads skills from SKILL.md manifests.
 pub struct SkillLoader;
 
 impl SkillLoader {
-    pub fn load(_skill_md: &str) -> Result<Skill, Box<dyn std::error::Error>> {
-        Ok(Skill {
-            id: "stub".into(),
-            name: "stub".into(),
-            source: SkillSource::User,
-            created_at: 0,
-            last_used_at: 0,
-            use_count: 0,
-            view_count: 0,
-            patch_count: 0,
-            pinned: false,
-        })
+    /// Load a skill from a SKILL.md string.
+    pub fn load(skill_md: &str) -> Result<Skill, ParseError> {
+        let parsed = darius_skill_parser::parse(skill_md)?;
+        Ok(Skill::from_parsed(parsed, SkillSource::User))
+    }
+
+    /// Load a skill with a specific source.
+    pub fn load_with_source(skill_md: &str, source: SkillSource) -> Result<Skill, ParseError> {
+        let parsed = darius_skill_parser::parse(skill_md)?;
+        Ok(Skill::from_parsed(parsed, source))
     }
 }
 
 /// Skill Curator — manages skill lifecycle, archival, and consolidation.
 pub struct SkillCurator {
     registry: SkillRegistry,
-    /// Staleness threshold in seconds (default: 30 days).
     staleness_threshold: u64,
-    /// Archive directory path.
     archive_dir: String,
 }
 
@@ -118,42 +166,35 @@ impl SkillCurator {
         }
     }
 
-    /// Set custom staleness threshold.
     pub fn with_staleness_threshold(mut self, threshold_secs: u64) -> Self {
         self.staleness_threshold = threshold_secs;
         self
     }
 
-    /// Get the registry.
     pub fn registry(&self) -> &SkillRegistry {
         &self.registry
     }
 
-    /// Get mutable registry.
     pub fn registry_mut(&mut self) -> &mut SkillRegistry {
         &mut self.registry
     }
 
-    /// Add a skill.
     pub fn add_skill(&mut self, skill: Skill) {
         self.registry.add(skill);
     }
 
-    /// Pin a skill (exempts from archival).
     pub fn pin(&mut self, id: &str) -> Result<(), String> {
         let skill = self.registry.get_mut(id).ok_or_else(|| format!("skill {id} not found"))?;
         skill.pinned = true;
         Ok(())
     }
 
-    /// Unpin a skill.
     pub fn unpin(&mut self, id: &str) -> Result<(), String> {
         let skill = self.registry.get_mut(id).ok_or_else(|| format!("skill {id} not found"))?;
         skill.pinned = false;
         Ok(())
     }
 
-    /// Check if a skill is stale.
     pub fn is_stale(&self, skill: &Skill, now: u64) -> bool {
         if skill.pinned {
             return false;
@@ -164,7 +205,6 @@ impl SkillCurator {
         now.saturating_sub(skill.last_used_at) > self.staleness_threshold
     }
 
-    /// Auto-archive stale agent-created skills.
     pub fn auto_archive(&mut self, now: u64) -> Vec<Skill> {
         let mut archived = Vec::new();
         let mut to_archive_ids = Vec::new();
@@ -178,7 +218,6 @@ impl SkillCurator {
         for id in to_archive_ids {
             if let Some(skill) = self.registry.get_mut(&id) {
                 skill.source = SkillSource::Archived;
-                // In a real implementation, we'd create a tar.gz backup here.
                 archived.push(skill.clone());
             }
         }
@@ -186,7 +225,6 @@ impl SkillCurator {
         archived
     }
 
-    /// Get curator metrics.
     pub fn metrics(&self) -> CuratorMetrics {
         let mut metrics = CuratorMetrics::default();
         for skill in self.registry.list() {
@@ -201,12 +239,44 @@ impl SkillCurator {
         metrics
     }
 
-    /// Consolidate skills (opt-in via aux model).
     pub fn consolidate(&self) -> Vec<String> {
-        // In a real implementation, this would invoke an aux model to suggest
-        // which skills to consolidate. For now, return a list of skill names.
         self.registry.list().iter().map(|s| s.name.clone()).collect()
     }
+}
+
+/// Find skills — search for skills across multiple sources.
+pub struct SkillFinder;
+
+impl SkillFinder {
+    /// Search for skills in the registry.
+pub fn search<'a>(registry: &'a SkillRegistry, query: &str) -> Vec<&'a Skill> {
+        registry.find_by_query(query)
+    }
+
+    /// Discover skills from agentskills.io (stub).
+    pub fn discover(_query: &str) -> Vec<Skill> {
+        // Stub: in a real implementation, this would query agentskills.io.
+        vec![]
+    }
+
+    /// Create a skill autonomously (stub).
+    pub fn create_autonomous(name: &str, description: &str, body: &str) -> Skill {
+        let parsed = ParsedSkill {
+            name: name.into(),
+            description: Some(description.into()),
+            version: "0.1.0".into(),
+            body: body.into(),
+            metadata: HashMap::new(),
+        };
+        Skill::from_parsed(parsed, SkillSource::AgentCreated)
+    }
+}
+
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 #[cfg(test)]
@@ -214,13 +284,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_adds_and_lists() {
+    fn registry_adds_and_finds() {
         let mut reg = SkillRegistry::new();
-        assert_eq!(reg.len(), 0);
-
         reg.add(Skill {
             id: "s1".into(),
-            name: "skill1".into(),
+            name: "test".into(),
+            description: "a test skill".into(),
+            version: "1.0.0".into(),
             source: SkillSource::User,
             created_at: 0,
             last_used_at: 0,
@@ -228,10 +298,15 @@ mod tests {
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "body".into(),
+            metadata: HashMap::new(),
         });
 
         assert_eq!(reg.len(), 1);
-        assert_eq!(reg.get("s1").unwrap().name, "skill1");
+        assert_eq!(reg.find_by_name("test").unwrap().id, "s1");
+
+        let results = reg.find_by_query("test");
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
@@ -243,13 +318,17 @@ mod tests {
         curator.add_skill(Skill {
             id: "pinned".into(),
             name: "pinned-skill".into(),
+            description: "".into(),
+            version: "1.0.0".into(),
             source: SkillSource::AgentCreated,
             created_at: 0,
-            last_used_at: 0, // stale (0 + 100 < 1_000_000)
+            last_used_at: 0,
             use_count: 0,
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
         });
 
         curator.pin("pinned").unwrap();
@@ -270,25 +349,33 @@ mod tests {
         curator.add_skill(Skill {
             id: "fresh".into(),
             name: "fresh-skill".into(),
+            description: "".into(),
+            version: "1.0.0".into(),
             source: SkillSource::AgentCreated,
             created_at: 0,
-            last_used_at: now - 50, // fresh (within threshold)
+            last_used_at: now - 50,
             use_count: 10,
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
         });
 
         curator.add_skill(Skill {
             id: "stale".into(),
             name: "stale-skill".into(),
+            description: "".into(),
+            version: "1.0.0".into(),
             source: SkillSource::AgentCreated,
             created_at: 0,
-            last_used_at: 0, // stale (0 + 100 < 1_000_000)
+            last_used_at: 0,
             use_count: 0,
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
         });
 
         let archived = curator.auto_archive(now);
@@ -308,6 +395,8 @@ mod tests {
         curator.add_skill(Skill {
             id: "builtin".into(),
             name: "builtin-skill".into(),
+            description: "".into(),
+            version: "1.0.0".into(),
             source: SkillSource::BuiltIn,
             created_at: 0,
             last_used_at: 0,
@@ -315,11 +404,15 @@ mod tests {
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
         });
 
         curator.add_skill(Skill {
             id: "user".into(),
             name: "user-skill".into(),
+            description: "".into(),
+            version: "1.0.0".into(),
             source: SkillSource::User,
             created_at: 0,
             last_used_at: 0,
@@ -327,9 +420,58 @@ mod tests {
             view_count: 0,
             patch_count: 0,
             pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
         });
 
         let archived = curator.auto_archive(now);
         assert!(archived.is_empty());
+    }
+
+    #[test]
+    fn skill_from_parsed() {
+        let parsed = ParsedSkill {
+            name: "test-skill".into(),
+            description: Some("A test".into()),
+            version: "1.0.0".into(),
+            body: "body content".into(),
+            metadata: HashMap::new(),
+        };
+
+        let skill = Skill::from_parsed(parsed, SkillSource::User);
+        assert_eq!(skill.name, "test-skill");
+        assert_eq!(skill.description, "A test");
+        assert_eq!(skill.body, "body content");
+        assert_eq!(skill.source, SkillSource::User);
+    }
+
+    #[test]
+    fn skill_finder_search() {
+        let mut reg = SkillRegistry::new();
+        reg.add(Skill {
+            id: "s1".into(),
+            name: "coding-helper".into(),
+            description: "helps with coding".into(),
+            version: "1.0.0".into(),
+            source: SkillSource::User,
+            created_at: 0,
+            last_used_at: 0,
+            use_count: 0,
+            view_count: 0,
+            patch_count: 0,
+            pinned: false,
+            body: "".into(),
+            metadata: HashMap::new(),
+        });
+
+        let results = SkillFinder::search(&reg, "coding");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn skill_finder_create_autonomous() {
+        let skill = SkillFinder::create_autonomous("new-skill", "description", "body");
+        assert_eq!(skill.name, "new-skill");
+        assert_eq!(skill.source, SkillSource::AgentCreated);
     }
 }
