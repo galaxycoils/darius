@@ -18,6 +18,20 @@ pub type GradingResult = Grade;
 pub struct Grader;
 
 impl Grader {
+    /// Grade through an explicitly identified model path.
+    pub fn grade_with_model(
+        artifact: &str,
+        rubric: &Rubric,
+        model_id: &str,
+    ) -> Result<Grade, String> {
+        if model_id.trim().is_empty() {
+            return Err("rater model id must not be empty".into());
+        }
+        let mut grade = Self::grade(artifact, rubric)?;
+        grade.notes = format!("rater model {model_id}; {}", grade.notes);
+        Ok(grade)
+    }
+
     /// Grade an artifact against a rubric.
     pub fn grade(artifact: &str, rubric: &Rubric) -> Result<Grade, String> {
         if rubric.criteria.is_empty() {

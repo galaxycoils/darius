@@ -38,9 +38,15 @@ impl AutoRater {
         Self { config }
     }
 
-    /// Grade an artifact against the configured rubric.
+    /// Grade an artifact through the independent rater model path.
     pub fn grade(&self, target: &str) -> Result<Grade, String> {
-        Grader::grade(target, &self.config.rubric)
+        if self.config.model_role != ModelRole::Rater {
+            return Err("AutoRater requires the rater model role".into());
+        }
+        if self.config.model_id == self.config.optimizer_model_id {
+            return Err("rater model must differ from optimizer model".into());
+        }
+        Grader::grade_with_model(target, &self.config.rubric, &self.config.model_id)
     }
 
     /// Verify the rater path differs from the optimizer path.
@@ -75,6 +81,19 @@ mod tests {
         let rater = AutoRater::new(config);
         let grade = rater.grade("test artifact").unwrap();
         assert!(grade.passed);
+        assert!(grade.notes.contains("rater model claude-3"));
+    }
+
+    #[test]
+    fn rater_rejects_optimizer_identity() {
+        let config = RaterConfig {
+            model_role: ModelRole::Rater,
+            model_id: "same-model".into(),
+            optimizer_model_id: "same-model".into(),
+            ..RaterConfig::default()
+        };
+        let rater = AutoRater::new(config);
+        assert!(rater.grade("test artifact").is_err());
     }
 
     #[test]

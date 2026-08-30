@@ -218,33 +218,47 @@ impl SkillCurator {
         now.saturating_sub(skill.last_used_at) > self.staleness_threshold
     }
 
-    pub fn auto_archive(&mut self, now: u64) -> Vec<Skill> {
-        let mut archived = Vec::new();
-        let mut to_archive_ids = Vec::new();
+    pub fn auto_archive(&mut self, now: u64) -> Result<Vec<Skill>, String> {
+        let to_archive_ids: Vec<String> = self
+            .registry
+            .list()
+            .into_iter()
+            .filter(|skill| self.is_stale(skill, now))
+            .map(|skill| skill.id.clone())
+            .collect();
 
-        for skill in self.registry.list() {
-            if self.is_stale(skill, now) {
-                to_archive_ids.push(skill.id.clone());
+        if to_archive_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        std::fs::create_dir_all(&self.archive_dir).map_err(|error| error.to_string())?;
+
+        let mut archived = Vec::with_capacity(to_archive_ids.len());
+        for id in &to_archive_ids {
+            let mut skill = self
+                .registry
+                .get(id)
+                .cloned()
+                .ok_or_else(|| format!("skill {id} not found"))?;
+            skill.source = SkillSource::Archived;
+            let json = serde_json::to_string_pretty(&skill).map_err(|error| error.to_string())?;
+            let temp_path = self.archive_dir.join(format!("{id}.json.tmp"));
+            let final_path = self.archive_dir.join(format!("{id}.json"));
+            std::fs::write(&temp_path, json).map_err(|error| error.to_string())?;
+            if let Err(error) = std::fs::rename(&temp_path, &final_path) {
+                let _ = std::fs::remove_file(temp_path);
+                return Err(error.to_string());
+            }
+            archived.push(skill);
+        }
+
+        for skill in &archived {
+            if let Some(stored) = self.registry.get_mut(&skill.id) {
+                stored.source = SkillSource::Archived;
             }
         }
 
-        for id in to_archive_ids {
-            if let Some(skill) = self.registry.get_mut(&id) {
-                skill.source = SkillSource::Archived;
-                archived.push(skill.clone());
-            }
-        }
-
-        if !archived.is_empty() && std::fs::create_dir_all(&self.archive_dir).is_ok() {
-            for skill in &archived {
-                let path = self.archive_dir.join(format!("{}.json", skill.id));
-                if let Ok(json) = serde_json::to_string_pretty(skill) {
-                    let _ = std::fs::write(path, json);
-                }
-            }
-        }
-
-        archived
+        Ok(archived)
     }
 
     pub fn metrics(&self) -> CuratorMetrics {
@@ -357,7 +371,7 @@ mod tests {
         });
 
         curator.pin("pinned").unwrap();
-        let archived = curator.auto_archive(now);
+        let archived = curator.auto_archive(now).unwrap();
         assert!(archived.is_empty());
 
         let metrics = curator.metrics();
@@ -402,7 +416,7 @@ mod tests {
             metadata: HashMap::new(),
         });
 
-        let archived = curator.auto_archive(now);
+        let archived = curator.auto_archive(now).unwrap();
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].id, "stale");
 
@@ -447,8 +461,44 @@ mod tests {
             metadata: HashMap::new(),
         });
 
-        let archived = curator.auto_archive(now);
+        let archived = curator.auto_archive(now).unwrap();
         assert!(archived.is_empty());
+    }
+
+    #[test]
+    fn curator_does_not_mark_archived_when_backup_fails() {
+        let now = 1_000_000;
+        let archive_path = std::env::temp_dir().join(format!(
+            "darius_skill_archive_file_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&archive_path, "not a directory").unwrap();
+        let mut curator = SkillCurator::new(archive_path.to_string_lossy().into_owned())
+            .with_staleness_threshold(100);
+        curator.add_skill(Skill {
+            id: "must-remain-active".into(),
+            name: "must-remain-active".into(),
+            description: String::new(),
+            version: "1.0.0".into(),
+            source: SkillSource::AgentCreated,
+            created_at: 0,
+            last_used_at: 0,
+            use_count: 0,
+            view_count: 0,
+            patch_count: 0,
+            pinned: false,
+            body: "body".into(),
+            metadata: HashMap::new(),
+        });
+
+        assert!(curator.auto_archive(now).is_err());
+        assert_eq!(
+            curator.registry().get("must-remain-active").unwrap().source,
+            SkillSource::AgentCreated
+        );
+        assert_eq!(curator.metrics().archived_count, 0);
+
+        std::fs::remove_file(archive_path).unwrap();
     }
 
     #[test]
@@ -477,7 +527,7 @@ mod tests {
             metadata: HashMap::new(),
         });
 
-        let archived = curator.auto_archive(now);
+        let archived = curator.auto_archive(now).unwrap();
         assert_eq!(archived.len(), 1);
         assert_eq!(curator.registry().len(), 1);
         assert_eq!(

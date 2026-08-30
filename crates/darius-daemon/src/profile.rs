@@ -1,6 +1,6 @@
 //! Profile Isolation — multi-tenant data separation.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -9,6 +9,8 @@ pub enum ProfileError {
     Io(#[from] std::io::Error),
     #[error("profile not found: {0}")]
     NotFound(String),
+    #[error("invalid profile name: {0}")]
+    InvalidName(String),
 }
 
 /// A Darius profile (tenant).
@@ -41,8 +43,22 @@ impl Profile {
         base_dir: impl AsRef<Path>,
     ) -> Result<Self, ProfileError> {
         let name = name.into();
-        let path = base_dir.as_ref().join(&name);
-        std::fs::create_dir_all(&path)?;
+        let mut components = Path::new(&name).components();
+        let valid_name =
+            matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+        if !valid_name {
+            return Err(ProfileError::InvalidName(name));
+        }
+
+        std::fs::create_dir_all(base_dir.as_ref())?;
+        let base = base_dir.as_ref().canonicalize()?;
+        let candidate = base.join(&name);
+        std::fs::create_dir_all(&candidate)?;
+        let path = candidate.canonicalize()?;
+        if !path.starts_with(&base) {
+            return Err(ProfileError::InvalidName(name));
+        }
+
         std::fs::create_dir_all(path.join("memory"))?;
         std::fs::create_dir_all(path.join("skills"))?;
         std::fs::create_dir_all(path.join("sessions"))?;
@@ -130,6 +146,19 @@ mod tests {
         assert!(profile.skills_dir().exists());
         assert!(profile.sessions_dir().exists());
         assert!(profile.db_path().parent().unwrap().exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn profile_rejects_path_traversal() {
+        let dir = temp_profile_dir();
+        for invalid in ["../escaped", "nested/profile", ".", ""] {
+            assert!(matches!(
+                Profile::with_base_dir(invalid, &dir),
+                Err(ProfileError::InvalidName(_))
+            ));
+        }
+        assert!(!dir.parent().unwrap().join("escaped").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
