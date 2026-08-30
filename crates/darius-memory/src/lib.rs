@@ -185,7 +185,7 @@ impl MemoryEngine {
         stmt.bind((5, tags_json.as_str()))?;
         stmt.bind((6, record.importance as f64))?;
         stmt.bind((7, content_hash.as_str()))?;
-        stmt.bind((8, now as i64))?;
+        stmt.bind((8, now))?;
         stmt.bind((9, source))?;
 
         stmt.next()?;
@@ -274,7 +274,6 @@ impl MemoryEngine {
             match stmt.next() {
                 Ok(State::Done) => break,
                 Ok(State::Row) => records.push(parse_row(&stmt)?),
-                Ok(_) => return Err(MemoryError::UnexpectedState),
                 Err(e) => return Err(e.into()),
             }
         }
@@ -422,7 +421,7 @@ impl MemoryEngine {
 
 impl Clone for MemoryEngine {
     fn clone(&self) -> Self {
-        if self.db_path == PathBuf::from(":memory:") {
+        if self.db_path == *":memory:" {
             let conn =
                 Connection::open(":memory:").expect("failed to clone in-memory MemoryEngine");
             Self {

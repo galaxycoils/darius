@@ -42,9 +42,8 @@ pub struct MentalModel {
 
 /// Hindsight Memory service — profile-scoped session recall.
 pub struct HindsightMemory {
-    engine: Option<Arc<MemoryEngine>>,
+    engine: Option<Arc<Mutex<MemoryEngine>>>,
     profile: String,
-    // Session-local cache only — not the source of truth
     cache: Arc<Mutex<HashMap<String, Vec<SessionMemory>>>>,
 }
 
@@ -63,7 +62,7 @@ impl HindsightMemory {
         let memory_dir = profile_dir.join("memory");
         let engine = MemoryEngine::open(&memory_dir)?;
         Ok(Self {
-            engine: Some(Arc::new(engine)),
+            engine: Some(Arc::new(Mutex::new(engine))),
             profile: profile.into(),
             cache: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -90,6 +89,7 @@ impl HindsightMemory {
 
         // Write to backend if available
         if let Some(ref engine) = self.engine {
+            let engine = engine.lock();
             let _ = engine.distill_handoff(handoff);
         }
 
@@ -107,6 +107,7 @@ impl HindsightMemory {
     pub fn recall(&self, profile: &str) -> Vec<SessionMemory> {
         // Try backend first for durable recall
         if let Some(ref engine) = self.engine {
+            let engine = engine.lock();
             if let Ok(records) = engine.search(&SearchQuery {
                 text: None,
                 kinds: vec![],
@@ -166,6 +167,7 @@ impl HindsightMemory {
     pub fn search(&self, profile: &str, keyword: &str) -> Vec<SessionMemory> {
         // Try backend search first
         if let Some(ref engine) = self.engine {
+            let engine = engine.lock();
             if let Ok(records) = engine.search(&SearchQuery {
                 text: Some(keyword.into()),
                 kinds: vec![],

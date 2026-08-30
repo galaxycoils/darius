@@ -2,6 +2,28 @@
 
 Darius is an open-source Rust agent harness. The active implementation and default branch is `master`; the historical `main` branch contains the obsolete scaffold.
 
+## Lean cognitive phase status
+
+Phase 3 delivers a **lean cognitive harness** on top of the Phase 2 baseline. Three deep crates, minimal dependencies, no embedding/vector DB required:
+
+- **`darius-memory`** — single SQLite file per profile, WAL, FTS-ready, `MemoryPack` capped at 3500 chars, content-hash dedupe, JSONL import/export
+- **`darius-tools`** — `ToolRegistry` with disk spill above 32 KiB preview, weak-model `TOOL {"name":"...","arguments":{...}}` line protocol, built-in `memory_search` / `memory_pack` / `memory_remember` / `task_add` / `task_list` / `task_complete`
+- **`darius-cognitive`** — `CognitiveLoop`: Plan → TaskBoard → ReAct (capped at 12 iters/task) → Accept with `MockModel` tests (zero network)
+
+CLI surface:
+
+```sh
+darius run --goal "..."          # full cognitive loop with MockModel
+darius memory search <q>         # FTS search
+darius memory pack               # bounded MemoryPack
+darius memory import <file>      # deduped JSONL
+darius memory export <file>      # JSONL export
+darius memory stats              # record count
+darius session-smoke             # daemon + session + handoff
+```
+
+Resource defaults: preview 32 KiB, pack 3500 chars, TaskBoard 15 tasks, ReAct 12 iters/task, single SQLite connection.
+
 ## Phase 2 status
 
 Phase 2 hardening provides an integrated local vertical slice:
@@ -14,7 +36,9 @@ Phase 2 hardening provides an integrated local vertical slice:
 - model-role routing with failover and cache accounting;
 - independent evaluation raters and learned fixtures.
 
-Live providers, production messaging, Jupyter ZMQ kernels, and stronger process isolation are deferred to Phase 3.
+## Deferred
+
+Live providers, production messaging, Jupyter ZMQ kernels, gVisor/Firecracker, full Hindsight graph persistence, embedding indexes, cloud sync, training/fine-tuning.
 
 ## Build and test
 

@@ -64,6 +64,7 @@ pub fn build_skill_preface_default(skills: &[SkillPreface]) -> String {
 }
 
 /// Load skills from a directory (each .md file is a skill).
+#[allow(clippy::collapsible_if)]
 pub fn load_skills_from_dir(dir: &Path) -> std::io::Result<Vec<SkillPreface>> {
     let mut skills = Vec::new();
 
@@ -75,7 +76,7 @@ pub fn load_skills_from_dir(dir: &Path) -> std::io::Result<Vec<SkillPreface>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |e| e == "md") {
+        if path.extension().is_some_and(|e| e == "md") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let name = path
                     .file_stem()
@@ -97,7 +98,7 @@ pub fn load_skills_from_dir(dir: &Path) -> std::io::Result<Vec<SkillPreface>> {
 }
 
 fn parse_skill_md(content: &str) -> (String, String) {
-    let mut lines = content.lines();
+    let lines = content.lines();
     let mut description = String::new();
     let mut in_frontmatter = false;
     let mut body_start = 0;
@@ -113,15 +114,13 @@ fn parse_skill_md(content: &str) -> (String, String) {
             }
         }
 
-        if in_frontmatter {
-            if line.starts_with("description:") {
-                description = line
-                    .strip_prefix("description:")
-                    .unwrap_or("")
-                    .trim()
-                    .trim_matches('"')
-                    .to_string();
-            }
+        if in_frontmatter && line.starts_with("description:") {
+            description = line
+                .strip_prefix("description:")
+                .unwrap_or("")
+                .trim()
+                .trim_matches('"')
+                .to_string();
         }
     }
 

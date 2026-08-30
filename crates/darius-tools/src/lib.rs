@@ -137,11 +137,14 @@ impl TaskBoard {
     }
 }
 
+/// Type alias for tool handler functions.
+pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError>>;
+
 /// Tool registry with disk spill for large results.
 pub struct ToolRegistry {
     spill_dir: PathBuf,
     preview_ceiling: usize,
-    handlers: HashMap<String, Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError>>>,
+    handlers: HashMap<String, ToolHandler>,
 }
 
 impl ToolRegistry {

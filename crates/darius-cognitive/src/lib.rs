@@ -270,7 +270,7 @@ mod tests {
             "DONE".to_string(),
         ];
 
-        let mut model = Box::new(MockModel::new(plan_response, react_responses));
+        let model = Box::new(MockModel::new(plan_response, react_responses));
 
         let (plan, acceptance) = run_loop(&policy, goal, model, &mut tools, &memory).unwrap();
 
@@ -297,7 +297,7 @@ mod tests {
         let plan_response = r#"{"tasks":[]}"#.to_string();
         let react_responses = vec![];
 
-        let mut model = Box::new(MockModel::new(plan_response, react_responses));
+        let model = Box::new(MockModel::new(plan_response, react_responses));
 
         let result = run_loop(&policy, goal, model, &mut tools, &memory);
         assert!(result.is_err());
@@ -324,7 +324,7 @@ mod tests {
         let plan_response = format!(r#"{{"tasks":[{}]}}"#, tasks.join(","));
         let react_responses = vec![];
 
-        let mut model = Box::new(MockModel::new(plan_response, react_responses));
+        let model = Box::new(MockModel::new(plan_response, react_responses));
 
         let result = run_loop(&policy, goal, model, &mut tools, &memory);
         assert!(result.is_err());
