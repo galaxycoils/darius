@@ -1,7 +1,8 @@
 //! CognitiveLoop — plan, execute, react, accept.
 
+pub mod skills;
+
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
