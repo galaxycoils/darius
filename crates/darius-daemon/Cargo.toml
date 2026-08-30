@@ -23,7 +23,7 @@ darius-hashline = { path = "../darius-hashline" }
 darius-lsp = { path = "../darius-lsp" }
 darius-skills = { path = "../darius-skills" }
 darius-safety = { path = "../darius-safety" }
-darius-bench = { path = "../darius-bench" }
+darius-memory = { path = "../darius-memory" }
 parking_lot = "0.12"
 libc = "0.2"
 dirs = "5"
