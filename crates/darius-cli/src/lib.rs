@@ -24,6 +24,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "attach" => cmd_attach(&args[2..]),
         "eval" => cmd_eval(&args[2..]),
         "learn" => cmd_learn(&args[2..]),
+        "memory" => cmd_memory(&args[2..]),
+        "run" => cmd_run(&args[2..]),
         "session-smoke" => cmd_session_smoke(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -54,6 +56,8 @@ fn print_usage() {
     println!("  attach          Attach to a running session");
     println!("  eval            Run evaluation");
     println!("  learn           Learn from trajectory");
+    println!("  memory          Memory operations (search, pack, import, export, stats)");
+    println!("  run             Run a cognitive loop with a goal");
     println!("  session-smoke   Integrated smoke test (daemon + session + handoff)");
     println!("  help            Show this help");
     println!("  --version       Show version");
@@ -127,6 +131,88 @@ fn cmd_learn(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Memory subcommand dispatcher.
+fn cmd_memory(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        println!("Usage: darius memory <search|pack|import|export|stats> [args]");
+        return Ok(());
+    }
+
+    let profile_dir = get_profile_dir();
+    let engine = darius_memory::MemoryEngine::open(&profile_dir)?;
+
+    match args[0].as_str() {
+        "search" => {
+            let query = args.get(1).cloned().unwrap_or_default();
+            let results = engine.search(&darius_memory::SearchQuery {
+                text: Some(query.clone()),
+                kinds: vec![],
+                limit: 12,
+            })?;
+            println!("Search results for '{}':", query);
+            for record in &results {
+                println!(
+                    "  - [{}] {}: {}",
+                    record.kind.as_str(),
+                    record.title.as_deref().unwrap_or("untitled"),
+                    record.body
+                );
+            }
+            println!("Found {} results", results.len());
+        }
+        "pack" => {
+            let pack = engine.build_pack(3500, 12)?;
+            println!("Memory Pack (v{}):", pack.version);
+            println!("{}", pack.plain);
+            println!("({} records)", pack.record_ids.len());
+        }
+        "import" => {
+            if args.len() < 2 {
+                eprintln!("Error: file path required");
+                process::exit(1);
+            }
+            let path = std::path::Path::new(&args[1]);
+            let (imported, skipped) = engine.import_jsonl(path)?;
+            println!("Imported: {imported}, Skipped: {skipped}");
+        }
+        "export" => {
+            if args.len() < 2 {
+                eprintln!("Error: file path required");
+                process::exit(1);
+            }
+            let path = std::path::Path::new(&args[1]);
+            let count = engine.export_jsonl(path)?;
+            println!("Exported {count} records to {}", path.display());
+        }
+        "stats" => {
+            let count = engine.record_count()?;
+            println!("Memory stats:");
+            println!("  Records: {count}");
+            println!("  DB path: {}", engine.db_path().display());
+        }
+        cmd => {
+            eprintln!("Unknown memory subcommand: {cmd}");
+            println!("Available: search, pack, import, export, stats");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run a cognitive loop with a goal.
+fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() || args[0].is_empty() {
+        eprintln!("Error: goal required");
+        println!("Usage: darius run --goal \"your goal here\"");
+        process::exit(1);
+    }
+
+    let goal = args.join(" ");
+    println!("Running cognitive loop with goal: {goal}");
+    println!("(placeholder - cognitive loop not yet implemented)");
+    Ok(())
+}
+
 /// Integrated smoke test: creates daemon, session, verifies handoff.
 fn cmd_session_smoke(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let profile = get_profile(args);
@@ -188,4 +274,9 @@ fn get_profile(args: &[String]) -> String {
         }
     }
     "default".to_string()
+}
+
+fn get_profile_dir() -> std::path::PathBuf {
+    let profile = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
+    std::path::PathBuf::from(format!("./darius_data/{profile}"))
 }

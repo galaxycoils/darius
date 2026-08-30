@@ -4,7 +4,7 @@
 //! is only a session-local cache; the SQLite database is the source of truth.
 
 use darius_core::SessionHandoff;
-use darius_memory::{MemoryEngine, MemoryError as EngineError, NewRecord, RecordKind, SearchQuery};
+use darius_memory::{MemoryEngine, MemoryError as EngineError, SearchQuery};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;

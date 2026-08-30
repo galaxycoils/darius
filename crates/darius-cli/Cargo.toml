@@ -21,4 +21,5 @@ tracing-subscriber = { workspace = true }
 darius-core = { path = "../darius-core" }
 darius-daemon = { path = "../darius-daemon" }
 uuid = { workspace = true }
+darius-memory = { path = "../darius-memory" }
 
