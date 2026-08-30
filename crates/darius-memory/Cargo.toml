@@ -1,0 +1,24 @@
+[package]
+name = "darius-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lean durable memory engine — SQLite FTS, pack bounds, JSONL import/export"
+
+[lib]
+name = "darius_memory"
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+sqlite = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]

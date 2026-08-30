@@ -11,7 +11,7 @@ members = [
     "crates/darius-safety",
     "crates/darius-skill-parser",
     "crates/darius-bench",
-    "crates/darius-eval",
+    "crates/darius-memory",
     "tests/harness_e2e",
 ]
 exclude = ["target"]
