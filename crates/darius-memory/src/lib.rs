@@ -315,7 +315,7 @@ impl MemoryEngine {
         let mut plain = String::new();
         let mut record_ids = Vec::new();
 
-        for record in records {
+        for record in &records {
             let line = format!(
                 "- [{}] {}: {}\n",
                 record.kind.as_str(),
@@ -345,14 +345,113 @@ impl MemoryEngine {
     pub fn db_path(&self) -> PathBuf {
         PathBuf::from("memory.db")
     }
+
+    /// Distill a handoff (session end) into memory records.
+    /// Returns the ids of newly created records.
+    pub fn distill_handoff(
+        &self,
+        handoff: &darius_core::SessionHandoff,
+    ) -> Result<Vec<String>, MemoryError> {
+        let mut ids = Vec::new();
+
+        let goal_record = self.upsert(NewRecord {
+            kind: RecordKind::Episode,
+            title: Some("session goal".into()),
+            body: handoff.goal.clone(),
+            tags: vec![],
+            importance: 0.7,
+            source: Some("session_handoff".into()),
+        })?;
+        ids.push(goal_record.id);
+
+        for decision in &handoff.prior_decisions {
+            let decision_record = self.upsert(NewRecord {
+                kind: RecordKind::Decision,
+                title: Some(decision.context.clone()),
+                body: decision.choice.clone(),
+                tags: vec![],
+                importance: 0.6,
+                source: Some("session_handoff".into()),
+            })?;
+            ids.push(decision_record.id);
+        }
+
+        Ok(ids)
+    }
+
+    /// Import records from a JSONL file (one JSON object per line).
+    /// Duplicate records (by content hash) are skipped.
+    /// Returns (imported_count, skipped_count).
+    pub fn import_jsonl(&self, path: &Path) -> Result<(usize, usize), MemoryError> {
+        let content = std::fs::read_to_string(path)?;
+        let mut imported = 0;
+        let mut skipped = 0;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let record: NewRecord = match serde_json::from_str(line) {
+                Ok(r) => r,
+                Err(_) => {
+                    skipped += 1;
+                    continue;
+                }
+            };
+
+            // Check for duplicates
+            let hash = blake3_hash(&record.body);
+            if self.hash_exists(&hash)? {
+                skipped += 1;
+                continue;
+            }
+
+            self.upsert(record)?;
+            imported += 1;
+        }
+
+        Ok((imported, skipped))
+    }
+
+    /// Export all records to a JSONL file.
+    pub fn export_jsonl(&self, path: &Path) -> Result<usize, MemoryError> {
+        let records = self.search(&SearchQuery::default())?;
+        let mut content = String::new();
+
+        for record in &records {
+            if let Ok(json) = serde_json::to_string(&record) {
+                content.push_str(&json);
+                content.push('\n');
+            }
+        }
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, &content)?;
+
+        Ok(records.len())
+    }
+
+    fn hash_exists(&self, hash: &str) -> Result<bool, MemoryError> {
+        let sql = format!("SELECT COUNT(*) FROM records WHERE content_hash = '{hash}'");
+        let mut stmt = self.conn.prepare(&sql)?;
+        stmt.next()?;
+        let count: i64 = stmt.read(0)?;
+        Ok(count > 0)
+    }
 }
 
 fn blake3_hash(s: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    // FNV-1a deterministic hash for content deduplication
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
 }
 
 #[cfg(test)]
@@ -443,5 +542,63 @@ mod tests {
             "record count {} exceeds limit 8",
             pack.record_ids.len()
         );
+    }
+
+    #[test]
+    fn distill_handoff_creates_records() {
+        let engine = MemoryEngine::open_in_memory().unwrap();
+        let handoff = darius_core::SessionHandoff {
+            version: 1,
+            goal: "test goal".into(),
+            prior_decisions: vec![darius_core::Decision {
+                context: "ctx".into(),
+                choice: "choice-a".into(),
+                rationale: "because".into(),
+            }],
+            open_questions: vec![],
+            constraints: vec![],
+            artifact_refs: vec![],
+        };
+
+        let ids = engine.distill_handoff(&handoff).unwrap();
+        assert_eq!(ids.len(), 2); // 1 episode + 1 decision
+        assert_eq!(engine.record_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn import_jsonl_dedupes_duplicates() {
+        use std::io::Write;
+
+        let engine = MemoryEngine::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("darius_memory_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("import.jsonl");
+
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            "{{ \"kind\": \"Fact\", \"title\": \"t1\", \"body\": \"hello\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{{ \"kind\": \"Fact\", \"title\": \"t2\", \"body\": \"world\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{{ \"kind\": \"Fact\", \"title\": \"t1_dup\", \"body\": \"hello\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
+        )
+        .unwrap();
+
+        let (imported, skipped) = engine.import_jsonl(&path).unwrap();
+        assert_eq!(imported, 2);
+        assert_eq!(skipped, 1); // duplicate body "hello"
+
+        let (imported2, skipped2) = engine.import_jsonl(&path).unwrap();
+        assert_eq!(imported2, 0);
+        assert_eq!(skipped2, 3); // all three already exist
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

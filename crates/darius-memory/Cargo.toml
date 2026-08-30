@@ -20,5 +20,6 @@ serde_json = "1"
 thiserror = "2"
 uuid = { workspace = true }
 chrono = { workspace = true }
+darius-core = { path = "../darius-core" }
 
 [dev-dependencies]
