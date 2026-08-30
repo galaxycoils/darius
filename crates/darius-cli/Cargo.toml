@@ -22,4 +22,6 @@ darius-core = { path = "../darius-core" }
 darius-daemon = { path = "../darius-daemon" }
 uuid = { workspace = true }
 darius-memory = { path = "../darius-memory" }
+darius-tools = { path = "../darius-tools" }
+darius-cognitive = { path = "../darius-cognitive" }
 
