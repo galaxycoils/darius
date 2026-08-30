@@ -302,6 +302,46 @@ impl MemoryEngine {
         Ok(count as usize)
     }
 
+    /// Build a bounded MemoryPack for model injection.
+    /// `max_chars` caps the plain text budget (default 3500).
+    /// `limit` caps the number of records considered (default 12).
+    pub fn build_pack(&self, max_chars: usize, limit: usize) -> Result<MemoryPack, MemoryError> {
+        let records = self.search(&SearchQuery {
+            text: None,
+            kinds: vec![],
+            limit,
+        })?;
+
+        let mut plain = String::new();
+        let mut record_ids = Vec::new();
+
+        for record in records {
+            let line = format!(
+                "- [{}] {}: {}\n",
+                record.kind.as_str(),
+                record.title.as_deref().unwrap_or("untitled"),
+                record.body
+            );
+
+            if plain.len() + line.len() > max_chars {
+                break;
+            }
+
+            plain.push_str(&line);
+            record_ids.push(record.id.clone());
+        }
+
+        if plain.ends_with('\n') {
+            plain.pop();
+        }
+
+        Ok(MemoryPack {
+            version: 1,
+            plain,
+            record_ids,
+        })
+    }
+
     pub fn db_path(&self) -> PathBuf {
         PathBuf::from("memory.db")
     }
@@ -372,5 +412,36 @@ mod tests {
         let hash1 = blake3_hash(body);
         let hash2 = blake3_hash(body);
         assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn memory_pack_respects_bounds() {
+        let engine = MemoryEngine::open_in_memory().unwrap();
+        let bodies: Vec<String> = (0..100).map(|i| format!("record {i}")).collect();
+        for (i, body) in bodies.iter().enumerate() {
+            engine
+                .upsert(NewRecord {
+                    kind: RecordKind::Fact,
+                    title: Some(format!("rec{i}")),
+                    body: body.clone(),
+                    tags: vec![],
+                    importance: 0.5,
+                    source: None,
+                })
+                .unwrap();
+        }
+
+        let pack = engine.build_pack(500, 8).unwrap();
+        assert_eq!(pack.version, 1);
+        assert!(
+            pack.plain.len() <= 500,
+            "plain text {} exceeds budget 500",
+            pack.plain.len()
+        );
+        assert!(
+            pack.record_ids.len() <= 8,
+            "record count {} exceeds limit 8",
+            pack.record_ids.len()
+        );
     }
 }
