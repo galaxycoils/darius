@@ -61,7 +61,8 @@ impl CronScheduler {
     /// Remove a cron job.
     pub fn remove_job(&self, id: &str) -> Result<(), CronError> {
         let mut jobs = self.jobs.lock();
-        jobs.remove(id).ok_or_else(|| CronError::NotFound(id.to_string()))?;
+        jobs.remove(id)
+            .ok_or_else(|| CronError::NotFound(id.to_string()))?;
         Ok(())
     }
 
@@ -78,7 +79,9 @@ impl CronScheduler {
     /// Enable a job.
     pub fn enable(&self, id: &str) -> Result<(), CronError> {
         let mut jobs = self.jobs.lock();
-        let job = jobs.get_mut(id).ok_or_else(|| CronError::NotFound(id.to_string()))?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| CronError::NotFound(id.to_string()))?;
         job.enabled = true;
         Ok(())
     }
@@ -86,7 +89,9 @@ impl CronScheduler {
     /// Disable a job.
     pub fn disable(&self, id: &str) -> Result<(), CronError> {
         let mut jobs = self.jobs.lock();
-        let job = jobs.get_mut(id).ok_or_else(|| CronError::NotFound(id.to_string()))?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| CronError::NotFound(id.to_string()))?;
         job.enabled = false;
         Ok(())
     }
@@ -94,14 +99,18 @@ impl CronScheduler {
     /// Get context from a chained job.
     pub fn get_context_from(&self, id: &str) -> Result<Option<String>, CronError> {
         let jobs = self.jobs.lock();
-        let job = jobs.get(id).ok_or_else(|| CronError::NotFound(id.to_string()))?;
+        let job = jobs
+            .get(id)
+            .ok_or_else(|| CronError::NotFound(id.to_string()))?;
         Ok(job.context_from.clone())
     }
 
     /// Record a job run (success or failure).
     pub fn record_run(&self, id: &str, success: bool) -> Result<(), CronError> {
         let mut jobs = self.jobs.lock();
-        let job = jobs.get_mut(id).ok_or_else(|| CronError::NotFound(id.to_string()))?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| CronError::NotFound(id.to_string()))?;
         job.last_run = Some(current_timestamp());
         if success {
             job.failure_count = 0;
@@ -118,13 +127,21 @@ impl CronScheduler {
     /// Check if a job is circuit-broken.
     pub fn is_circuit_broken(&self, id: &str) -> bool {
         let jobs = self.jobs.lock();
-        jobs.get(id).map(|j| j.failure_count >= self.max_failures).unwrap_or(false)
+        jobs.get(id)
+            .map(|j| j.failure_count >= self.max_failures)
+            .unwrap_or(false)
     }
 
     /// Get jobs ready to run (stub: returns all enabled jobs).
     pub fn ready_jobs(&self) -> Vec<CronJob> {
         let jobs = self.jobs.lock();
         jobs.values().filter(|j| j.enabled).cloned().collect()
+    }
+}
+
+impl Default for CronScheduler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

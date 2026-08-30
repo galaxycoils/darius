@@ -150,7 +150,7 @@ pub fn rejects_stale_hash() -> bool {
 mod tests {
     use super::*;
     use crate::anchors::anchor_for;
-    use crate::filesystem::InMemoryFilesystem;
+    use crate::filesystem::{DiskFilesystem, InMemoryFilesystem};
 
     fn make_edit(path: &str, content: &str) -> EditOp {
         EditOp {
@@ -203,6 +203,28 @@ mod tests {
         fs.write("a.txt", "modified\n").unwrap();
         let err = apply_cut(&mut fs, &op, 0, 1).unwrap_err();
         assert!(matches!(err, EditError::StaleAnchor { .. }));
+    }
+
+    #[test]
+    fn disk_filesystem_write_read_and_apply_put() {
+        let root = std::env::temp_dir().join(format!(
+            "darius_hashline_disk_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut fs = DiskFilesystem::in_directory(root.to_str().unwrap());
+        fs.write("nested/a.txt", "line1\nline2\nline3\n").unwrap();
+        assert_eq!(fs.read("nested/a.txt").unwrap(), "line1\nline2\nline3\n");
+
+        let op = make_edit("nested/a.txt", "line1\nline2\nline3\n");
+        let result = apply_put(&mut fs, &op, 1, 2).unwrap();
+        assert_eq!(result.final_content, "line1\nreplacement\nline3\n");
+        assert_eq!(fs.read("nested/a.txt").unwrap(), result.final_content);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

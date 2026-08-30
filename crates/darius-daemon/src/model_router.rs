@@ -55,8 +55,12 @@ impl BudgetEnforcer {
     }
 
     /// Check if a request is within budget.
-    pub fn check_budget(&self, scope: BudgetScope, estimated_tokens: u64) -> Result<(), RouterError> {
-        let mut budgets = self.budgets.lock();
+    pub fn check_budget(
+        &self,
+        scope: BudgetScope,
+        estimated_tokens: u64,
+    ) -> Result<(), RouterError> {
+        let budgets = self.budgets.lock();
         let (used, limit) = budgets.get(&scope).copied().unwrap_or((0, 0));
         if used + estimated_tokens > limit {
             return Err(RouterError::BudgetExceeded(format!(
@@ -77,7 +81,16 @@ impl BudgetEnforcer {
     /// Get remaining budget for a scope.
     pub fn remaining(&self, scope: BudgetScope) -> u64 {
         let budgets = self.budgets.lock();
-        budgets.get(&scope).map(|(used, limit)| limit.saturating_sub(*used)).unwrap_or(0)
+        budgets
+            .get(&scope)
+            .map(|(used, limit)| limit.saturating_sub(*used))
+            .unwrap_or(0)
+    }
+}
+
+impl Default for BudgetEnforcer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -104,12 +117,25 @@ impl ProviderRegistry {
 
     /// Register a provider.
     pub fn register(&self, provider: Provider) {
-        self.providers.lock().insert(provider.name.clone(), provider);
+        self.providers
+            .lock()
+            .insert(provider.name.clone(), provider);
     }
 
     /// Get a provider by name.
     pub fn get(&self, name: &str) -> Option<Provider> {
         self.providers.lock().get(name).cloned()
+    }
+
+    /// Enable or disable a provider.
+    pub fn set_enabled(&self, name: &str, enabled: bool) -> bool {
+        let mut providers = self.providers.lock();
+        if let Some(provider) = providers.get_mut(name) {
+            provider.enabled = enabled;
+            true
+        } else {
+            false
+        }
     }
 
     /// List all enabled providers.
@@ -120,6 +146,12 @@ impl ProviderRegistry {
             .filter(|p| p.enabled)
             .cloned()
             .collect()
+    }
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -139,12 +171,13 @@ pub struct ModelRouter {
     provider_registry: ProviderRegistry,
     budget_enforcer: BudgetEnforcer,
     cache_coordinator: Arc<CacheCoordinator>,
+    #[allow(dead_code)]
     coalesced: Arc<Mutex<HashMap<String, u64>>>, // request hash -> result hash
 }
 
 impl ModelRouter {
     pub fn new(cache_coordinator: Arc<CacheCoordinator>) -> Self {
-        let mut registry = ProviderRegistry::new();
+        let registry = ProviderRegistry::new();
         registry.register(Provider {
             name: "default".into(),
             model: "gpt-4".into(),
@@ -177,35 +210,41 @@ impl ModelRouter {
         let estimated_tokens = prompt.len() as u64 / 4; // rough estimate
         self.budget_enforcer.check_budget(scope, estimated_tokens)?;
 
-        // Select provider based on role.
-        let provider_name = match role {
-            ModelRole::Rater => "rater",
-            _ => "default",
+        // Select the primary provider for the role, then fail over to the sibling.
+        let (primary_name, fallback_name) = match role {
+            ModelRole::Rater => ("rater", "default"),
+            _ => ("default", "rater"),
         };
 
         let provider = self
             .provider_registry
-            .get(provider_name)
+            .get(primary_name)
+            .filter(|provider| provider.enabled)
+            .or_else(|| {
+                self.provider_registry
+                    .get(fallback_name)
+                    .filter(|provider| provider.enabled)
+            })
             .ok_or(RouterError::NoProviders)?;
-
-        if !provider.enabled {
-            return Err(RouterError::NoProviders);
-        }
 
         // Record usage.
         self.budget_enforcer.record_usage(scope, estimated_tokens);
 
         // Record cache stats.
-        self.cache_coordinator.record_turn(darius_core::TurnCacheStats {
-            prefix_bytes: 1000,
-            break_offset: 500,
-            suffix_hash: 12345,
-            cache_hit: true,
-            miss_cost_tokens: 0,
-        });
+        self.cache_coordinator
+            .record_turn(darius_core::TurnCacheStats {
+                prefix_bytes: 1000,
+                break_offset: 500,
+                suffix_hash: 12345,
+                cache_hit: true,
+                miss_cost_tokens: 0,
+            });
 
         // Stub: in a real implementation, this would call the provider API.
-        Ok(format!("Response from {} for role {role:?}", provider.model))
+        Ok(format!(
+            "Response from {} for role {role:?}",
+            provider.model
+        ))
     }
 
     /// Get the budget enforcer.
@@ -238,7 +277,11 @@ mod tests {
     fn budget_enforcer_exceeds_limit() {
         let enforcer = BudgetEnforcer::new();
         // Global limit is 1,000,000.
-        assert!(enforcer.check_budget(BudgetScope::Global, 2_000_000).is_err());
+        assert!(
+            enforcer
+                .check_budget(BudgetScope::Global, 2_000_000)
+                .is_err()
+        );
     }
 
     #[test]
@@ -267,11 +310,28 @@ mod tests {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
 
-        let response = router.route(ModelRole::Default, "hello", BudgetScope::Session).unwrap();
+        let response = router
+            .route(ModelRole::Default, "hello", BudgetScope::Session)
+            .unwrap();
         assert!(response.contains("gpt-4"));
 
-        let rater_response = router.route(ModelRole::Rater, "rate this", BudgetScope::Eval).unwrap();
+        let rater_response = router
+            .route(ModelRole::Rater, "rate this", BudgetScope::Eval)
+            .unwrap();
         assert!(rater_response.contains("claude-3"));
+    }
+
+    #[test]
+    fn model_router_fails_over_when_primary_is_disabled() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache);
+        assert!(router.provider_registry.set_enabled("default", false));
+
+        let response = router
+            .route(ModelRole::Default, "hello", BudgetScope::Session)
+            .unwrap();
+        assert!(response.contains("claude-3"));
+        assert_eq!(router.cache_metrics().hits, 1);
     }
 
     #[test]
@@ -280,11 +340,7 @@ mod tests {
         let router = ModelRouter::new(cache);
 
         // Eval scope has 10,000 token limit.
-        let result = router.route(
-            ModelRole::Default,
-            &"x".repeat(100_000),
-            BudgetScope::Eval,
-        );
+        let result = router.route(ModelRole::Default, &"x".repeat(100_000), BudgetScope::Eval);
         assert!(result.is_err());
     }
 }

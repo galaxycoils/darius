@@ -3,7 +3,7 @@
 //! Migrations live here only (owned by Task 3.5, not a standalone Task 3.6).
 
 use sqlite::{Connection, State};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -84,9 +84,8 @@ impl EventLog {
         )?;
         self.conn
             .execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")?;
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
-        )?;
+        self.conn
+            .execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")?;
         self.conn
             .execute("INSERT OR IGNORE INTO schema_version (version) VALUES (1)")?;
         Ok(())
@@ -112,15 +111,20 @@ impl EventLog {
         Ok(val)
     }
 
-    pub fn append(&self, session_id: &str, kind: &str, payload: &str) -> Result<i64, EventLogError> {
+    pub fn append(
+        &self,
+        session_id: &str,
+        kind: &str,
+        payload: &str,
+    ) -> Result<i64, EventLogError> {
         let ts = current_timestamp();
         let mut stmt = self.conn.prepare(
             "INSERT INTO events (session_id, ts, kind, payload) VALUES (?1, ?2, ?3, ?4)",
         )?;
-        stmt.bind((1, &session_id[..]))?;
+        stmt.bind((1, session_id))?;
         stmt.bind((2, ts as i64))?;
-        stmt.bind((3, &kind[..]))?;
-        stmt.bind((4, &payload[..]))?;
+        stmt.bind((3, kind))?;
+        stmt.bind((4, payload))?;
         let state = stmt.next()?;
         if state != State::Done {
             return Err(EventLogError::UnexpectedState);
@@ -129,7 +133,10 @@ impl EventLog {
         self.scalar_i64("SELECT last_insert_rowid()")
     }
 
-    pub fn append_batch(&self, events: Vec<(String, String, String)>) -> Result<Vec<i64>, EventLogError> {
+    pub fn append_batch(
+        &self,
+        events: Vec<(String, String, String)>,
+    ) -> Result<Vec<i64>, EventLogError> {
         self.conn.execute("BEGIN")?;
         let result: Result<Vec<i64>, EventLogError> = (|| {
             let mut ids = Vec::new();
@@ -167,7 +174,7 @@ impl EventLog {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, ts, kind, payload FROM events WHERE session_id = ?1 ORDER BY id ASC",
         )?;
-        stmt.bind((1, &session_id[..]))?;
+        stmt.bind((1, session_id))?;
         let mut events = Vec::new();
         loop {
             let state = stmt.next()?;
@@ -194,9 +201,9 @@ impl EventLog {
     }
 
     pub fn replay_all(&self) -> Result<Vec<Event>, EventLogError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, session_id, ts, kind, payload FROM events ORDER BY id ASC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, session_id, ts, kind, payload FROM events ORDER BY id ASC")?;
         let mut events = Vec::new();
         loop {
             let state = stmt.next()?;
@@ -223,8 +230,10 @@ impl EventLog {
     }
 
     pub fn count(&self, session_id: &str) -> Result<i64, EventLogError> {
-        let mut stmt = self.conn.prepare("SELECT COUNT(*) FROM events WHERE session_id = ?1")?;
-        stmt.bind((1, &session_id[..]))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT COUNT(*) FROM events WHERE session_id = ?1")?;
+        stmt.bind((1, session_id))?;
         let state = stmt.next()?;
         if state != State::Row {
             return Ok(0);
@@ -248,7 +257,6 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn scalar_string(conn: &Connection, sql: &str) -> String {
         let mut stmt = conn.prepare(sql).unwrap();
@@ -257,7 +265,7 @@ mod tests {
         stmt.read::<String, _>(0).unwrap()
     }
 
-    fn temp_db_path() -> PathBuf {
+    fn temp_db_path() -> std::path::PathBuf {
         let dir = std::env::temp_dir();
         let file = dir.join(format!("darius_eventlog_test_{}.db", uuid::Uuid::new_v4()));
         if file.exists() {
@@ -285,9 +293,12 @@ mod tests {
         let path = temp_db_path();
         let log = EventLog::open(&path).unwrap();
 
-        log.append("sess1", "started", r#"{"goal":"test"}"#).unwrap();
-        log.append("sess1", "message", r#"{"text":"hello"}"#).unwrap();
-        log.append("sess2", "started", r#"{"goal":"other"}"#).unwrap();
+        log.append("sess1", "started", r#"{"goal":"test"}"#)
+            .unwrap();
+        log.append("sess1", "message", r#"{"text":"hello"}"#)
+            .unwrap();
+        log.append("sess2", "started", r#"{"goal":"other"}"#)
+            .unwrap();
 
         let replayed = log.replay("sess1").unwrap();
         assert_eq!(replayed.len(), 2);
@@ -306,8 +317,16 @@ mod tests {
         let log = EventLog::open(&path).unwrap();
 
         let events = vec![
-            ("sess1".to_string(), "started".to_string(), r#"{"goal":"a"}"#.to_string()),
-            ("sess1".to_string(), "message".to_string(), r#"{"text":"b"}"#.to_string()),
+            (
+                "sess1".to_string(),
+                "started".to_string(),
+                r#"{"goal":"a"}"#.to_string(),
+            ),
+            (
+                "sess1".to_string(),
+                "message".to_string(),
+                r#"{"text":"b"}"#.to_string(),
+            ),
         ];
         let ids = log.append_batch(events).unwrap();
         assert_eq!(ids.len(), 2);
@@ -323,7 +342,8 @@ mod tests {
         let log = EventLog::open(&path).unwrap();
 
         for i in 0..10 {
-            log.append("sess1", "msg", &format!("{{\"i\":{}}}", i)).unwrap();
+            log.append("sess1", "msg", &format!("{{\"i\":{}}}", i))
+                .unwrap();
         }
 
         let replayed = log.replay("sess1").unwrap();
@@ -356,7 +376,8 @@ mod tests {
         let path = temp_db_path();
         {
             let log = EventLog::open(&path).unwrap();
-            log.append("sess-a", "started", r#"{"goal":"persistent"}"#).unwrap();
+            log.append("sess-a", "started", r#"{"goal":"persistent"}"#)
+                .unwrap();
         }
         let log2 = EventLog::open(&path).unwrap();
         let replayed = log2.replay("sess-a").unwrap();

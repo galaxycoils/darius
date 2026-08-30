@@ -1,9 +1,9 @@
 //! Filesystem abstraction for hashline edits.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,7 +40,8 @@ impl InMemoryFilesystem {
 
 impl Filesystem for InMemoryFilesystem {
     fn read(&mut self, path: &str) -> Result<String, FilesystemError> {
-        self.files.get(&PathBuf::from(path))
+        self.files
+            .get(&PathBuf::from(path))
             .cloned()
             .ok_or_else(|| FilesystemError::NotFound(path.into()))
     }

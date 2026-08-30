@@ -16,7 +16,11 @@ pub struct AgentCard {
 }
 
 impl AgentCard {
-    pub fn new(name: impl Into<String>, version: impl Into<String>, description: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             version: version.into(),
@@ -110,9 +114,16 @@ impl A2aServer {
     }
 
     /// Update task state.
-    pub fn update_task(&self, id: &str, state: TaskState, output: Option<String>) -> Result<(), String> {
+    pub fn update_task(
+        &self,
+        id: &str,
+        state: TaskState,
+        output: Option<String>,
+    ) -> Result<(), String> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| format!("task {id} not found"))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| format!("task {id} not found"))?;
         task.state = state;
         task.output = output;
         task.updated_at = current_timestamp();
@@ -172,11 +183,15 @@ mod tests {
         let server = A2aServer::new(AgentCard::new("test", "0.1.0", "test"));
         let task = server.create_task("sess1", "input");
 
-        server.update_task(&task.id, TaskState::Running, None).unwrap();
+        server
+            .update_task(&task.id, TaskState::Running, None)
+            .unwrap();
         let t = server.get_task(&task.id).unwrap();
         assert_eq!(t.state, TaskState::Running);
 
-        server.update_task(&task.id, TaskState::Completed, Some("output".to_string())).unwrap();
+        server
+            .update_task(&task.id, TaskState::Completed, Some("output".to_string()))
+            .unwrap();
         let t = server.get_task(&task.id).unwrap();
         assert_eq!(t.state, TaskState::Completed);
         assert_eq!(t.output, Some("output".to_string()));

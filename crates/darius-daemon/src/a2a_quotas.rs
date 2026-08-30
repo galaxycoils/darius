@@ -58,6 +58,16 @@ pub struct QuotaManager {
     default_policy: QueuePolicy,
 }
 
+impl Default for QuotaManager {
+    fn default() -> Self {
+        Self {
+            quotas: Arc::new(Mutex::new(HashMap::new())),
+            agent_states: Arc::new(Mutex::new(HashMap::new())),
+            default_policy: QueuePolicy::Drop,
+        }
+    }
+}
+
 impl QuotaManager {
     pub fn new() -> Self {
         Self {
@@ -82,7 +92,11 @@ impl QuotaManager {
     }
 
     pub fn get_state(&self, agent_id: &str) -> AgentState {
-        self.agent_states.lock().get(agent_id).cloned().unwrap_or_default()
+        self.agent_states
+            .lock()
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn can_accept(&self, agent_id: &str) -> Result<bool, QuotaError> {
@@ -117,7 +131,9 @@ impl QuotaManager {
 
     pub fn start_task(&self, agent_id: &str) -> Result<(), QuotaError> {
         if !self.can_accept(agent_id)? {
-            return Err(QuotaError::Exceeded(format!("agent {agent_id} at capacity")));
+            return Err(QuotaError::Exceeded(format!(
+                "agent {agent_id} at capacity"
+            )));
         }
 
         let mut states = self.agent_states.lock();
@@ -140,7 +156,11 @@ impl QuotaManager {
         }
     }
 
-    pub fn queue_task(&self, agent_id: &str, policy: Option<QueuePolicy>) -> Result<(), QuotaError> {
+    pub fn queue_task(
+        &self,
+        agent_id: &str,
+        policy: Option<QueuePolicy>,
+    ) -> Result<(), QuotaError> {
         let policy = policy.unwrap_or(self.default_policy);
         let quota = self
             .quotas

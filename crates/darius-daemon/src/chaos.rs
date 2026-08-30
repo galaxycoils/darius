@@ -22,9 +22,7 @@ pub struct ManagedProcess {
 impl ManagedProcess {
     /// Spawn a new managed child process.
     pub fn spawn(cmd: &str, args: &[&str], label: impl Into<String>) -> Result<Self, ChaosError> {
-        let child = std::process::Command::new(cmd)
-            .args(args)
-            .spawn()?;
+        let child = std::process::Command::new(cmd).args(args).spawn()?;
         Ok(Self {
             child,
             label: label.into(),
@@ -66,9 +64,10 @@ impl ManagedProcess {
             match self.child.try_wait()? {
                 Some(status) => {
                     if !status.success() {
-                        return Err(ChaosError::TerminationFailed(
-                            format!("{} exited with {:?}", self.label, status)
-                        ));
+                        return Err(ChaosError::TerminationFailed(format!(
+                            "{} exited with {:?}",
+                            self.label, status
+                        )));
                     }
                     return Ok(());
                 }
@@ -102,7 +101,11 @@ impl ChaosTester {
     }
 
     /// Test graceful termination with timeout.
-    pub fn test_graceful_termination(cmd: &str, args: &[&str], timeout_ms: u64) -> Result<(), ChaosError> {
+    pub fn test_graceful_termination(
+        cmd: &str,
+        args: &[&str],
+        timeout_ms: u64,
+    ) -> Result<(), ChaosError> {
         let mut proc = ManagedProcess::spawn(cmd, args, "graceful-test")?;
         assert!(proc.is_running());
         proc.terminate(timeout_ms)?;
@@ -121,7 +124,7 @@ mod tests {
         let (cmd, args) = ("sleep", vec!["60"]);
         #[cfg(windows)]
         let (cmd, args) = ("cmd", vec!["/C", "timeout", "/t", "60"]);
-        
+
         let mut proc = ManagedProcess::spawn(cmd, &args, "test").unwrap();
         assert!(proc.is_running());
         assert!(proc.pid() > 0);

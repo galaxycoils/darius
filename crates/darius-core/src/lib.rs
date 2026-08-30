@@ -9,7 +9,9 @@ pub struct SubagentId {
 
 impl SubagentId {
     pub fn new() -> Self {
-        Self { inner: uuid::Uuid::new_v4() }
+        Self {
+            inner: uuid::Uuid::new_v4(),
+        }
     }
 }
 

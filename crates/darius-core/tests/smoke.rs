@@ -2,7 +2,7 @@
 //! Validates core, RLM, and harness_e2e surfaces compile and behave minimally.
 
 use darius_core::{DariusError, SubagentId};
-use darius_rlm::{rlm, rlm_evaluate, Grade, RlmHandle, RlmOptions, RlmStatus};
+use darius_rlm::{Grade, RlmHandle, RlmOptions, RlmStatus, rlm, rlm_evaluate};
 use harness_e2e::{MockLlm, TestDaemon};
 
 #[test]

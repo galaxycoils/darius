@@ -26,14 +26,20 @@ pub struct RetentionPolicy {
     pub archive_retention_days: u64,
 }
 
-impl Default for RetentionPolicy {
-    fn default() -> Self {
+impl RetentionPolicy {
+    pub fn default_policy() -> Self {
         Self {
             event_retention_days: 90,
             memory_retention_days: 365,
             fixture_retention_days: 180,
             archive_retention_days: 730,
         }
+    }
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self::default_policy()
     }
 }
 
@@ -69,18 +75,26 @@ impl ComplianceManager {
     }
 
     /// Purge expired events from the event log.
-    pub fn purge_expired_events(&self, event_log: &EventLog) -> Result<usize, ComplianceError> {
+    pub fn purge_expired_events(&self, _event_log: &EventLog) -> Result<usize, ComplianceError> {
         // Stub: in a real implementation, this would delete expired events.
         let purged = 0;
-        self.record_audit("purge_events", "event_log", &format!("purged {purged} events"));
+        self.record_audit(
+            "purge_events",
+            "event_log",
+            &format!("purged {purged} events"),
+        );
         Ok(purged)
     }
 
     /// Purge expired handoffs.
-    pub fn purge_expired_handoffs(&self, store: &HandoffStore) -> Result<usize, ComplianceError> {
+    pub fn purge_expired_handoffs(&self, _store: &HandoffStore) -> Result<usize, ComplianceError> {
         // Stub: would remove expired handoffs.
         let purged = 0;
-        self.record_audit("purge_handoffs", "handoff_store", &format!("purged {purged} handoffs"));
+        self.record_audit(
+            "purge_handoffs",
+            "handoff_store",
+            &format!("purged {purged} handoffs"),
+        );
         Ok(purged)
     }
 
@@ -148,16 +162,8 @@ mod tests {
         let manager = ComplianceManager::new(RetentionPolicy::default());
         let old_timestamp = current_timestamp() - 100 * 86400; // 100 days ago
         assert!(manager.is_event_expired(old_timestamp));
-
         let recent_timestamp = current_timestamp() - 10 * 86400; // 10 days ago
         assert!(!manager.is_event_expired(recent_timestamp));
-    }
-
-    #[test]
-    fn purge_expired_events() {
-        let manager = ComplianceManager::new(RetentionPolicy::default());
-        // Stub test — would need a real EventLog.
-        assert!(manager.purge_expired_events_stub());
     }
 
     #[test]
@@ -178,16 +184,9 @@ mod tests {
         let manager = ComplianceManager::new(RetentionPolicy::default());
         manager.export_profile_data("test").unwrap();
         manager.delete_profile_data("test").unwrap();
-
         let log = manager.audit_log();
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].action, "export");
         assert_eq!(log[1].action, "delete_profile");
-    }
-}
-
-impl ComplianceManager {
-    fn purge_expired_events_stub(&self) -> bool {
-        true
     }
 }

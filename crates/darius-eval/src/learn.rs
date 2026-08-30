@@ -46,7 +46,12 @@ impl ContinuousLearner {
     }
 
     /// Capture a learning event from a failure trajectory.
-    pub fn capture(&self, session_id: &str, trajectory: &str, failure_reason: &str) -> LearningEvent {
+    pub fn capture(
+        &self,
+        session_id: &str,
+        trajectory: &str,
+        failure_reason: &str,
+    ) -> LearningEvent {
         let event = LearningEvent {
             session_id: session_id.to_string(),
             trajectory: trajectory.to_string(),
@@ -62,15 +67,18 @@ impl ContinuousLearner {
     }
 
     /// Generate an eval fixture from a learning event.
-pub fn generate_fixture(&self, event: &LearningEvent) -> EvalFixture {
-    EvalFixture {
-        id: uuid::Uuid::new_v4().to_string(),
-        name: format!("learned_from_{}", &event.session_id[..std::cmp::min(8, event.session_id.len())]),
-        input: event.trajectory.clone(),
-        expected: format!("should NOT fail with: {}", event.failure_reason),
-        category: "learned".to_string(),
+    pub fn generate_fixture(&self, event: &LearningEvent) -> EvalFixture {
+        EvalFixture {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: format!(
+                "learned_from_{}",
+                &event.session_id[..std::cmp::min(8, event.session_id.len())]
+            ),
+            input: event.trajectory.clone(),
+            expected: format!("should NOT fail with: {}", event.failure_reason),
+            category: "learned".to_string(),
+        }
     }
-}
 
     /// Learn from a failure: capture and optionally generate a fixture.
     pub fn learn(
@@ -159,7 +167,10 @@ mod tests {
     #[test]
     fn learner_gated_does_not_save() {
         let store = Arc::new(Mutex::new(FixtureStore::new()));
-        let config = LearnConfig { gate: true, save: false };
+        let config = LearnConfig {
+            gate: true,
+            save: false,
+        };
         let learner = ContinuousLearner::new(config, store.clone());
 
         let result = learner.learn("sess1", "trajectory", "error");
@@ -173,11 +184,13 @@ mod tests {
         let learner = ContinuousLearner::new(LearnConfig::default(), store.clone());
 
         // Capture a failure.
-        let _fixture = learner.learn("sess1", "bad output", "quality too low").unwrap();
+        let _fixture = learner
+            .learn("sess1", "bad output", "quality too low")
+            .unwrap();
 
         // Grade the bad output — should fail.
         let rubric = RubricDSL::parse("quality:1.0:Quality").unwrap();
-        let bad_grade = Grader::grade("bad output", &rubric).unwrap();
+        let _bad_grade = Grader::grade("bad output", &rubric).unwrap();
 
         // Now verify the fix: if we grade a good output, it should pass.
         let good_grade = Grader::grade("good refined output", &rubric).unwrap();

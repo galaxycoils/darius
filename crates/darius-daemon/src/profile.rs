@@ -36,7 +36,10 @@ impl Profile {
     }
 
     /// Create or load a profile with a specific base directory.
-    pub fn with_base_dir(name: impl Into<String>, base_dir: impl AsRef<Path>) -> Result<Self, ProfileError> {
+    pub fn with_base_dir(
+        name: impl Into<String>,
+        base_dir: impl AsRef<Path>,
+    ) -> Result<Self, ProfileError> {
         let name = name.into();
         let path = base_dir.as_ref().join(&name);
         std::fs::create_dir_all(&path)?;
@@ -85,11 +88,14 @@ impl Profile {
         let mut profiles = Vec::new();
         for entry in std::fs::read_dir(base)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                if let Some(name) = entry.file_name().to_str() {
-                    profiles.push(name.to_string());
-                }
+            if !entry.file_type()?.is_dir() {
+                continue;
             }
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
+            profiles.push(name.to_string());
         }
         Ok(profiles)
     }
@@ -109,7 +115,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_profile_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("darius_profile_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_profile_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

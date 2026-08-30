@@ -1,8 +1,9 @@
 //! CLI event system for session tracking and Continual Harness.
+#![allow(dead_code)]
 
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 /// Session event tracking.
 pub struct SessionEvent {
@@ -25,7 +26,7 @@ pub enum EventType {
 pub fn log_event(base_dir: &str, session_id: &str, event: &SessionEvent) -> Result<(), String> {
     let events_dir = get_events_dir(base_dir, session_id)?;
     let event_file = events_dir.join(format!("{}.log", event.timestamp));
-    
+
     let event_type_str = match &event.event_type {
         EventType::Started => "started".to_string(),
         EventType::Stopped => "stopped".to_string(),
@@ -33,14 +34,9 @@ pub fn log_event(base_dir: &str, session_id: &str, event: &SessionEvent) -> Resu
         EventType::Error(e) => format!("error:{e}"),
         EventType::Message(m) => format!("message:{m}"),
     };
-    
-    let content = format!(
-        "{}|{}|{}\n",
-        event.timestamp,
-        event_type_str,
-        event.data
-    );
-    
+
+    let content = format!("{}|{}|{}\n", event.timestamp, event_type_str, event.data);
+
     fs::write(&event_file, content).map_err(|e| e.to_string())?;
     Ok(())
 }

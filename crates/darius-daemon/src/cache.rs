@@ -2,7 +2,6 @@
 
 use darius_core::TurnCacheStats;
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Cache hit ratio metric.
@@ -86,6 +85,12 @@ impl CacheCoordinator {
     /// Clear all stats (e.g., after version bump).
     pub fn clear_stats(&self) {
         self.per_turn_stats.lock().clear();
+    }
+}
+
+impl Default for CacheCoordinator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

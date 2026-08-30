@@ -97,7 +97,9 @@ impl KanbanBoard {
     /// Claim a task for execution.
     pub fn claim(&self, id: &str, agent: &str) -> Result<(), KanbanError> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
 
         if task.status != TaskStatus::Ready {
             return Err(KanbanError::AlreadyClaimed(id.to_string()));
@@ -112,7 +114,9 @@ impl KanbanBoard {
     /// Release a task back to ready.
     pub fn release(&self, id: &str) -> Result<(), KanbanError> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
 
         task.status = TaskStatus::Ready;
         task.claimed_by = None;
@@ -123,7 +127,9 @@ impl KanbanBoard {
     /// Promote a task to done.
     pub fn promote(&self, id: &str) -> Result<(), KanbanError> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
 
         task.status = TaskStatus::Done;
         task.claimed_by = None;
@@ -135,7 +141,9 @@ impl KanbanBoard {
     /// Record a failure for a task.
     pub fn record_failure(&self, id: &str) -> Result<(), KanbanError> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
 
         task.failure_count += 1;
         if task.failure_count >= self.max_failures {
@@ -147,7 +155,9 @@ impl KanbanBoard {
     /// Reclaim a stale claim (claim that's been held too long).
     pub fn reclaim_stale(&self, id: &str, agent: &str) -> Result<bool, KanbanError> {
         let mut tasks = self.tasks.lock();
-        let task = tasks.get_mut(id).ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
+        let task = tasks
+            .get_mut(id)
+            .ok_or_else(|| KanbanError::NotFound(id.to_string()))?;
 
         if task.status != TaskStatus::InProgress {
             return Ok(false);
@@ -174,6 +184,12 @@ impl KanbanBoard {
             .get(id)
             .map(|t| t.status == TaskStatus::Blocked)
             .unwrap_or(false)
+    }
+}
+
+impl Default for KanbanBoard {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

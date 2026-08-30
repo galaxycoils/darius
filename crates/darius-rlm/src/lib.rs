@@ -3,8 +3,6 @@
 use darius_core::{DariusError, SubagentId};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::sync::oneshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RlmStatus {
@@ -31,6 +29,7 @@ pub struct RlmKernel {
     isolation_tier: IsolationTier,
     status: Arc<Mutex<RlmStatus>>,
     schema: Option<String>,
+    #[allow(dead_code)]
     current_handle_id: Option<SubagentId>,
 }
 
@@ -41,6 +40,19 @@ pub enum IsolationTier {
     GVisor,
     MicroVm,
     Wasm,
+}
+
+impl IsolationTier {
+    #[allow(dead_code)]
+    pub fn is_at_least_t2(&self) -> bool {
+        matches!(
+            self,
+            IsolationTier::Process
+                | IsolationTier::GVisor
+                | IsolationTier::MicroVm
+                | IsolationTier::Wasm
+        )
+    }
 }
 
 impl RlmKernel {
@@ -103,7 +115,7 @@ impl RlmKernel {
     }
 
     /// Kill the kernel — transitions to Killed.
-    pub async fn kill(&self) -> Result<(), DariusError> {
+    pub fn kill(&self) -> Result<(), DariusError> {
         let mut status = self.status.lock().unwrap();
         *status = RlmStatus::Killed;
         Ok(())
@@ -115,20 +127,21 @@ impl RlmKernel {
     }
 
     /// Wait for the kernel to reach a specific status.
-    pub async fn wait_for(&self, target: RlmStatus) -> Result<(), DariusError> {
-        let status = self.status.clone();
-        loop {
-            let current = status.lock().unwrap();
-            if *current == target {
-                return Ok(());
-            }
-            drop(current);
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    pub fn wait_for(&self, target: RlmStatus) -> Result<(), DariusError> {
+        let current = *self.status.lock().unwrap();
+        if current == target {
+            Ok(())
+        } else {
+            Err(DariusError::Hashline(format!(
+                "kernel not in target state; current={:?}, target={:?}",
+                current, target
+            )))
         }
     }
 }
 
 /// Generator handle — survives prompt compaction; schema-bound when configured.
+#[derive(Clone)]
 pub struct RlmHandle {
     id: SubagentId,
     kernel_id: String,
@@ -154,36 +167,30 @@ impl RlmHandle {
     }
 
     /// Send a message to the running RLM turn.
-    pub async fn send(&self, _msg: &str) -> Result<(), DariusError> {
+    pub fn send(&self, _msg: &str) -> Result<(), DariusError> {
         let status = self.status.lock().unwrap();
         match *status {
             RlmStatus::Running | RlmStatus::Waiting => Ok(()),
-            _ => Err(DariusError::Hashline("handle not in running/waiting state".into())),
+            _ => Err(DariusError::Hashline(
+                "handle not in running/waiting state".into(),
+            )),
         }
     }
 
     /// Kill this RLM turn.
-    pub async fn kill(&self) -> Result<(), DariusError> {
+    pub fn kill(&self) -> Result<(), DariusError> {
         let mut status = self.status.lock().unwrap();
         *status = RlmStatus::Killed;
         Ok(())
     }
 
     /// Wait for this handle to reach Done or Killed.
-    pub async fn wait(&self) -> Result<Yield, DariusError> {
-        let status = self.status.clone();
-        loop {
-            let current = status.lock().unwrap();
-            let s = *current;
-            drop(current);
-            if s == RlmStatus::Done || s == RlmStatus::Killed {
-                return Ok(Yield {
-                    status: s,
-                    output: String::new(),
-                });
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    pub fn wait(&self) -> Result<Yield, DariusError> {
+        let current = *self.status.lock().unwrap();
+        Ok(Yield {
+            status: current,
+            output: String::new(),
+        })
     }
 }
 
@@ -194,8 +201,57 @@ pub struct Yield {
     pub output: String,
 }
 
+/// Compact-safe handle registry.
+mod handle_registry {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    /// Registry that tracks handles by ID and survives compaction.
+    #[derive(Default)]
+    pub struct HandleRegistry {
+        handles: Arc<Mutex<HashMap<SubagentId, RlmHandle>>>,
+    }
+
+    impl HandleRegistry {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn register(&self, handle: RlmHandle) {
+            let mut handles = self.handles.lock().unwrap();
+            handles.insert(handle.id().clone(), handle);
+        }
+
+        pub fn get(&self, id: &SubagentId) -> Option<RlmHandle> {
+            let handles = self.handles.lock().unwrap();
+            handles.get(id).cloned()
+        }
+
+        pub fn list_ids(&self) -> Vec<SubagentId> {
+            let handles = self.handles.lock().unwrap();
+            handles.keys().cloned().collect()
+        }
+
+        /// Compact: remove killed/done handles, keep running ones.
+        pub fn compact(&self) {
+            let mut handles = self.handles.lock().unwrap();
+            handles.retain(|_, h| {
+                let status = *h.status.lock().unwrap();
+                matches!(status, RlmStatus::Running | RlmStatus::Waiting)
+            });
+        }
+    }
+}
+
+pub use handle_registry::HandleRegistry;
+
+mod evaluate;
+
+pub use evaluate::rlm_evaluate;
+
 /// Entry point: spawn an RLM turn, returning a handle.
-pub fn rlm(prompt: &str, opts: RlmOptions) -> Result<RlmHandle, DariusError> {
+pub fn rlm(_prompt: &str, opts: RlmOptions) -> Result<RlmHandle, DariusError> {
     let kernel_id = format!("kernel-{}", uuid::Uuid::new_v4());
     let status = Arc::new(Mutex::new(RlmStatus::Running));
     let handle = RlmHandle {
@@ -222,28 +278,12 @@ pub struct RubricScore {
     pub max_value: f32,
 }
 
-/// Generator–evaluator: sibling evaluator, never self-grade.
-pub fn rlm_evaluate(
-    target: &str,
-    _rubric: &str,
-) -> Result<Grade, DariusError> {
-    Ok(Grade {
-        passed: true,
-        scores: vec![RubricScore {
-            criterion: "quality".into(),
-            value: 0.8,
-            max_value: 1.0,
-        }],
-        notes: format!("evaluated target: {target}"),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn kernel_status_lifecycle() {
+    #[test]
+    fn kernel_status_lifecycle() {
         let kernel = RlmKernel::new("k1", IsolationTier::Trusted);
         assert_eq!(kernel.status(), RlmStatus::Idle);
         kernel.start().unwrap();
@@ -252,11 +292,11 @@ mod tests {
         assert_eq!(kernel.status(), RlmStatus::Idle);
     }
 
-    #[tokio::test]
-    async fn kernel_kill_transitions_to_killed() {
+    #[test]
+    fn kernel_kill_transitions_to_killed() {
         let kernel = RlmKernel::new("k2", IsolationTier::Process);
         kernel.start().unwrap();
-        kernel.kill().await.unwrap();
+        kernel.kill().unwrap();
         assert_eq!(kernel.status(), RlmStatus::Killed);
     }
 
@@ -286,10 +326,10 @@ mod tests {
         assert_eq!(handle.schema(), Some("gpt-4"));
     }
 
-    #[tokio::test]
-    async fn handle_send_requires_running_state() {
+    #[test]
+    fn handle_send_requires_running_state() {
         let handle = rlm("test", RlmOptions::default()).unwrap();
-        assert!(handle.send("msg").await.is_ok());
+        assert!(handle.send("msg").is_ok());
     }
 
     #[test]
@@ -301,27 +341,57 @@ mod tests {
         assert_eq!(IsolationTier::Wasm as i32, 4);
     }
 
-    #[tokio::test]
-    async fn kernel_cannot_start_when_killed() {
+    #[test]
+    fn kernel_cannot_start_when_killed() {
         let kernel = RlmKernel::new("k3", IsolationTier::Trusted);
-        kernel.kill().await.unwrap();
+        kernel.kill().unwrap();
         assert!(kernel.start().is_err());
     }
 
     #[test]
     fn kernel_with_schema() {
-        let kernel = RlmKernel::new("k4", IsolationTier::Trusted)
-            .with_schema("schema-v1".into());
+        let kernel = RlmKernel::new("k4", IsolationTier::Trusted).with_schema("schema-v1".into());
         assert_eq!(kernel.schema.as_deref(), Some("schema-v1"));
     }
 
-    #[tokio::test]
-    async fn handle_wait_returns_yield() {
+    #[test]
+    fn handle_wait_returns_yield() {
         let handle = rlm("test", RlmOptions::default()).unwrap();
         let mut status = handle.status.lock().unwrap();
         *status = RlmStatus::Done;
         drop(status);
-        let yield_ = handle.wait().await.unwrap();
+        let yield_ = handle.wait().unwrap();
         assert_eq!(yield_.status, RlmStatus::Done);
+    }
+
+    #[test]
+    fn handle_survives_compaction() {
+        let registry = handle_registry::HandleRegistry::new();
+
+        // Register two handles
+        let h1 = rlm("test1", RlmOptions::default()).unwrap();
+        let h2 = rlm("test2", RlmOptions::default()).unwrap();
+        let id1 = h1.id().clone();
+        let id2 = h2.id().clone();
+
+        registry.register(h1);
+        registry.register(h2);
+
+        assert_eq!(registry.list_ids().len(), 2);
+
+        // Compact - should keep both running handles
+        registry.compact();
+        assert_eq!(registry.list_ids().len(), 2);
+
+        // Mark one as killed
+        if let Some(h) = registry.get(&id1) {
+            h.kill().unwrap();
+        }
+
+        // Compact - killed handle should be removed
+        registry.compact();
+        let ids = registry.list_ids();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0], id2);
     }
 }

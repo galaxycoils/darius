@@ -34,7 +34,9 @@ impl RubricDSL {
     /// Format: one criterion per line, `name:weight:description`.
     pub fn parse(source: &str) -> Result<Rubric, String> {
         if source.trim().is_empty() {
-            return Ok(Rubric { criteria: Vec::new() });
+            return Ok(Rubric {
+                criteria: Vec::new(),
+            });
         }
 
         let mut criteria = Vec::new();
@@ -48,9 +50,16 @@ impl RubricDSL {
                 return Err(format!("invalid criterion line: {line}"));
             }
             let name = parts[0].trim().to_string();
-            let weight: f32 = parts[1].trim().parse().map_err(|_| format!("invalid weight: {}", parts[1]))?;
+            let weight: f32 = parts[1]
+                .trim()
+                .parse()
+                .map_err(|_| format!("invalid weight: {}", parts[1]))?;
             let description = parts.get(2).unwrap_or(&"").trim().to_string();
-            criteria.push(RubricCriterion { name, weight, description });
+            criteria.push(RubricCriterion {
+                name,
+                weight,
+                description,
+            });
         }
 
         Ok(Rubric { criteria })

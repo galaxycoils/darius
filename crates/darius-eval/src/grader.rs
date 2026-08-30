@@ -58,7 +58,10 @@ impl Grader {
     }
 }
 
-fn score_criterion(_artifact: &str, criterion: &crate::rubric::RubricCriterion) -> Result<f32, String> {
+fn score_criterion(
+    _artifact: &str,
+    criterion: &crate::rubric::RubricCriterion,
+) -> Result<f32, String> {
     // Stub: return a default score. In production, this calls the rater model.
     match criterion.name.as_str() {
         "quality" => Ok(0.8),

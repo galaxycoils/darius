@@ -8,6 +8,8 @@ use darius_daemon::model_router::ModelRole;
 #[derive(Debug, Clone)]
 pub struct RaterConfig {
     pub model_role: ModelRole,
+    pub model_id: String,
+    pub optimizer_model_id: String,
     pub rubric: Rubric,
     pub threshold: f32,
 }
@@ -16,7 +18,11 @@ impl Default for RaterConfig {
     fn default() -> Self {
         Self {
             model_role: ModelRole::Rater,
-            rubric: Rubric { criteria: Vec::new() },
+            model_id: "claude-3".into(),
+            optimizer_model_id: "gpt-4".into(),
+            rubric: Rubric {
+                criteria: Vec::new(),
+            },
             threshold: 0.7,
         }
     }
@@ -40,6 +46,7 @@ impl AutoRater {
     /// Verify the rater path differs from the optimizer path.
     pub fn uses_rater_role(&self) -> bool {
         self.config.model_role == ModelRole::Rater
+            && self.config.model_id != self.config.optimizer_model_id
     }
 }
 
@@ -60,6 +67,8 @@ mod tests {
         let rubric = RubricDSL::parse("quality:1.0:Quality").unwrap();
         let config = RaterConfig {
             model_role: ModelRole::Rater,
+            model_id: "claude-3".into(),
+            optimizer_model_id: "gpt-4".into(),
             rubric,
             threshold: 0.7,
         };
@@ -74,5 +83,6 @@ mod tests {
         let rater = AutoRater::new(config);
         // The rater uses ModelRole::Rater, not ModelRole::Default (optimizer).
         assert_ne!(rater.config.model_role, ModelRole::Default);
+        assert_ne!(rater.config.model_id, rater.config.optimizer_model_id);
     }
 }

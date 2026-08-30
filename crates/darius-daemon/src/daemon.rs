@@ -1,17 +1,16 @@
 //! Darius daemon — session manager, A2A hub, and service orchestrator.
 
-use crate::a2a::{AgentCard, A2aServer, Task, TaskState};
-use crate::event_log::{Event, EventLog};
+use crate::a2a::{A2aServer, AgentCard};
+use crate::event_log::EventLog;
 use crate::handoff::HandoffStore;
-use darius_core::{Decision, SessionHandoff, SubagentId};
+use darius_core::SessionHandoff;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::mpsc;
 
 /// Daemon error types.
 #[derive(Debug, Error)]
@@ -60,18 +59,23 @@ pub struct Daemon {
     handoff_store: Arc<Mutex<Option<HandoffStore>>>,
     a2a_server: Arc<A2aServer>,
     data_dir: PathBuf,
+    #[allow(dead_code)]
     heartbeat_interval: Duration,
 }
 
 impl Daemon {
     /// Create a new daemon instance.
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
-        let card = AgentCard::new("darius", env!("CARGO_PKG_VERSION"), "Open-source agent harness")
-            .with_capabilities(vec![
-                "rlm".to_string(),
-                "hashline".to_string(),
-                "sessions".to_string(),
-            ]);
+        let card = AgentCard::new(
+            "darius",
+            env!("CARGO_PKG_VERSION"),
+            "Open-source agent harness",
+        )
+        .with_capabilities(vec![
+            "rlm".to_string(),
+            "hashline".to_string(),
+            "sessions".to_string(),
+        ]);
         Self {
             running: Arc::new(AtomicBool::new(false)),
             start_time: None,
@@ -92,14 +96,14 @@ impl Daemon {
 
         // Initialize event log.
         let event_log_path = self.data_dir.join("events.db");
-        let event_log = EventLog::open(&event_log_path)
-            .map_err(|e| DaemonError::EventLog(e.to_string()))?;
+        let event_log =
+            EventLog::open(&event_log_path).map_err(|e| DaemonError::EventLog(e.to_string()))?;
         *self.event_log.lock() = Some(event_log);
 
         // Initialize handoff store.
         let handoff_dir = self.data_dir.join("handoffs");
-        let handoff_store = HandoffStore::new(&handoff_dir)
-            .map_err(|e| DaemonError::Handoff(e.to_string()))?;
+        let handoff_store =
+            HandoffStore::new(&handoff_dir).map_err(|e| DaemonError::Handoff(e.to_string()))?;
         *self.handoff_store.lock() = Some(handoff_store);
 
         self.running.store(true, Ordering::SeqCst);
@@ -107,7 +111,11 @@ impl Daemon {
 
         // Log daemon start.
         if let Some(log) = self.event_log.lock().as_ref() {
-            let _ = log.append("daemon", "started", &format!("version={}", env!("CARGO_PKG_VERSION")));
+            let _ = log.append(
+                "daemon",
+                "started",
+                &format!("version={}", env!("CARGO_PKG_VERSION")),
+            );
         }
 
         Ok(())
@@ -154,7 +162,11 @@ impl Daemon {
     }
 
     /// Create a new session.
-    pub fn create_session(&self, profile: impl Into<String>, goal: impl Into<String>) -> Result<Session, DaemonError> {
+    pub fn create_session(
+        &self,
+        profile: impl Into<String>,
+        goal: impl Into<String>,
+    ) -> Result<Session, DaemonError> {
         if !self.is_running() {
             return Err(DaemonError::NotRunning);
         }
@@ -174,7 +186,11 @@ impl Daemon {
 
         // Log session start.
         if let Some(log) = self.event_log.lock().as_ref() {
-            let _ = log.append(&id, "session_started", &format!("profile={}", session.profile));
+            let _ = log.append(
+                &id,
+                "session_started",
+                &format!("profile={}", session.profile),
+            );
         }
 
         // Create A2A task for the session.
@@ -185,9 +201,11 @@ impl Daemon {
 
     /// Get a session by ID.
     pub fn get_session(&self, id: &str) -> Result<Session, DaemonError> {
-        self.sessions.lock().get(id).cloned().ok_or_else(|| {
-            DaemonError::SessionNotFound(id.to_string())
-        })
+        self.sessions
+            .lock()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| DaemonError::SessionNotFound(id.to_string()))
     }
 
     /// List all sessions.
@@ -198,9 +216,9 @@ impl Daemon {
     /// Attach to a session (marks it as active).
     pub fn attach_session(&self, id: &str) -> Result<(), DaemonError> {
         let mut sessions = self.sessions.lock();
-        let session = sessions.get_mut(id).ok_or_else(|| {
-            DaemonError::SessionNotFound(id.to_string())
-        })?;
+        let session = sessions
+            .get_mut(id)
+            .ok_or_else(|| DaemonError::SessionNotFound(id.to_string()))?;
         session.running = true;
         session.last_activity = current_timestamp();
 
@@ -215,9 +233,9 @@ impl Daemon {
     /// Detach from a session (marks it as inactive but preserves state).
     pub fn detach_session(&self, id: &str) -> Result<(), DaemonError> {
         let mut sessions = self.sessions.lock();
-        let session = sessions.get_mut(id).ok_or_else(|| {
-            DaemonError::SessionNotFound(id.to_string())
-        })?;
+        let session = sessions
+            .get_mut(id)
+            .ok_or_else(|| DaemonError::SessionNotFound(id.to_string()))?;
         session.running = false;
         session.last_activity = current_timestamp();
 
@@ -233,9 +251,9 @@ impl Daemon {
     pub fn end_session(&self, id: &str) -> Result<(), DaemonError> {
         let goal = {
             let mut sessions = self.sessions.lock();
-            let session = sessions.get_mut(id).ok_or_else(|| {
-                DaemonError::SessionNotFound(id.to_string())
-            })?;
+            let session = sessions
+                .get_mut(id)
+                .ok_or_else(|| DaemonError::SessionNotFound(id.to_string()))?;
             session.running = false;
             session.last_activity = current_timestamp();
             session.goal.clone()
@@ -255,9 +273,9 @@ impl Daemon {
     /// Emit a SessionHandoff for a session.
     fn emit_handoff(&self, session_id: &str, goal: &str) -> Result<(), DaemonError> {
         let store = self.handoff_store.lock();
-        let store = store.as_ref().ok_or_else(|| {
-            DaemonError::Handoff("handoff store not initialized".to_string())
-        })?;
+        let store = store
+            .as_ref()
+            .ok_or_else(|| DaemonError::Handoff("handoff store not initialized".to_string()))?;
 
         let handoff = SessionHandoff {
             version: 1,
@@ -268,9 +286,9 @@ impl Daemon {
             artifact_refs: Vec::new(),
         };
 
-        store.save(session_id, &handoff).map_err(|e| {
-            DaemonError::Handoff(e.to_string())
-        })
+        store
+            .save(session_id, &handoff)
+            .map_err(|e| DaemonError::Handoff(e.to_string()))
     }
 
     /// Get the A2A server.
@@ -348,6 +366,23 @@ mod tests {
     }
 
     #[test]
+    fn created_session_survives_dropped_handle() {
+        let dir = temp_data_dir();
+        let mut daemon = Daemon::new(&dir);
+        daemon.start().unwrap();
+
+        let session = daemon.create_session("default", "durable goal").unwrap();
+        let id = session.id.clone();
+        drop(session);
+
+        let persisted = daemon.get_session(&id).unwrap();
+        assert_eq!(persisted.goal, "durable goal");
+        assert!(persisted.running);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn daemon_attach_detach_session() {
         let dir = temp_data_dir();
         let mut daemon = Daemon::new(&dir);
@@ -395,8 +430,8 @@ mod tests {
         let mut daemon = Daemon::new(&dir);
         daemon.start().unwrap();
 
-        let s1 = daemon.create_session("default", "g1").unwrap();
-        let s2 = daemon.create_session("default", "g2").unwrap();
+        let _s1 = daemon.create_session("default", "g1").unwrap();
+        let _s2 = daemon.create_session("default", "g2").unwrap();
 
         let status = daemon.status();
         assert!(status.running);

@@ -1,6 +1,6 @@
 //! Status Projector — projects daemon status for humans/CLI.
 
-use crate::daemon::{Daemon, DaemonStatus};
+use crate::daemon::Daemon;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -29,11 +29,7 @@ impl StatusProjector {
 
         format!(
             "Darius Daemon v{} — {}\n  Uptime: {}\n  Active sessions: {}\n  Total sessions: {}",
-            status.version,
-            status_str,
-            uptime,
-            status.active_sessions,
-            status.total_sessions
+            status.version, status_str, uptime, status.active_sessions, status.total_sessions
         )
     }
 

@@ -1,6 +1,6 @@
 //! Coding tools — read/write, bash, glob, grep, browser, schema-validated yields.
 
-use darius_hashline::{compute_anchor, Filesystem, InMemoryFilesystem};
+use darius_hashline::{Filesystem, InMemoryFilesystem, compute_anchor};
 use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
@@ -21,7 +21,8 @@ pub enum ToolError {
 
 /// Read a file via Hashline.
 pub fn read_file(fs: &mut InMemoryFilesystem, path: &str) -> Result<String, ToolError> {
-    fs.read(path).map_err(|e| ToolError::NotFound(e.to_string()))
+    fs.read(path)
+        .map_err(|e| ToolError::NotFound(e.to_string()))
 }
 
 /// Write a file via Hashline (anchored edit).
@@ -73,7 +74,11 @@ pub fn glob(pattern: &str, cwd: &str) -> Result<Vec<PathBuf>, ToolError> {
     Ok(results)
 }
 
-fn glob_dir(dir: &std::path::Path, pattern: &str, results: &mut Vec<PathBuf>) -> Result<(), ToolError> {
+fn glob_dir(
+    dir: &std::path::Path,
+    pattern: &str,
+    results: &mut Vec<PathBuf>,
+) -> Result<(), ToolError> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();

@@ -79,13 +79,16 @@ impl SecretStore {
     /// Get a secret by name.
     pub fn get(&self, name: &str) -> Result<Secret, SecretError> {
         let secrets = self.secrets.lock();
-        let secret = secrets.get(name).ok_or_else(|| SecretError::NotFound(name.into()))?;
+        let secret = secrets
+            .get(name)
+            .ok_or_else(|| SecretError::NotFound(name.into()))?;
 
         // Check expiration.
-        if let Some(expires_at) = secret.expires_at {
-            if current_timestamp() > expires_at {
-                return Err(SecretError::Expired(name.into()));
-            }
+        if secret
+            .expires_at
+            .is_some_and(|expires_at| current_timestamp() > expires_at)
+        {
+            return Err(SecretError::Expired(name.into()));
         }
 
         Ok(secret.clone())
@@ -99,7 +102,9 @@ impl SecretStore {
     /// Revoke (delete) a secret.
     pub fn revoke(&self, name: &str) -> Result<(), SecretError> {
         let mut secrets = self.secrets.lock();
-        secrets.remove(name).ok_or_else(|| SecretError::NotFound(name.into()))?;
+        secrets
+            .remove(name)
+            .ok_or_else(|| SecretError::NotFound(name.into()))?;
         Ok(())
     }
 
@@ -111,7 +116,9 @@ impl SecretStore {
         ttl_seconds: Option<u64>,
     ) -> Result<Secret, SecretError> {
         let mut secrets = self.secrets.lock();
-        let existing = secrets.get(name).ok_or_else(|| SecretError::NotFound(name.into()))?;
+        let existing = secrets
+            .get(name)
+            .ok_or_else(|| SecretError::NotFound(name.into()))?;
 
         let now = current_timestamp();
         let new_value = new_value.into();
@@ -137,12 +144,10 @@ impl SecretStore {
 
     /// Check if a secret is expired.
     pub fn is_expired(&self, name: &str) -> bool {
-        if let Ok(secret) = self.get(name) {
-            if let Some(expires_at) = secret.expires_at {
-return current_timestamp() >= expires_at;
-            }
+        match self.get(name).ok().and_then(|secret| secret.expires_at) {
+            Some(expires_at) => current_timestamp() >= expires_at,
+            None => true,
         }
-        true
     }
 
     /// Get the profile this store belongs to.
@@ -177,7 +182,12 @@ mod tests {
     #[test]
     fn store_and_get_secret() {
         let store = SecretStore::new("default");
-        store.store("api_key", "secret_value", SecretScope::Profile("default".into()), None);
+        store.store(
+            "api_key",
+            "secret_value",
+            SecretScope::Profile("default".into()),
+            None,
+        );
 
         let secret = store.get("api_key").unwrap();
         assert_eq!(secret.name, "api_key");

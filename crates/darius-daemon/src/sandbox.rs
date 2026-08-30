@@ -88,7 +88,9 @@ impl SandboxBackend for GVisorBackend {
     }
 
     fn spawn(&self, _command: &[String]) -> Result<u32, SandboxError> {
-        Err(SandboxError::UnsupportedTier("gVisor requires Linux".into()))
+        Err(SandboxError::UnsupportedTier(
+            "gVisor requires Linux".into(),
+        ))
     }
 
     fn terminate(&self, _pid: u32) -> Result<(), SandboxError> {
@@ -109,7 +111,9 @@ impl SandboxBackend for MicroVmBackend {
     }
 
     fn spawn(&self, _command: &[String]) -> Result<u32, SandboxError> {
-        Err(SandboxError::UnsupportedTier("microVM requires Firecracker".into()))
+        Err(SandboxError::UnsupportedTier(
+            "microVM requires Firecracker".into(),
+        ))
     }
 
     fn terminate(&self, _pid: u32) -> Result<(), SandboxError> {
@@ -130,7 +134,9 @@ impl SandboxBackend for WasmBackend {
     }
 
     fn spawn(&self, _command: &[String]) -> Result<u32, SandboxError> {
-        Err(SandboxError::UnsupportedTier("WASM backend not implemented".into()))
+        Err(SandboxError::UnsupportedTier(
+            "WASM backend not implemented".into(),
+        ))
     }
 
     fn terminate(&self, _pid: u32) -> Result<(), SandboxError> {

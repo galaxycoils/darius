@@ -1,3 +1,6 @@
 fn main() {
-    println!("darius v0.1.0");
+    if let Err(error) = darius_cli::run() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
 }

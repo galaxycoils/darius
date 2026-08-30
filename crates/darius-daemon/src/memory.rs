@@ -56,19 +56,30 @@ impl HindsightMemory {
             session_id: session_id.to_string(),
             profile: profile.to_string(),
             summary: handoff.goal.clone(),
-            decisions: handoff.prior_decisions.iter().map(|d| d.choice.clone()).collect(),
+            decisions: handoff
+                .prior_decisions
+                .iter()
+                .map(|d| d.choice.clone())
+                .collect(),
             timestamp: current_timestamp(),
         };
 
         let mut memories = self.memories.lock();
-        memories.entry(profile.to_string()).or_default().push(memory.clone());
+        memories
+            .entry(profile.to_string())
+            .or_default()
+            .push(memory.clone());
 
         memory
     }
 
     /// Recall memories for a profile.
     pub fn recall(&self, profile: &str) -> Vec<SessionMemory> {
-        self.memories.lock().get(profile).cloned().unwrap_or_default()
+        self.memories
+            .lock()
+            .get(profile)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Recall across all profiles (admin only).
@@ -80,7 +91,6 @@ impl HindsightMemory {
     pub fn build_mental_model(&self, profile: &str) -> MentalModel {
         let memories = self.recall(profile);
         let mut all_decisions: Vec<String> = Vec::new();
-        let mut patterns: Vec<String> = Vec::new();
 
         for mem in &memories {
             all_decisions.extend(mem.decisions.clone());
@@ -99,14 +109,11 @@ impl HindsightMemory {
             .map(|(decision, _)| decision.clone())
             .collect();
 
-        // Patterns are just common decisions for now.
-        patterns = common_decisions.clone();
-
         MentalModel {
             profile: profile.to_string(),
             total_sessions: memories.len(),
-            common_decisions,
-            patterns,
+            common_decisions: common_decisions.clone(),
+            patterns: common_decisions,
         }
     }
 
@@ -123,6 +130,12 @@ impl HindsightMemory {
     /// Clear all memories for a profile.
     pub fn clear_profile(&self, profile: &str) {
         self.memories.lock().remove(profile);
+    }
+}
+
+impl Default for HindsightMemory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -184,7 +197,11 @@ mod tests {
 
         let model = memory.build_mental_model("profile1");
         assert_eq!(model.total_sessions, 3);
-        assert!(model.common_decisions.contains(&"repeat-decision".to_string()));
+        assert!(
+            model
+                .common_decisions
+                .contains(&"repeat-decision".to_string())
+        );
     }
 
     #[test]

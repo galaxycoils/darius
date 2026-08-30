@@ -10,11 +10,12 @@ mod tests {
     /// Direct SQLite writes should not bypass EventLog.
     #[test]
     fn event_log_is_single_owner() {
-        let dir = std::env::temp_dir().join(format!("darius_ownership_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_ownership_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // Create EventLog through its public API.
-        let log = EventLog::open(&dir.join("events.db")).unwrap();
+        let log = EventLog::open(dir.join("events.db")).unwrap();
 
         // Write events through the EventLog API.
         log.append("sess1", "test", "data").unwrap();
@@ -30,7 +31,8 @@ mod tests {
     /// Test: HandoffStore is the sole owner of handoff writes.
     #[test]
     fn handoff_store_is_single_owner() {
-        let dir = std::env::temp_dir().join(format!("darius_handoff_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_handoff_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let store = HandoffStore::new(&dir).unwrap();
@@ -54,7 +56,8 @@ mod tests {
     /// Test: Daemon owns session state — sessions can only be modified through Daemon.
     #[test]
     fn daemon_owns_session_state() {
-        let dir = std::env::temp_dir().join(format!("darius_session_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_session_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let mut daemon = Daemon::new(&dir);
@@ -77,11 +80,12 @@ mod tests {
     /// Test: No cross-domain direct access — event log cannot directly modify handoff store.
     #[test]
     fn no_cross_domain_direct_access() {
-        let dir = std::env::temp_dir().join(format!("darius_cross_domain_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cross_domain_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let log = EventLog::open(&dir.join("events.db")).unwrap();
-        let store = HandoffStore::new(&dir.join("handoffs")).unwrap();
+        let log = EventLog::open(dir.join("events.db")).unwrap();
+        let store = HandoffStore::new(dir.join("handoffs")).unwrap();
 
         // EventLog should not be able to write to handoff store directly.
         // (In a real implementation, this would be enforced by type system / privacy.)
@@ -113,7 +117,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("darius_count_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let log = EventLog::open(&dir.join("events.db")).unwrap();
+        let log = EventLog::open(dir.join("events.db")).unwrap();
         assert_eq!(log.count("unknown").unwrap(), 0);
 
         let _ = std::fs::remove_dir_all(&dir);

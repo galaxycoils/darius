@@ -1,9 +1,9 @@
 //! Extension Points — plugin trait, registry, hooks, and MCP server discovery.
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 /// Plugin metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,10 @@ impl HookSet {
     }
 
     pub fn get_handlers(&self, hook_type: &HookType) -> &[String] {
-        self.hooks.get(hook_type).map(|v| v.as_slice()).unwrap_or(&[])
+        self.hooks
+            .get(hook_type)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }
 
@@ -115,7 +118,7 @@ impl PluginRegistry {
     }
 
     /// Get a plugin by name.
-    pub fn get(&self, name: &str) -> Option<&dyn Plugin> {
+    pub fn get(&self, _name: &str) -> Option<&dyn Plugin> {
         // This is a limitation of the trait object — we can't return a reference
         // from a MutexGuard. In a real implementation, we'd use Arc<dyn Plugin>.
         None
@@ -123,11 +126,7 @@ impl PluginRegistry {
 
     /// List all registered plugins.
     pub fn list(&self) -> Vec<PluginMetadata> {
-        self.plugins
-            .lock()
-            .values()
-            .map(|p| p.metadata())
-            .collect()
+        self.plugins.lock().values().map(|p| p.metadata()).collect()
     }
 
     /// Initialize all plugins.
@@ -141,7 +140,7 @@ impl PluginRegistry {
 
     /// Shutdown all plugins.
     pub fn shutdown_all(&self) -> Result<(), String> {
-        let mut plugins = self.plugins.lock();
+        let plugins = self.plugins.lock();
         for plugin in plugins.values() {
             plugin.shutdown()?;
         }
@@ -149,10 +148,17 @@ impl PluginRegistry {
     }
 }
 
+impl Default for PluginRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// MCP server plugin — wraps an MCP server as a plugin.
 pub struct McpServerPlugin {
     metadata: PluginMetadata,
     capabilities: PluginCapabilities,
+    #[allow(dead_code)]
     server_url: String,
 }
 
@@ -199,7 +205,7 @@ impl Plugin for McpServerPlugin {
 }
 
 /// Discover MCP servers and wrap them as plugins.
-pub fn discover_mcp_servers(config_dir: &str) -> Vec<McpServerPlugin> {
+pub fn discover_mcp_servers(_config_dir: &str) -> Vec<McpServerPlugin> {
     // Stub: in a real implementation, this would scan for MCP server configs.
     vec![
         McpServerPlugin::new("filesystem", "http://localhost:3001"),

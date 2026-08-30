@@ -1,1 +1,3 @@
-// Curator module — lifecycle and metrics
+//! Skill lifecycle curation.
+
+pub use crate::{CuratorMetrics, SkillCurator};

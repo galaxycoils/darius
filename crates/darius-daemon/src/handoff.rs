@@ -71,11 +71,13 @@ impl HandoffStore {
         for entry in std::fs::read_dir(&self.base_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "json") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    sessions.push(stem.to_string());
-                }
+            if !path.is_file() || !path.extension().is_some_and(|e| e == "json") {
+                continue;
             }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            sessions.push(stem.to_string());
         }
         Ok(sessions)
     }

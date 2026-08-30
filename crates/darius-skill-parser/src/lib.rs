@@ -38,7 +38,10 @@ pub fn parse(skill_md: &str) -> Result<Skill, ParseError> {
         let mut fm_lines = Vec::new();
         for line in lines {
             if line == "---" {
-                let body_start = trimmed.find("\n---\n").map(|p| p + 4).unwrap_or(trimmed.len());
+                let body_start = trimmed
+                    .find("\n---\n")
+                    .map(|p| p + 4)
+                    .unwrap_or(trimmed.len());
                 let body = trimmed[body_start..].trim();
                 return parse_frontmatter(&fm_lines, body);
             }
@@ -84,8 +87,8 @@ fn parse_frontmatter(fm_lines: &[&str], body: &str) -> Result<Skill, ParseError>
 
 fn parse_simple_markdown(content: &str) -> Result<Skill, ParseError> {
     for line in content.lines() {
-        if line.starts_with("# ") {
-            let name = line[2..].trim().to_string();
+        if let Some(stripped) = line.strip_prefix("# ") {
+            let name = stripped.trim().to_string();
             if !name.is_empty() {
                 let body_start = content.find(line).unwrap() + line.len();
                 let body = content[body_start..].trim().to_string();
@@ -147,6 +150,9 @@ mod tests {
     fn parse_metadata_fields() {
         let input = "---\nname: test\nauthor: alice\n---\nbody\n";
         let skill = parse(input).unwrap();
-        assert_eq!(skill.metadata.get("author").unwrap().as_str().unwrap(), "alice");
+        assert_eq!(
+            skill.metadata.get("author").unwrap().as_str().unwrap(),
+            "alice"
+        );
     }
 }

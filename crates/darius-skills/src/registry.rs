@@ -1,1 +1,3 @@
-// Registry module — skill storage and lookup
+//! Skill storage and lookup.
+
+pub use crate::SkillRegistry;

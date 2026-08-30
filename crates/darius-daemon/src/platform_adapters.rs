@@ -49,7 +49,9 @@ pub struct IncomingMessage {
 
 /// Telegram adapter.
 pub struct TelegramAdapter {
+    #[allow(dead_code)]
     bot_token: String,
+    #[allow(dead_code)]
     api_url: String,
     connected: bool,
     a2a_server: Option<Arc<A2aServer>>,
@@ -87,7 +89,7 @@ impl PlatformAdapter for TelegramAdapter {
         Ok(())
     }
 
-    fn send_message(&self, channel: &str, message: &str) -> Result<(), AdapterError> {
+    fn send_message(&self, _channel: &str, _message: &str) -> Result<(), AdapterError> {
         if !self.connected {
             return Err(AdapterError::SendFailed("not connected".into()));
         }
@@ -110,7 +112,9 @@ impl PlatformAdapter for TelegramAdapter {
 
 /// Discord adapter.
 pub struct DiscordAdapter {
+    #[allow(dead_code)]
     bot_token: String,
+    #[allow(dead_code)]
     api_url: String,
     connected: bool,
     a2a_server: Option<Arc<A2aServer>>,
@@ -147,7 +151,7 @@ impl PlatformAdapter for DiscordAdapter {
         Ok(())
     }
 
-    fn send_message(&self, channel: &str, message: &str) -> Result<(), AdapterError> {
+    fn send_message(&self, _channel: &str, _message: &str) -> Result<(), AdapterError> {
         if !self.connected {
             return Err(AdapterError::SendFailed("not connected".into()));
         }
@@ -169,7 +173,9 @@ impl PlatformAdapter for DiscordAdapter {
 
 /// Slack adapter.
 pub struct SlackAdapter {
+    #[allow(dead_code)]
     bot_token: String,
+    #[allow(dead_code)]
     api_url: String,
     connected: bool,
     a2a_server: Option<Arc<A2aServer>>,
@@ -206,7 +212,7 @@ impl PlatformAdapter for SlackAdapter {
         Ok(())
     }
 
-    fn send_message(&self, channel: &str, message: &str) -> Result<(), AdapterError> {
+    fn send_message(&self, _channel: &str, _message: &str) -> Result<(), AdapterError> {
         if !self.connected {
             return Err(AdapterError::SendFailed("not connected".into()));
         }
@@ -255,7 +261,7 @@ impl AdapterManager {
     }
 
     /// Get adapter by platform name.
-    pub fn get_adapter(&self, platform: &str) -> Option<&dyn PlatformAdapter> {
+    pub fn get_adapter(&self, _platform: &str) -> Option<&dyn PlatformAdapter> {
         // Stub: would search adapters by platform name.
         None
     }
@@ -264,6 +270,12 @@ impl AdapterManager {
     pub fn list_adapters(&self) -> Vec<&dyn PlatformAdapter> {
         // Stub: would return all adapters.
         Vec::new()
+    }
+}
+
+impl Default for AdapterManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

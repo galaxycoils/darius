@@ -44,7 +44,10 @@ impl FixtureStore {
     }
 
     pub fn by_category(&self, category: &str) -> Vec<&EvalFixture> {
-        self.fixtures.iter().filter(|f| f.category == category).collect()
+        self.fixtures
+            .iter()
+            .filter(|f| f.category == category)
+            .collect()
     }
 }
 

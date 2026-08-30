@@ -20,7 +20,7 @@ exclude = ["target"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/example/darius"
+repository = "https://github.com/galaxycoils/darius"
 description = "Darius — the most powerful open-source agent harness"
 
 [workspace.dependencies]

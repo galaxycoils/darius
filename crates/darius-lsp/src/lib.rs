@@ -1,6 +1,8 @@
 //! LSP + DAP coding surface — diagnostics, rename, format-on-write, debugger.
 
-use darius_hashline::{apply_put, compute_anchor, EditOp, FileAnchor, Filesystem, InMemoryFilesystem};
+use darius_hashline::{
+    EditOp, FileAnchor, Filesystem, InMemoryFilesystem, apply_put, compute_anchor,
+};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -81,7 +83,10 @@ impl LspServer {
 
     /// Get file content.
     pub fn get_file(&self, path: &str) -> Result<String, LspError> {
-        self.filesystem.lock().read(path).map_err(|e| LspError::NotFound(e.to_string()))
+        self.filesystem
+            .lock()
+            .read(path)
+            .map_err(|e| LspError::NotFound(e.to_string()))
     }
 
     /// Run diagnostics on a file.
@@ -121,8 +126,13 @@ impl LspServer {
         };
 
         let mut fs = self.filesystem.lock();
-        apply_put(&mut *fs, &op, request.line as usize - 1, request.line as usize)
-            .map_err(|e| LspError::Hashline(e.to_string()))?;
+        apply_put(
+            &mut *fs,
+            &op,
+            request.line as usize - 1,
+            request.line as usize,
+        )
+        .map_err(|e| LspError::Hashline(e.to_string()))?;
         Ok(())
     }
 
@@ -135,6 +145,12 @@ impl LspServer {
             .collect::<Vec<_>>()
             .join("\n");
         Ok(formatted)
+    }
+}
+
+impl Default for LspServer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -232,6 +248,12 @@ impl DapDebugger {
     }
 }
 
+impl Default for DapDebugger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,7 +269,9 @@ mod tests {
     #[test]
     fn lsp_diagnostics_detects_trailing_whitespace() {
         let server = LspServer::new();
-        server.load_file("test.rs", "fn main() {} \nlet x = 1;").unwrap();
+        server
+            .load_file("test.rs", "fn main() {} \nlet x = 1;")
+            .unwrap();
         let diagnostics = server.diagnostics("test.rs").unwrap();
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Warning);

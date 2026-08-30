@@ -25,25 +25,34 @@ pub mod telemetry;
 pub mod tools;
 pub mod worktrees;
 
-pub use a2a::{AgentCard, A2aServer, Task, TaskState};
-pub use a2a_quotas::{AgentQuota, AgentState, QuotaError, QuotaManager, QueuePolicy};
+pub use a2a::{A2aServer, AgentCard};
+pub use a2a_quotas::{AgentQuota, AgentState, QueuePolicy, QuotaError, QuotaManager};
 pub use backup::{BackupError, BackupManager};
 pub use cache::{CacheCoordinator, CacheMetrics};
 pub use chaos::{ChaosError, ChaosTester, ManagedProcess};
-pub use compliance::{AuditEvent, ComplianceError, ComplianceManager, ProfileExport, RetentionPolicy};
+pub use compliance::{
+    AuditEvent, ComplianceError, ComplianceManager, ProfileExport, RetentionPolicy,
+};
 pub use cron::{CronError, CronJob, CronScheduler};
 pub use daemon::{Daemon, DaemonError, DaemonStatus, Session};
-pub use event_log::{Event, EventLog, EventLogError};
+pub use darius_core::{ArtifactRef, Decision, SessionHandoff};
+pub use event_log::{EventLog, EventLogError};
 pub use handoff::{HandoffError, HandoffStore};
 pub use kanban::{KanbanBoard, KanbanError, KanbanTask, TaskStatus};
 pub use memory::{HindsightMemory, MemoryError, MentalModel, SessionMemory};
-pub use model_router::{BudgetEnforcer, BudgetScope, ModelRole, ModelRouter, Provider, ProviderRegistry, RouterError};
-pub use platform_adapters::{AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter, TelegramAdapter};
+pub use model_router::{
+    BudgetEnforcer, BudgetScope, ModelRole, ModelRouter, Provider, ProviderRegistry, RouterError,
+};
+pub use platform_adapters::{
+    AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter,
+    TelegramAdapter,
+};
+pub use profile::{Profile, ProfileError};
 pub use sandbox::{SandboxBackend, SandboxError, SandboxManager};
 pub use secrets::{Secret, SecretError, SecretScope, SecretStore};
 pub use status_projector::StatusProjector;
 pub use telemetry::{OtlpExporter, Span, SpanCategory, SpanStatus, TelemetryCollector};
-pub use profile::{Profile, ProfileError};
-pub use tools::{GrepMatch, ToolError, bash, browser, glob, grep, read_file, validate_yield, write_file};
+pub use tools::{
+    GrepMatch, ToolError, bash, browser, glob, grep, read_file, validate_yield, write_file,
+};
 pub use worktrees::{Worktree, WorktreeError, WorktreeManager};
-pub use darius_core::{ArtifactRef, Decision, SessionHandoff};

@@ -1,1 +1,3 @@
-// Loader module — skill loading
+//! SKILL.md loading.
+
+pub use crate::SkillLoader;

@@ -13,4 +13,4 @@ pub use fixtures::{EvalFixture, FixtureStore};
 pub use grader::{Grade, Grader, GradingResult};
 pub use learn::{ContinuousLearner, LearnConfig, LearningEvent};
 pub use rater::{AutoRater, RaterConfig};
-pub use rubric::{Rubric, RubricScore, RubricDSL};
+pub use rubric::{Rubric, RubricDSL, RubricScore};

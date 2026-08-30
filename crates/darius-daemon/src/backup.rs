@@ -21,7 +21,10 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    pub fn new(data_dir: impl AsRef<Path>, backup_dir: impl AsRef<Path>) -> Result<Self, BackupError> {
+    pub fn new(
+        data_dir: impl AsRef<Path>,
+        backup_dir: impl AsRef<Path>,
+    ) -> Result<Self, BackupError> {
         let data = PathBuf::from(data_dir.as_ref());
         let backup = PathBuf::from(backup_dir.as_ref());
         fs::create_dir_all(&backup)?;
@@ -55,8 +58,14 @@ impl BackupManager {
         }
         // Sort by timestamp (embedded in directory name), newest first.
         backups.sort_by(|a, b| {
-            let a_ts = a.file_name().and_then(|n| n.to_str()).and_then(|s| s.rsplit_once('_').map(|(_, ts)| ts));
-            let b_ts = b.file_name().and_then(|n| n.to_str()).and_then(|s| s.rsplit_once('_').map(|(_, ts)| ts));
+            let a_ts = a
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|s| s.rsplit_once('_').map(|(_, ts)| ts));
+            let b_ts = b
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|s| s.rsplit_once('_').map(|(_, ts)| ts));
             b_ts.cmp(&a_ts)
         });
         Ok(backups)
@@ -129,7 +138,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_dirs() -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!("darius_backup_test_{}", uuid::Uuid::new_v4()));
+        let base =
+            std::env::temp_dir().join(format!("darius_backup_test_{}", uuid::Uuid::new_v4()));
         let data = base.join("data");
         let backups = base.join("backups");
         fs::create_dir_all(&data).unwrap();
@@ -168,9 +178,9 @@ mod tests {
         let manager = BackupManager::new(&data, &backups).unwrap();
 
         // Create backups with delays so timestamps differ.
-        let p1 = manager.create_backup(Some("first")).unwrap();
+        let _p1 = manager.create_backup(Some("first")).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let p2 = manager.create_backup(Some("second")).unwrap();
+        let _p2 = manager.create_backup(Some("second")).unwrap();
 
         let listed = manager.list_backups().unwrap();
         assert_eq!(listed.len(), 2);

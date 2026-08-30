@@ -36,10 +36,17 @@ impl WorktreeManager {
     }
 
     /// Create a new worktree for a branch.
-    pub fn create(&mut self, branch: &str, base_commit: Option<&str>) -> Result<Worktree, WorktreeError> {
+    pub fn create(
+        &mut self,
+        branch: &str,
+        base_commit: Option<&str>,
+    ) -> Result<Worktree, WorktreeError> {
         let path = self.root.join(format!("wt-{}", branch.replace('/', "-")));
         if path.exists() {
-            return Err(WorktreeError::Git(format!("worktree path already exists: {}", path.display())));
+            return Err(WorktreeError::Git(format!(
+                "worktree path already exists: {}",
+                path.display()
+            )));
         }
 
         let mut cmd = Command::new("git");
@@ -89,10 +96,7 @@ impl WorktreeManager {
 
     /// Prune stale worktrees.
     pub fn prune(&self) -> Result<(), WorktreeError> {
-        let output = Command::new("git")
-            .arg("worktree")
-            .arg("prune")
-            .output()?;
+        let output = Command::new("git").arg("worktree").arg("prune").output()?;
 
         if !output.status.success() {
             return Err(WorktreeError::Git(

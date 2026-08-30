@@ -3,6 +3,11 @@
 use darius_skill_parser::{ParseError, Skill as ParsedSkill};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+
+pub mod curator;
+pub mod loader;
+pub mod registry;
 
 /// Skill source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -86,7 +91,9 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: HashMap::new() }
+        Self {
+            skills: HashMap::new(),
+        }
     }
 
     pub fn add(&mut self, skill: Skill) {
@@ -154,7 +161,7 @@ impl SkillLoader {
 pub struct SkillCurator {
     registry: SkillRegistry,
     staleness_threshold: u64,
-    archive_dir: String,
+    archive_dir: PathBuf,
 }
 
 impl SkillCurator {
@@ -162,7 +169,7 @@ impl SkillCurator {
         Self {
             registry: SkillRegistry::new(),
             staleness_threshold: 30 * 24 * 60 * 60, // 30 days
-            archive_dir: archive_dir.into(),
+            archive_dir: PathBuf::from(archive_dir.into()),
         }
     }
 
@@ -184,13 +191,19 @@ impl SkillCurator {
     }
 
     pub fn pin(&mut self, id: &str) -> Result<(), String> {
-        let skill = self.registry.get_mut(id).ok_or_else(|| format!("skill {id} not found"))?;
+        let skill = self
+            .registry
+            .get_mut(id)
+            .ok_or_else(|| format!("skill {id} not found"))?;
         skill.pinned = true;
         Ok(())
     }
 
     pub fn unpin(&mut self, id: &str) -> Result<(), String> {
-        let skill = self.registry.get_mut(id).ok_or_else(|| format!("skill {id} not found"))?;
+        let skill = self
+            .registry
+            .get_mut(id)
+            .ok_or_else(|| format!("skill {id} not found"))?;
         skill.pinned = false;
         Ok(())
     }
@@ -222,6 +235,15 @@ impl SkillCurator {
             }
         }
 
+        if !archived.is_empty() && std::fs::create_dir_all(&self.archive_dir).is_ok() {
+            for skill in &archived {
+                let path = self.archive_dir.join(format!("{}.json", skill.id));
+                if let Ok(json) = serde_json::to_string_pretty(skill) {
+                    let _ = std::fs::write(path, json);
+                }
+            }
+        }
+
         archived
     }
 
@@ -240,7 +262,11 @@ impl SkillCurator {
     }
 
     pub fn consolidate(&self) -> Vec<String> {
-        self.registry.list().iter().map(|s| s.name.clone()).collect()
+        self.registry
+            .list()
+            .iter()
+            .map(|s| s.name.clone())
+            .collect()
     }
 }
 
@@ -249,7 +275,7 @@ pub struct SkillFinder;
 
 impl SkillFinder {
     /// Search for skills in the registry.
-pub fn search<'a>(registry: &'a SkillRegistry, query: &str) -> Vec<&'a Skill> {
+    pub fn search<'a>(registry: &'a SkillRegistry, query: &str) -> Vec<&'a Skill> {
         registry.find_by_query(query)
     }
 
@@ -312,8 +338,7 @@ mod tests {
     #[test]
     fn curator_pin_exempts_from_archival() {
         let now = 1_000_000;
-        let mut curator = SkillCurator::new("/tmp/archives")
-            .with_staleness_threshold(100);
+        let mut curator = SkillCurator::new("/tmp/archives").with_staleness_threshold(100);
 
         curator.add_skill(Skill {
             id: "pinned".into(),
@@ -343,8 +368,7 @@ mod tests {
     #[test]
     fn curator_auto_archives_stale_skills() {
         let now = 1_000_000;
-        let mut curator = SkillCurator::new("/tmp/archives")
-            .with_staleness_threshold(100);
+        let mut curator = SkillCurator::new("/tmp/archives").with_staleness_threshold(100);
 
         curator.add_skill(Skill {
             id: "fresh".into(),
@@ -389,8 +413,7 @@ mod tests {
     #[test]
     fn curator_does_not_archive_builtin_or_user_skills() {
         let now = 1_000_000;
-        let mut curator = SkillCurator::new("/tmp/archives")
-            .with_staleness_threshold(100);
+        let mut curator = SkillCurator::new("/tmp/archives").with_staleness_threshold(100);
 
         curator.add_skill(Skill {
             id: "builtin".into(),
@@ -426,6 +449,48 @@ mod tests {
 
         let archived = curator.auto_archive(now);
         assert!(archived.is_empty());
+    }
+
+    #[test]
+    fn curator_archives_to_backup_without_deleting_registry_entry() {
+        let now = 1_000_000;
+        let archive_dir = std::env::temp_dir().join(format!(
+            "darius_skill_archive_{}_{}",
+            std::process::id(),
+            current_timestamp()
+        ));
+        let mut curator = SkillCurator::new(archive_dir.to_string_lossy().into_owned())
+            .with_staleness_threshold(100);
+        curator.add_skill(Skill {
+            id: "archived-but-retained".into(),
+            name: "archived-but-retained".into(),
+            description: String::new(),
+            version: "1.0.0".into(),
+            source: SkillSource::AgentCreated,
+            created_at: 0,
+            last_used_at: 0,
+            use_count: 0,
+            view_count: 0,
+            patch_count: 0,
+            pinned: false,
+            body: "body".into(),
+            metadata: HashMap::new(),
+        });
+
+        let archived = curator.auto_archive(now);
+        assert_eq!(archived.len(), 1);
+        assert_eq!(curator.registry().len(), 1);
+        assert_eq!(
+            curator
+                .registry()
+                .get("archived-but-retained")
+                .unwrap()
+                .source,
+            SkillSource::Archived
+        );
+        assert!(archive_dir.join("archived-but-retained.json").is_file());
+
+        std::fs::remove_dir_all(archive_dir).unwrap();
     }
 
     #[test]

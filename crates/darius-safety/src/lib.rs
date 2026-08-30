@@ -5,7 +5,6 @@
 //! cannot bypass safety.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -42,7 +41,13 @@ pub enum IsolationTier {
 impl IsolationTier {
     /// Check if this tier is at least T2 (Process/gVisor/MicroVm/Wasm).
     pub fn is_at_least_t2(&self) -> bool {
-        matches!(self, IsolationTier::Process | IsolationTier::GVisor | IsolationTier::MicroVm | IsolationTier::Wasm)
+        matches!(
+            self,
+            IsolationTier::Process
+                | IsolationTier::GVisor
+                | IsolationTier::MicroVm
+                | IsolationTier::Wasm
+        )
     }
 }
 
@@ -92,7 +97,9 @@ pub struct AuditLog {
 
 impl AuditLog {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn record(&mut self, entry: AuditEntry) {
@@ -105,6 +112,16 @@ impl AuditLog {
 
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+impl Default for AuditLog {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -139,7 +156,11 @@ impl SafetyGate {
         };
 
         // Record the check in the audit log.
-        let status = if allowed { AuditStatus::Allowed } else { AuditStatus::Denied };
+        let status = if allowed {
+            AuditStatus::Allowed
+        } else {
+            AuditStatus::Denied
+        };
         self.audit_log.lock().record(AuditEntry {
             timestamp: current_timestamp(),
             action: format!("check:{cap:?}"),
@@ -171,7 +192,9 @@ impl SafetyGate {
                 status: AuditStatus::Denied,
                 details: format!("tier:{tier:?} not T2+"),
             });
-            Err(SafetyError::Denied(format!("untrusted operations require T2+, got {tier:?}")))
+            Err(SafetyError::Denied(format!(
+                "untrusted operations require T2+, got {tier:?}"
+            )))
         }
     }
 

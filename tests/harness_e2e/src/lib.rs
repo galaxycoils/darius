@@ -1,7 +1,8 @@
+#![allow(dead_code, unused_imports)]
 //! E2E integration harness — MockLlm, TestDaemon, full-session pipeline tests.
 
-use darius_rlm::{rlm, rlm_evaluate, IsolationTier, RlmKernel, RlmOptions, RlmStatus};
-use darius_daemon::{Daemon, HandoffStore};
+use darius_daemon::Daemon;
+use darius_rlm::{IsolationTier, RlmKernel, RlmOptions, RlmStatus, rlm, rlm_evaluate};
 
 /// Mock LLM for testing.
 pub struct MockLlm {
@@ -25,7 +26,7 @@ impl MockLlm {
     }
 
     pub fn reset(&mut self) {
-        self.next = 0;
+        self.next = 0
     }
 }
 
@@ -37,12 +38,21 @@ pub struct TestDaemon {
 
 impl TestDaemon {
     pub fn new(profile: impl Into<String>) -> Self {
-        Self { running: false, profile: profile.into() }
+        Self {
+            running: false,
+            profile: profile.into(),
+        }
     }
 
-    pub fn start(&mut self) { self.running = true; }
-    pub fn stop(&mut self) { self.running = false; }
-    pub fn is_running(&self) -> bool { self.running }
+    pub fn start(&mut self) {
+        self.running = true;
+    }
+    pub fn stop(&mut self) {
+        self.running = false;
+    }
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
 }
 
 /// E2E report.
@@ -89,7 +99,9 @@ pub fn run_e2e() -> Result<E2EReport, E2EError> {
     report.steps += 1;
 
     // Step 5: Verify session is active.
-    let s = daemon.get_session(&session.id).map_err(|e| E2EError::Step(e.to_string()))?;
+    let s = daemon
+        .get_session(&session.id)
+        .map_err(|e| E2EError::Step(e.to_string()))?;
     assert!(s.running);
     report.steps += 1;
 
@@ -103,7 +115,9 @@ pub fn run_e2e() -> Result<E2EReport, E2EError> {
     let store = daemon.handoff_store();
     let store = store.lock();
     let store = store.as_ref().unwrap();
-    let handoff = store.load(&session.id).map_err(|e| E2EError::Step(e.to_string()))?;
+    let handoff = store
+        .load(&session.id)
+        .map_err(|e| E2EError::Step(e.to_string()))?;
     assert_eq!(handoff.goal, "test goal");
     report.steps += 1;
 

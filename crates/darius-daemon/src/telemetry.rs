@@ -53,6 +53,7 @@ pub enum SpanStatus {
 
 /// OTLP exporter (stub).
 pub struct OtlpExporter {
+    #[allow(dead_code)]
     endpoint: String,
     headers: std::collections::HashMap<String, String>,
 }
@@ -65,13 +66,13 @@ impl OtlpExporter {
         }
     }
 
-pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-    self.headers.insert(key.into().to_lowercase(), value.into());
-    self
-}
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into().to_lowercase(), value.into());
+        self
+    }
 
     /// Export spans to OTLP endpoint (stub).
-    pub fn export(&self, spans: &[Span]) -> Result<(), String> {
+    pub fn export(&self, _spans: &[Span]) -> Result<(), String> {
         // Stub: in a real implementation, this would send spans via OTLP/gRPC.
         Ok(())
     }
@@ -97,7 +98,11 @@ impl TelemetryCollector {
     }
 
     /// Start a new span.
-    pub fn start_span(&mut self, name: impl Into<String>, category: SpanCategory) -> SpanHandle {
+    pub fn start_span(
+        &mut self,
+        name: impl Into<String>,
+        category: SpanCategory,
+    ) -> SpanHandle<'_> {
         let span = Span {
             name: name.into(),
             category,
@@ -130,6 +135,12 @@ impl TelemetryCollector {
     }
 }
 
+impl Default for TelemetryCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Handle to an in-progress span.
 pub struct SpanHandle<'a> {
     span_id: String,
@@ -139,14 +150,24 @@ pub struct SpanHandle<'a> {
 impl SpanHandle<'_> {
     /// Set an attribute on the span.
     pub fn set_attribute(&mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) {
-        if let Some(span) = self.collector.spans.iter_mut().find(|s| s.span_id == self.span_id) {
+        if let Some(span) = self
+            .collector
+            .spans
+            .iter_mut()
+            .find(|s| s.span_id == self.span_id)
+        {
             span.attributes.insert(key.into(), value.into());
         }
     }
 
     /// Mark the span as completed.
     pub fn end(self) {
-        if let Some(span) = self.collector.spans.iter_mut().find(|s| s.span_id == self.span_id) {
+        if let Some(span) = self
+            .collector
+            .spans
+            .iter_mut()
+            .find(|s| s.span_id == self.span_id)
+        {
             span.end_time = Some(current_timestamp());
             span.status = SpanStatus::Ok;
         }
@@ -154,7 +175,12 @@ impl SpanHandle<'_> {
 
     /// Mark the span as failed.
     pub fn end_with_error(self, _error: &str) {
-        if let Some(span) = self.collector.spans.iter_mut().find(|s| s.span_id == self.span_id) {
+        if let Some(span) = self
+            .collector
+            .spans
+            .iter_mut()
+            .find(|s| s.span_id == self.span_id)
+        {
             span.end_time = Some(current_timestamp());
             span.status = SpanStatus::Error;
         }
@@ -204,10 +230,13 @@ mod tests {
 
     #[test]
     fn otlp_exporter_with_headers() {
-        let exporter = OtlpExporter::new("http://localhost:4317")
-            .with_header("Authorization", "Bearer token");
+        let exporter =
+            OtlpExporter::new("http://localhost:4317").with_header("Authorization", "Bearer token");
         assert_eq!(exporter.endpoint, "http://localhost:4317");
-        assert_eq!(exporter.headers.get("authorization").unwrap(), "Bearer token");
+        assert_eq!(
+            exporter.headers.get("authorization").unwrap(),
+            "Bearer token"
+        );
     }
 
     #[test]
