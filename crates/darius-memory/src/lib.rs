@@ -112,24 +112,7 @@ pub struct MemoryPack {
 
 pub struct MemoryEngine {
     conn: Connection,
-}
-
-fn parse_row(stmt: &sqlite::Statement) -> Result<Record, sqlite::Error> {
-    Ok(Record {
-        id: stmt.read(0)?,
-        kind: RecordKind::from_str(&stmt.read::<String, _>(1)?).unwrap_or(RecordKind::Fact),
-        title: stmt.read::<Option<String>, _>(2)?.filter(|s| !s.is_empty()),
-        body: stmt.read(3)?,
-        tags: serde_json::from_str(&stmt.read::<String, _>(4)?).unwrap_or_default(),
-        importance: stmt.read::<f64, _>(5)? as f32,
-        content_hash: stmt.read(6)?,
-        created_at: stmt.read(7)?,
-        updated_at: stmt.read(8)?,
-        last_accessed_at: stmt.read(9)?,
-        source: stmt
-            .read::<Option<String>, _>(10)?
-            .filter(|s| !s.is_empty()),
-    })
+    db_path: PathBuf,
 }
 
 impl MemoryEngine {
@@ -137,14 +120,17 @@ impl MemoryEngine {
         std::fs::create_dir_all(profile_dir)?;
         let db_path = profile_dir.join("memory.db");
         let conn = Connection::open(&db_path)?;
-        let engine = Self { conn };
+        let engine = Self { conn, db_path };
         engine.migrate()?;
         Ok(engine)
     }
 
     pub fn open_in_memory() -> Result<Self, MemoryError> {
         let conn = Connection::open(":memory:")?;
-        let engine = Self { conn };
+        let engine = Self {
+            conn,
+            db_path: PathBuf::from(":memory:"),
+        };
         engine.migrate()?;
         Ok(engine)
     }
@@ -302,9 +288,6 @@ impl MemoryEngine {
         Ok(count as usize)
     }
 
-    /// Build a bounded MemoryPack for model injection.
-    /// `max_chars` caps the plain text budget (default 3500).
-    /// `limit` caps the number of records considered (default 12).
     pub fn build_pack(&self, max_chars: usize, limit: usize) -> Result<MemoryPack, MemoryError> {
         let records = self.search(&SearchQuery {
             text: None,
@@ -343,11 +326,9 @@ impl MemoryEngine {
     }
 
     pub fn db_path(&self) -> PathBuf {
-        PathBuf::from("memory.db")
+        self.db_path.clone()
     }
 
-    /// Distill a handoff (session end) into memory records.
-    /// Returns the ids of newly created records.
     pub fn distill_handoff(
         &self,
         handoff: &darius_core::SessionHandoff,
@@ -379,9 +360,6 @@ impl MemoryEngine {
         Ok(ids)
     }
 
-    /// Import records from a JSONL file (one JSON object per line).
-    /// Duplicate records (by content hash) are skipped.
-    /// Returns (imported_count, skipped_count).
     pub fn import_jsonl(&self, path: &Path) -> Result<(usize, usize), MemoryError> {
         let content = std::fs::read_to_string(path)?;
         let mut imported = 0;
@@ -401,7 +379,6 @@ impl MemoryEngine {
                 }
             };
 
-            // Check for duplicates
             let hash = blake3_hash(&record.body);
             if self.hash_exists(&hash)? {
                 skipped += 1;
@@ -415,7 +392,6 @@ impl MemoryEngine {
         Ok((imported, skipped))
     }
 
-    /// Export all records to a JSONL file.
     pub fn export_jsonl(&self, path: &Path) -> Result<usize, MemoryError> {
         let records = self.search(&SearchQuery::default())?;
         let mut content = String::new();
@@ -444,8 +420,45 @@ impl MemoryEngine {
     }
 }
 
+impl Clone for MemoryEngine {
+    fn clone(&self) -> Self {
+        if self.db_path == PathBuf::from(":memory:") {
+            let conn =
+                Connection::open(":memory:").expect("failed to clone in-memory MemoryEngine");
+            Self {
+                conn,
+                db_path: self.db_path.clone(),
+            }
+        } else {
+            let conn =
+                Connection::open(&self.db_path).expect("failed to clone MemoryEngine connection");
+            Self {
+                conn,
+                db_path: self.db_path.clone(),
+            }
+        }
+    }
+}
+
+fn parse_row(stmt: &sqlite::Statement) -> Result<Record, sqlite::Error> {
+    Ok(Record {
+        id: stmt.read(0)?,
+        kind: RecordKind::from_str(&stmt.read::<String, _>(1)?).unwrap_or(RecordKind::Fact),
+        title: stmt.read::<Option<String>, _>(2)?.filter(|s| !s.is_empty()),
+        body: stmt.read(3)?,
+        tags: serde_json::from_str(&stmt.read::<String, _>(4)?).unwrap_or_default(),
+        importance: stmt.read::<f64, _>(5)? as f32,
+        content_hash: stmt.read(6)?,
+        created_at: stmt.read(7)?,
+        updated_at: stmt.read(8)?,
+        last_accessed_at: stmt.read(9)?,
+        source: stmt
+            .read::<Option<String>, _>(10)?
+            .filter(|s| !s.is_empty()),
+    })
+}
+
 fn blake3_hash(s: &str) -> String {
-    // FNV-1a deterministic hash for content deduplication
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in s.bytes() {
         hash ^= byte as u64;
@@ -516,13 +529,12 @@ mod tests {
     #[test]
     fn memory_pack_respects_bounds() {
         let engine = MemoryEngine::open_in_memory().unwrap();
-        let bodies: Vec<String> = (0..100).map(|i| format!("record {i}")).collect();
-        for (i, body) in bodies.iter().enumerate() {
+        for i in 0..100 {
             engine
                 .upsert(NewRecord {
                     kind: RecordKind::Fact,
                     title: Some(format!("rec{i}")),
-                    body: body.clone(),
+                    body: format!("record {i}"),
                     tags: vec![],
                     importance: 0.5,
                     source: None,
@@ -532,16 +544,8 @@ mod tests {
 
         let pack = engine.build_pack(500, 8).unwrap();
         assert_eq!(pack.version, 1);
-        assert!(
-            pack.plain.len() <= 500,
-            "plain text {} exceeds budget 500",
-            pack.plain.len()
-        );
-        assert!(
-            pack.record_ids.len() <= 8,
-            "record count {} exceeds limit 8",
-            pack.record_ids.len()
-        );
+        assert!(pack.plain.len() <= 500);
+        assert!(pack.record_ids.len() <= 8);
     }
 
     #[test]
@@ -561,7 +565,7 @@ mod tests {
         };
 
         let ids = engine.distill_handoff(&handoff).unwrap();
-        assert_eq!(ids.len(), 2); // 1 episode + 1 decision
+        assert_eq!(ids.len(), 2);
         assert_eq!(engine.record_count().unwrap(), 2);
     }
 
@@ -570,7 +574,7 @@ mod tests {
         use std::io::Write;
 
         let engine = MemoryEngine::open_in_memory().unwrap();
-        let dir = std::env::temp_dir().join(format!("darius_memory_test_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("darius_memory_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("import.jsonl");
 
@@ -578,26 +582,23 @@ mod tests {
         writeln!(
             file,
             "{{ \"kind\": \"Fact\", \"title\": \"t1\", \"body\": \"hello\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
-        )
-        .unwrap();
+        ).unwrap();
         writeln!(
             file,
             "{{ \"kind\": \"Fact\", \"title\": \"t2\", \"body\": \"world\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
-        )
-        .unwrap();
+        ).unwrap();
         writeln!(
             file,
             "{{ \"kind\": \"Fact\", \"title\": \"t1_dup\", \"body\": \"hello\", \"tags\": [], \"importance\": 0.5, \"source\": null }}"
-        )
-        .unwrap();
+        ).unwrap();
 
         let (imported, skipped) = engine.import_jsonl(&path).unwrap();
         assert_eq!(imported, 2);
-        assert_eq!(skipped, 1); // duplicate body "hello"
+        assert_eq!(skipped, 1);
 
         let (imported2, skipped2) = engine.import_jsonl(&path).unwrap();
         assert_eq!(imported2, 0);
-        assert_eq!(skipped2, 3); // all three already exist
+        assert_eq!(skipped2, 3);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

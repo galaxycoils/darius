@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Minimal tool ACI — registry, spill, TOOL line protocol"
+description = "Minimal tool ACI — registry, spill, TOOL line protocol, builtins"
 
 [lib]
 name = "darius_tools"
@@ -19,6 +19,7 @@ serde_json = "1"
 thiserror = "2"
 uuid = { workspace = true }
 chrono = { workspace = true }
+parking_lot = "0.12"
 darius-core = { path = "../darius-core" }
 darius-memory = { path = "../darius-memory" }
 
