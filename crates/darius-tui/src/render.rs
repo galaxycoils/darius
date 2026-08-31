@@ -1,16 +1,16 @@
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Widget},
-    Frame, Terminal,
 };
 use std::io;
 
 use crate::app::{AppState, PermissionChoice, PermissionState};
-use crate::commands::{CommandSpec, COMMANDS};
+use crate::commands::{COMMANDS, CommandSpec};
 use crate::theme::{ColorMode, Theme};
 
 // ── View types for rendering transcript items ──────────────────────────
@@ -88,7 +88,12 @@ pub fn render_user(text: &str, theme: &Theme) -> Vec<Line<'static>> {
 /// Render assistant text (no role chip).
 pub fn render_assistant(text: &str, theme: &Theme) -> Vec<Line<'static>> {
     text.lines()
-        .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(theme.text))))
+        .map(|line| {
+            Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(theme.text),
+            ))
+        })
         .collect()
 }
 
@@ -153,15 +158,16 @@ pub fn render_tasks(tasks: &[TaskDisplay], theme: &Theme) -> Vec<Line<'static>> 
 
 /// Render a diff with filename, summary, and line-numbered rows.
 pub fn render_diff(diff: &DiffView, theme: &Theme) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(diff.file.clone(), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("  {}", diff.summary),
-                Style::default().fg(theme.muted),
-            ),
-        ]),
-    ];
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            diff.file.clone(),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {}", diff.summary),
+            Style::default().fg(theme.muted),
+        ),
+    ])];
 
     for line in &diff.lines {
         let (prefix, color) = match line.kind {
@@ -203,7 +209,10 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     let title = format!("◆ darius v{version}");
 
     let body = vec![
-        Line::from(Span::styled("Welcome back", Style::default().fg(theme.text))),
+        Line::from(Span::styled(
+            "Welcome back",
+            Style::default().fg(theme.text),
+        )),
         Line::from(vec![
             Span::styled("model   ", Style::default().fg(theme.muted)),
             Span::styled(&state.model, Style::default().fg(theme.text)),
@@ -215,7 +224,10 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
         Line::from(vec![
             Span::styled("profile ", Style::default().fg(theme.muted)),
             Span::styled(&state.profile, Style::default().fg(theme.text)),
-            Span::styled("  ·  kernel rust  ·  /help", Style::default().fg(theme.muted)),
+            Span::styled(
+                "  ·  kernel rust  ·  /help",
+                Style::default().fg(theme.muted),
+            ),
         ]),
     ];
 
@@ -235,24 +247,32 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
 /// The selected option is marked with `❯`.
 pub fn render_permission(area: Rect, buf: &mut Buffer, perm: &PermissionState, theme: &Theme) {
     let mut body = vec![
-        Line::from(vec![
-            Span::styled(&perm.title, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(&perm.command, Style::default().fg(theme.text)),
-        ]),
-        Line::from(vec![
-            Span::styled(&perm.reason, Style::default().fg(theme.muted)),
-        ]),
+        Line::from(vec![Span::styled(
+            &perm.title,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            &perm.command,
+            Style::default().fg(theme.text),
+        )]),
+        Line::from(vec![Span::styled(
+            &perm.reason,
+            Style::default().fg(theme.muted),
+        )]),
         Line::from(Span::raw("")),
     ];
 
     for (i, choice) in PermissionChoice::ALL.iter().enumerate() {
         let marker = if i == perm.selection { "❯" } else { " " };
-        let color = if i == perm.selection { theme.active } else { theme.text };
-        body.push(Line::from(vec![
-            Span::styled(format!("{marker} {}", choice.label()), Style::default().fg(color)),
-        ]));
+        let color = if i == perm.selection {
+            theme.active
+        } else {
+            theme.text
+        };
+        body.push(Line::from(vec![Span::styled(
+            format!("{marker} {}", choice.label()),
+            Style::default().fg(color),
+        )]));
     }
 
     let card = Paragraph::new(body).block(
@@ -276,12 +296,16 @@ pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &T
 
     // Effort chip line
     let effort_text = format!("{} · /effort", state.effort.chip());
-    lines.push(Line::from(vec![
-        Span::styled(effort_text, Style::default().fg(theme.muted)),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        effort_text,
+        Style::default().fg(theme.muted),
+    )]));
 
     // Top rule
-    lines.push(Line::from(Span::styled(&rule, Style::default().fg(theme.rule))));
+    lines.push(Line::from(Span::styled(
+        &rule,
+        Style::default().fg(theme.rule),
+    )));
 
     // Input line
     let input_text = if state.composer.slash_mode {
@@ -295,13 +319,20 @@ pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &T
     ]));
 
     // Bottom rule
-    lines.push(Line::from(Span::styled(&rule, Style::default().fg(theme.rule))));
+    lines.push(Line::from(Span::styled(
+        &rule,
+        Style::default().fg(theme.rule),
+    )));
 
     // Mode footer
-    let mode_text = format!("{} (shift+tab to cycle) · ? for shortcuts", state.mode.label());
-    lines.push(Line::from(vec![
-        Span::styled(mode_text, Style::default().fg(theme.muted)),
-    ]));
+    let mode_text = format!(
+        "{} (shift+tab to cycle) · ? for shortcuts",
+        state.mode.label()
+    );
+    lines.push(Line::from(vec![Span::styled(
+        mode_text,
+        Style::default().fg(theme.muted),
+    )]));
 
     let composer = Paragraph::new(lines);
     composer.render(area, buf);
@@ -310,12 +341,19 @@ pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &T
 // ── Slash palette ──────────────────────────────────────────────────────
 
 /// Render the slash command palette above the composer.
-pub fn render_palette(area: Rect, buf: &mut Buffer, query: &str, selected_idx: usize, theme: &Theme) {
+pub fn render_palette(
+    area: Rect,
+    buf: &mut Buffer,
+    query: &str,
+    selected_idx: usize,
+    theme: &Theme,
+) {
     let filtered: Vec<&CommandSpec> = if query.is_empty() {
         COMMANDS.iter().collect()
     } else {
         let q = query.to_lowercase();
-        COMMANDS.iter()
+        COMMANDS
+            .iter()
             .filter(|cmd| cmd.name.contains(&q) || cmd.description.to_lowercase().contains(&q))
             .collect()
     };
@@ -323,13 +361,18 @@ pub fn render_palette(area: Rect, buf: &mut Buffer, query: &str, selected_idx: u
     let mut items: Vec<ListItem> = Vec::new();
 
     // Header
-    items.push(ListItem::new(Line::from(vec![
-        Span::styled("Commands", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-    ])));
+    items.push(ListItem::new(Line::from(vec![Span::styled(
+        "Commands",
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+    )])));
 
     for (i, cmd) in filtered.iter().enumerate() {
         let marker = if i == selected_idx { "❯" } else { " " };
-        let color = if i == selected_idx { theme.active } else { theme.text };
+        let color = if i == selected_idx {
+            theme.active
+        } else {
+            theme.text
+        };
         let name_width = 20;
         let name = format!("{:width$}", cmd.name, width = name_width);
         items.push(ListItem::new(Line::from(vec![
@@ -422,11 +465,22 @@ pub fn draw(
 
         // Header
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("darius", Style::default().fg(theme.brand).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "darius",
+                Style::default()
+                    .fg(theme.brand)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" │ ", Style::default().fg(theme.muted)),
-            Span::styled(format!("profile: {}", state.profile), Style::default().fg(theme.text)),
+            Span::styled(
+                format!("profile: {}", state.profile),
+                Style::default().fg(theme.text),
+            ),
             Span::styled(" │ ", Style::default().fg(theme.muted)),
-            Span::styled(format!("model: {}", state.model), Style::default().fg(theme.text)),
+            Span::styled(
+                format!("model: {}", state.model),
+                Style::default().fg(theme.text),
+            ),
         ]))
         .block(Block::default().borders(Borders::ALL).title(" Header "));
         f.render_widget(header, chunks[0]);
@@ -437,11 +491,8 @@ pub fn draw(
             .iter()
             .map(|m| ListItem::new(Line::from(Span::styled(m, Style::default().fg(theme.text)))))
             .collect();
-        let stream = List::new(messages).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Stream "),
-        );
+        let stream =
+            List::new(messages).block(Block::default().borders(Borders::ALL).title(" Stream "));
         f.render_widget(stream, chunks[1]);
 
         // Tasks
@@ -450,11 +501,8 @@ pub fn draw(
             .iter()
             .map(|t| ListItem::new(Line::from(Span::styled(t, Style::default().fg(theme.add)))))
             .collect();
-        let task_list = List::new(tasks).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Tasks "),
-        );
+        let task_list =
+            List::new(tasks).block(Block::default().borders(Borders::ALL).title(" Tasks "));
         f.render_widget(task_list, chunks[2]);
 
         // Input
@@ -628,7 +676,10 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let mut buffer = Buffer::empty(area);
         render_permission(area, &mut buffer, &perm, &theme);
-        insta::assert_snapshot!("permission_chooser_selected_session", buffer_to_string(&buffer));
+        insta::assert_snapshot!(
+            "permission_chooser_selected_session",
+            buffer_to_string(&buffer)
+        );
     }
 
     #[test]

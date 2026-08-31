@@ -81,11 +81,17 @@ mod tests {
     fn scroll_keys() {
         let state = AppState::default();
         assert_eq!(
-            map_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &state),
+            map_key(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                &state
+            ),
             Some(Action::Scroll(-1))
         );
         assert_eq!(
-            map_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &state),
+            map_key(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                &state
+            ),
             Some(Action::Scroll(1))
         );
         assert_eq!(

@@ -30,14 +30,13 @@ parking_lot = "0.12"
 libc = "0.2"
 dirs = "5"
 blake3 = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 
 [features]
 default = []
-live-providers = ["reqwest"]
+live-providers = []
 messaging-telegram = []
 messaging-discord = []
 
-[dependencies.reqwest]
-version = "0.12"
-features = ["json"]
-optional = true
+[dev-dependencies]
+wiremock = "0.6"

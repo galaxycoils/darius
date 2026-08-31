@@ -42,8 +42,11 @@ impl TuiController {
     pub fn new(
         command_capacity: usize,
         event_capacity: usize,
-    ) -> (Self, tokio::sync::mpsc::Receiver<RuntimeCommand>, tokio::sync::broadcast::Sender<UiEvent>)
-    {
+    ) -> (
+        Self,
+        tokio::sync::mpsc::Receiver<RuntimeCommand>,
+        tokio::sync::broadcast::Sender<UiEvent>,
+    ) {
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(command_capacity);
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(event_capacity);
         (
@@ -83,9 +86,18 @@ mod tests {
             .unwrap();
 
         // Receive them in the same order.
-        assert!(matches!(cmd_rx.recv().await, Some(RuntimeCommand::Interrupt)));
-        assert!(matches!(cmd_rx.recv().await, Some(RuntimeCommand::Shutdown)));
-        assert!(matches!(cmd_rx.recv().await, Some(RuntimeCommand::Interrupt)));
+        assert!(matches!(
+            cmd_rx.recv().await,
+            Some(RuntimeCommand::Interrupt)
+        ));
+        assert!(matches!(
+            cmd_rx.recv().await,
+            Some(RuntimeCommand::Shutdown)
+        ));
+        assert!(matches!(
+            cmd_rx.recv().await,
+            Some(RuntimeCommand::Interrupt)
+        ));
     }
 
     #[tokio::test]
@@ -116,7 +128,10 @@ mod tests {
         // Drop the sender to simulate runtime shutdown.
         drop(controller);
         // The queued message is still delivered.
-        assert!(matches!(cmd_rx.recv().await, Some(RuntimeCommand::Shutdown)));
+        assert!(matches!(
+            cmd_rx.recv().await,
+            Some(RuntimeCommand::Shutdown)
+        ));
         // Then the channel closes.
         assert!(cmd_rx.recv().await.is_none());
     }

@@ -81,15 +81,17 @@ impl SessionRuntime {
 
         let (model, model_label) = if profile_config.model.is_none() {
             // No model config: use offline Mock.
-            let plan_response =
-                r#"{"tasks":[{"title":"Plan for the given goal"}]}"#.to_string();
+            let plan_response = r#"{"tasks":[{"title":"Plan for the given goal"}]}"#.to_string();
             let react_responses = vec![
-                r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
+                r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#
+                    .to_string(),
                 "DONE".to_string(),
             ];
             (
-                Box::new(darius_cognitive::MockModel::new(plan_response, react_responses))
-                    as Box<dyn Model>,
+                Box::new(darius_cognitive::MockModel::new(
+                    plan_response,
+                    react_responses,
+                )) as Box<dyn Model>,
                 "mock".to_string(),
             )
         } else {
@@ -173,7 +175,11 @@ mod tests {
     use super::*;
 
     fn temp_profile(name: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("darius_runtime_test_{}_{}", name, uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "darius_runtime_test_{}_{}",
+            name,
+            uuid::Uuid::new_v4()
+        ));
         dir.to_string_lossy().to_string()
     }
 

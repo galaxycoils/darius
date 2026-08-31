@@ -233,7 +233,11 @@ mod tests {
         ));
 
         let (plan, acceptance) = darius_cognitive::run_loop(
-            &darius_cognitive::RunMetadata { profile: "e2e".into(), model: "mock".into(), mode: "auto".into() },
+            &darius_cognitive::RunMetadata {
+                profile: "e2e".into(),
+                model: "mock".into(),
+                mode: "auto".into(),
+            },
             &policy,
             "what is the capital of France?",
             model,

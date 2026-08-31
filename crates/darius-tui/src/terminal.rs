@@ -1,7 +1,4 @@
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 use crate::app::AppState;
@@ -151,8 +148,8 @@ pub fn run_tui() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Records the sequence of backend operations for assertions.
     struct TestBackend {

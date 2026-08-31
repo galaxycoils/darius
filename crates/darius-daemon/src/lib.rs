@@ -44,8 +44,8 @@ pub use handoff::{HandoffError, HandoffStore};
 pub use kanban::{KanbanBoard, KanbanError, KanbanTask, TaskStatus};
 pub use memory::{HindsightMemory, MemoryError, MentalModel, SessionMemory};
 pub use model_router::{
-    BudgetEnforcer, BudgetScope, LiveModel, ModelRole, ModelRouter, Provider, ProviderRegistry,
-    RouterError,
+    BudgetEnforcer, BudgetScope, LiveModel, ModelRole, ModelRouter, OpenAiCompatibleClient,
+    Provider, ProviderRegistry, RouterError,
 };
 pub use platform_adapters::{
     AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter,

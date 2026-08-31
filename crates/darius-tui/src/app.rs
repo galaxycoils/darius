@@ -1,7 +1,13 @@
 use darius_cognitive::UiEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode { #[default] Auto, Manual, AcceptEdits, Plan }
+pub enum Mode {
+    #[default]
+    Auto,
+    Manual,
+    AcceptEdits,
+    Plan,
+}
 
 impl Mode {
     pub fn next(self) -> Self {
@@ -23,7 +29,15 @@ impl Mode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Effort { #[default] Low, Medium, High, XHigh, Max, Ultracode }
+pub enum Effort {
+    #[default]
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+    Ultracode,
+}
 
 impl Effort {
     pub fn chip(self) -> &'static str {
@@ -72,7 +86,13 @@ pub struct PermissionState {
 
 impl PermissionState {
     pub fn new(id: String, title: String, command: String, reason: String) -> Self {
-        Self { id, title, command, reason, selection: 0 }
+        Self {
+            id,
+            title,
+            command,
+            reason,
+            selection: 0,
+        }
     }
 
     /// Current choice based on selection index.
@@ -125,10 +145,23 @@ pub struct AppState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    Insert(char), Backspace, Submit, Quit, Cancel, Interrupt,
-    OpenPalette, PaletteNext, PalettePrev, PaletteAccept,
-    CycleMode, CycleEffort, Scroll(i16), ToggleTool,
-    PermissionNext, PermissionPrev, PermissionChoose,
+    Insert(char),
+    Backspace,
+    Submit,
+    Quit,
+    Cancel,
+    Interrupt,
+    OpenPalette,
+    PaletteNext,
+    PalettePrev,
+    PaletteAccept,
+    CycleMode,
+    CycleEffort,
+    Scroll(i16),
+    ToggleTool,
+    PermissionNext,
+    PermissionPrev,
+    PermissionChoose,
 }
 
 impl Default for AppState {
@@ -217,7 +250,11 @@ impl AppState {
 
     pub fn apply_event(&mut self, event: UiEvent) {
         match event {
-            UiEvent::Header { profile, model, goal } => {
+            UiEvent::Header {
+                profile,
+                model,
+                goal,
+            } => {
                 self.profile = profile;
                 self.model = model;
                 self.goal = Some(goal);
@@ -232,7 +269,9 @@ impl AppState {
             UiEvent::Thinking { text, .. } => {
                 self.messages.push(format!("✦ {text}"));
             }
-            UiEvent::ToolStart { name, args_preview, .. } => {
+            UiEvent::ToolStart {
+                name, args_preview, ..
+            } => {
                 self.messages.push(format!("⏺ {name}({args_preview})"));
             }
             UiEvent::ToolEnd { ok, preview, .. } => {
@@ -240,9 +279,17 @@ impl AppState {
                 self.messages.push(format!("⎿ {mark} {preview}"));
             }
             UiEvent::TaskBoard(tasks) => {
-                self.tasks = tasks.into_iter().map(|t| format!("{:?}: {}", t.status, t.title)).collect();
+                self.tasks = tasks
+                    .into_iter()
+                    .map(|t| format!("{:?}: {}", t.status, t.title))
+                    .collect();
             }
-            UiEvent::PermissionRequired { id, title, command, reason } => {
+            UiEvent::PermissionRequired {
+                id,
+                title,
+                command,
+                reason,
+            } => {
                 self.permission = Some(PermissionState::new(id, title, command, reason));
             }
             UiEvent::Accept { passed, notes } => {
@@ -308,13 +355,13 @@ mod tests {
     fn permission_queue() {
         let mut state = AppState::default();
         assert!(state.next_permission().is_none());
-        
+
         state.push_permission("perm-1".into(), "Write file".into());
         assert!(state.next_permission().is_some());
-        
+
         assert!(state.approve_permission("perm-1"));
         assert!(state.next_permission().is_none());
-        
+
         state.push_permission("perm-2".into(), "Read file".into());
         assert!(state.deny_permission("perm-2"));
         assert!(state.next_permission().is_none());

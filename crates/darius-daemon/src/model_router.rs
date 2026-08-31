@@ -16,6 +16,12 @@ pub enum RouterError {
     NoProviders,
     #[error("request coalesced")]
     Coalesced,
+    #[error("authentication failed (invalid API key)")]
+    Unauthorized,
+    #[error("rate limited (too many requests)")]
+    RateLimited,
+    #[error("provider unavailable ({0})")]
+    ServerError(String),
 }
 
 /// Token accounting for a request.
@@ -175,6 +181,7 @@ pub struct ModelRouter {
     cache_coordinator: Arc<CacheCoordinator>,
     #[allow(dead_code)]
     coalesced: Arc<Mutex<HashMap<String, u64>>>, // request hash -> result hash
+    http_client: OpenAiCompatibleClient,
 }
 
 impl ModelRouter {
@@ -200,6 +207,7 @@ impl ModelRouter {
             budget_enforcer: BudgetEnforcer::new(),
             cache_coordinator,
             coalesced: Arc::new(Mutex::new(HashMap::new())),
+            http_client: OpenAiCompatibleClient::new().unwrap_or_default(),
         }
     }
 
@@ -244,7 +252,20 @@ impl ModelRouter {
                 miss_cost_tokens: 0,
             });
 
-        // Stub: in a real implementation, this would call the provider API.
+        // If the API key env var is set, call the provider via HTTP.
+        if std::env::var(&provider.api_key_env).is_ok() {
+            let messages = serde_json::json!([
+                {"role": "user", "content": prompt}
+            ]);
+            return self.http_client.chat_completion(
+                &provider.base_url,
+                &provider.api_key_env,
+                &provider.model,
+                &[messages],
+            );
+        }
+
+        // Stub fallback: no API key configured.
         Ok(format!(
             "Response from {} for role {role:?}",
             provider.model
@@ -314,10 +335,139 @@ impl darius_cognitive::Model for LiveModel {
     }
 }
 
+/// OpenAI-compatible HTTP client.
+///
+/// Reads the API key from the environment at call time (never stores it),
+/// POSTs to `{base_url}/chat/completions`, and parses `choices[0].message.content`.
+pub struct OpenAiCompatibleClient {
+    inner: reqwest::blocking::Client,
+}
+
+impl OpenAiCompatibleClient {
+    /// Create a new client with a default timeout.
+    pub fn new() -> Result<Self, RouterError> {
+        let inner = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| RouterError::Provider(format!("http client init failed: {e}")))?;
+        Ok(Self { inner })
+    }
+
+    /// Call `/chat/completions` on an OpenAI-compatible provider.
+    ///
+    /// `api_key_env` names the environment variable holding the key; the key
+    /// is read at call time and never stored or logged.
+    pub fn chat_completion(
+        &self,
+        base_url: &str,
+        api_key_env: &str,
+        model: &str,
+        messages: &[serde_json::Value],
+    ) -> Result<String, RouterError> {
+        let api_key = std::env::var(api_key_env).map_err(|_| RouterError::Unauthorized)?;
+
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+        });
+
+        let response = self
+            .inner
+            .post(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+            .json(&body)
+            .send()
+            .map_err(|e| RouterError::Provider(format!("request failed: {e}")))?;
+
+        let status = response.status();
+        if status.is_success() {
+            let json: serde_json::Value = response
+                .json()
+                .map_err(|e| RouterError::Provider(format!("invalid response json: {e}")))?;
+            let content = json
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+                .ok_or_else(|| {
+                    RouterError::Provider("response missing choices[0].message.content".into())
+                })?;
+            Ok(content.to_string())
+        } else {
+            match status.as_u16() {
+                401 | 403 => Err(RouterError::Unauthorized),
+                429 => Err(RouterError::RateLimited),
+                500..=599 => Err(RouterError::ServerError(format!(
+                    "provider returned {status}"
+                ))),
+                _ => Err(RouterError::Provider(format!("provider returned {status}"))),
+            }
+        }
+    }
+}
+
+impl Default for OpenAiCompatibleClient {
+    fn default() -> Self {
+        Self::new().expect("failed to build HTTP client")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use darius_cognitive::Model;
+
+    #[test]
+    fn openai_client_missing_key_returns_unauthorized() {
+        let client = OpenAiCompatibleClient::new().unwrap();
+        let result = client.chat_completion(
+            "http://localhost:1",
+            "DARIUS_TEST_KEY_NEVER_SET",
+            "gpt-4o",
+            &[serde_json::json!({"role":"user","content":"hi"})],
+        );
+        assert!(matches!(result, Err(RouterError::Unauthorized)));
+    }
+
+    #[test]
+    fn openai_client_connection_failure_maps_to_provider_error() {
+        let client = OpenAiCompatibleClient::new().unwrap();
+        let result = client.chat_completion(
+            "http://localhost:1",  // Nothing listening here
+            "DARIUS_TEST_KEY_NEVER_SET",
+            "gpt-4o",
+            &[serde_json::json!({"role":"user","content":"hi"})],
+        );
+        // Missing key is checked first, so this returns Unauthorized
+        assert!(matches!(result, Err(RouterError::Unauthorized)));
+    }
+
+    #[test]
+    fn router_error_does_not_leak_api_key() {
+        let err = RouterError::Provider("some error".into());
+        let display = format!("{err}");
+        assert!(!display.contains("sk-"));
+        assert!(!display.contains("key"));
+    }
+
+    #[test]
+    fn openai_client_secret_never_in_error_text() {
+        let client = OpenAiCompatibleClient::new().unwrap();
+        let result = client.chat_completion(
+            "http://localhost:1",
+            "DARIUS_TEST_KEY_NEVER_SET",
+            "gpt-4o",
+            &[serde_json::json!({"role":"user","content":"hi"})],
+        );
+        if let Err(ref e) = result {
+            let display = format!("{e}");
+            assert!(!display.contains("test-key"));
+            assert!(!display.contains("DARIUS_TEST_KEY"));
+        }
+    }
 
     #[test]
     fn budget_enforcer_within_limit() {

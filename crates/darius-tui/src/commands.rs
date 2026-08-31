@@ -1,8 +1,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandId {
-    Help, Clear, Compact, Model, Mode, Effort, Permissions,
-    Memory, Pack, Tasks, Plan, Status, Config, Skills, A2a,
-    Serve, Stop, Quit,
+    Help,
+    Clear,
+    Compact,
+    Model,
+    Mode,
+    Effort,
+    Permissions,
+    Memory,
+    Pack,
+    Tasks,
+    Plan,
+    Status,
+    Config,
+    Skills,
+    A2a,
+    Serve,
+    Stop,
+    Quit,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -14,30 +29,121 @@ pub struct CommandSpec {
 }
 
 pub const COMMANDS: &[CommandSpec] = &[
-    CommandSpec { id: CommandId::Help, name: "/help", description: "Show commands and keyboard shortcuts", accepts_args: false },
-    CommandSpec { id: CommandId::Clear, name: "/clear", description: "Clear the visible transcript", accepts_args: false },
-    CommandSpec { id: CommandId::Compact, name: "/compact", description: "Compact session context into memory", accepts_args: false },
-    CommandSpec { id: CommandId::Model, name: "/model", description: "Show or select the session model", accepts_args: true },
-    CommandSpec { id: CommandId::Mode, name: "/mode", description: "Cycle or select auto/manual/accept-edits/plan", accepts_args: true },
-    CommandSpec { id: CommandId::Effort, name: "/effort", description: "Select low/medium/high/xhigh/max/ultracode", accepts_args: true },
-    CommandSpec { id: CommandId::Permissions, name: "/permissions", description: "Show the current permission policy", accepts_args: true },
-    CommandSpec { id: CommandId::Memory, name: "/memory", description: "Search durable memory", accepts_args: true },
-    CommandSpec { id: CommandId::Pack, name: "/pack", description: "Show the bounded MemoryPack", accepts_args: false },
-    CommandSpec { id: CommandId::Tasks, name: "/tasks", description: "Show the current task board", accepts_args: false },
-    CommandSpec { id: CommandId::Plan, name: "/plan", description: "Enter plan mode", accepts_args: false },
-    CommandSpec { id: CommandId::Status, name: "/status", description: "Show profile/model/context/kernel status", accepts_args: false },
-    CommandSpec { id: CommandId::Config, name: "/config", description: "Show effective profile configuration", accepts_args: false },
-    CommandSpec { id: CommandId::Skills, name: "/skills", description: "List or search installed skills", accepts_args: true },
-    CommandSpec { id: CommandId::A2a, name: "/a2a", description: "Show A2A card and task status", accepts_args: true },
-    CommandSpec { id: CommandId::Serve, name: "/serve", description: "Start or show the local web/A2A server", accepts_args: true },
-    CommandSpec { id: CommandId::Stop, name: "/stop", description: "Interrupt the active turn", accepts_args: false },
-    CommandSpec { id: CommandId::Quit, name: "/quit", description: "Exit Darius", accepts_args: false },
+    CommandSpec {
+        id: CommandId::Help,
+        name: "/help",
+        description: "Show commands and keyboard shortcuts",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Clear,
+        name: "/clear",
+        description: "Clear the visible transcript",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Compact,
+        name: "/compact",
+        description: "Compact session context into memory",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Model,
+        name: "/model",
+        description: "Show or select the session model",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Mode,
+        name: "/mode",
+        description: "Cycle or select auto/manual/accept-edits/plan",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Effort,
+        name: "/effort",
+        description: "Select low/medium/high/xhigh/max/ultracode",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Permissions,
+        name: "/permissions",
+        description: "Show the current permission policy",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Memory,
+        name: "/memory",
+        description: "Search durable memory",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Pack,
+        name: "/pack",
+        description: "Show the bounded MemoryPack",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Tasks,
+        name: "/tasks",
+        description: "Show the current task board",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Plan,
+        name: "/plan",
+        description: "Enter plan mode",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Status,
+        name: "/status",
+        description: "Show profile/model/context/kernel status",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Config,
+        name: "/config",
+        description: "Show effective profile configuration",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Skills,
+        name: "/skills",
+        description: "List or search installed skills",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::A2a,
+        name: "/a2a",
+        description: "Show A2A card and task status",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Serve,
+        name: "/serve",
+        description: "Start or show the local web/A2A server",
+        accepts_args: true,
+    },
+    CommandSpec {
+        id: CommandId::Stop,
+        name: "/stop",
+        description: "Interrupt the active turn",
+        accepts_args: false,
+    },
+    CommandSpec {
+        id: CommandId::Quit,
+        name: "/quit",
+        description: "Exit Darius",
+        accepts_args: false,
+    },
 ];
 
 /// Filter commands by query (case-insensitive prefix/substring match).
 pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
     let q = query.to_lowercase();
-    COMMANDS.iter()
+    COMMANDS
+        .iter()
         .filter(|cmd| cmd.name.contains(&q) || cmd.description.to_lowercase().contains(&q))
         .collect()
 }
@@ -45,7 +151,7 @@ pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
 /// Parse input into a command, supporting both `/command` and `-command` aliases.
 pub fn parse(input: &str) -> Option<&'static CommandSpec> {
     let trimmed = input.trim();
-    
+
     // Strip leading / or - and extract the command name
     let rest = if trimmed.starts_with('/') {
         &trimmed[1..]
@@ -54,15 +160,15 @@ pub fn parse(input: &str) -> Option<&'static CommandSpec> {
     } else {
         return None;
     };
-    
+
     // Extract command name (before any space)
     let cmd_name = rest.split_whitespace().next().unwrap_or("");
-    
+
     // Build canonical /command name and look it up
     if cmd_name.is_empty() {
         return None;
     }
-    
+
     // Manually check against canonical names (avoid temporary String)
     COMMANDS.iter().find(|c| c.name.get(1..) == Some(cmd_name))
 }

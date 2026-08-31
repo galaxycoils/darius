@@ -474,13 +474,17 @@ mod tests {
                 goal: goal.into()
             }
         );
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, UiEvent::ToolStart { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, UiEvent::ToolStart { .. }))
+        );
         assert!(events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, UiEvent::Accept { passed: true, .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, UiEvent::Accept { passed: true, .. }))
+        );
         assert_eq!(events.last(), Some(&UiEvent::Done));
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -488,10 +492,8 @@ mod tests {
 
     #[test]
     fn header_emits_real_metadata_not_hardcoded() {
-        let dir = std::env::temp_dir().join(format!(
-            "darius_cognitive_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
