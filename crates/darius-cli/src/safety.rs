@@ -36,6 +36,7 @@ pub fn is_safe_write_path(profile: &str, path: &str) -> bool {
 }
 
 /// Get the workspace root for tools (profile subdirectory).
+#[allow(dead_code)]
 pub fn tool_workspace(profile: &str) -> std::path::PathBuf {
     let dir = ProfileConfig::profile_dir(profile).join("workspace");
     std::fs::create_dir_all(&dir).ok();
