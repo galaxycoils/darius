@@ -10,56 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-/// UiEvent (mirrors darius_cognitive::UiEvent).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum UiEvent {
-    Header {
-        profile: String,
-        model: String,
-        goal: String,
-    },
-    AssistantDelta {
-        text: String,
-    },
-    Thinking {
-        text: String,
-    },
-    ToolStart {
-        id: String,
-        name: String,
-        args_preview: String,
-    },
-    ToolEnd {
-        id: String,
-        ok: bool,
-        preview: String,
-        spilled: Option<String>,
-    },
-    TaskBoard(Vec<TaskSnapshot>),
-    PermissionRequired {
-        id: String,
-        reason: String,
-    },
-    Accept {
-        passed: bool,
-        notes: String,
-    },
-    Status {
-        line: String,
-    },
-    A2aTask {
-        task_id: String,
-        state: String,
-    },
-    Done,
-}
+pub use darius_cognitive::UiEvent;
+use darius_cognitive::TaskSnapshot;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TaskSnapshot {
-    pub id: String,
-    pub title: String,
-    pub status: String,
-}
+// Re-export canonical UiEvent so downstream users can match the same type.
+pub use darius_cognitive::UiEvent as CanonicalUiEvent;
 
 /// A2A task state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

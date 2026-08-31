@@ -28,57 +28,8 @@ impl From<String> for CognitiveError {
     }
 }
 
-/// UiEvent bus — sole producer of agent progress events.
-/// Consumers: TUI, Web (SSE), A2A task status.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum UiEvent {
-    Header {
-        profile: String,
-        model: String,
-        goal: String,
-    },
-    AssistantDelta {
-        text: String,
-    },
-    Thinking {
-        text: String,
-    },
-    ToolStart {
-        id: String,
-        name: String,
-        args_preview: String,
-    },
-    ToolEnd {
-        id: String,
-        ok: bool,
-        preview: String,
-        spilled: Option<String>,
-    },
-    TaskBoard(Vec<TaskSnapshot>),
-    PermissionRequired {
-        id: String,
-        reason: String,
-    },
-    Accept {
-        passed: bool,
-        notes: String,
-    },
-    Status {
-        line: String,
-    },
-    A2aTask {
-        task_id: String,
-        state: String,
-    },
-    Done,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TaskSnapshot {
-    pub id: String,
-    pub title: String,
-    pub status: String,
-}
+pub mod ui_events;
+pub use ui_events::*;
 
 /// CognitiveLoop — emits UiEvent progress via channel.
 pub struct CognitiveLoop {
