@@ -1,4 +1,25 @@
 use darius_cognitive::UiEvent;
+use crate::commands::CommandInvocation;
+
+/// Effects that the reducer can produce for the runtime to execute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Effect {
+    SubmitGoal(String),
+    ExecuteCommand(CommandInvocation),
+    Interrupt,
+    ResolvePermission {
+        id: String,
+        choice: PermissionChoice,
+    },
+    Quit,
+}
+
+/// State for the command palette.
+#[derive(Debug, Clone, Default)]
+pub struct PaletteState {
+    pub open: bool,
+    pub selected: usize,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -124,6 +145,7 @@ pub struct PermissionRequest {
 #[derive(Debug, Clone, Default)]
 pub struct ComposerState {
     pub input: String,
+    pub cursor: usize,
     pub slash_mode: bool,
 }
 
@@ -140,6 +162,10 @@ pub struct AppState {
     pub composer: ComposerState,
     pub permission_queue: Vec<PermissionRequest>,
     pub permission: Option<PermissionState>,
+    pub palette: PaletteState,
+    pub exit_requested: bool,
+    pub interrupt_armed: bool,
+    pub status_line: Option<String>,
     pub scroll: u16,
 }
 
@@ -178,6 +204,10 @@ impl Default for AppState {
             composer: ComposerState::default(),
             permission_queue: vec![],
             permission: None,
+            palette: PaletteState::default(),
+            exit_requested: false,
+            interrupt_armed: false,
+            status_line: None,
             scroll: 0,
         }
     }
@@ -248,6 +278,216 @@ impl AppState {
         }
     }
 
+    /// Apply a UI action to the state, returning an optional Effect for the runtime to execute.
+    pub fn reduce(&mut self, action: Action) -> Option<Effect> {
+        // Permission chooser takes priority when active
+        if self.permission.is_some() {
+            return match action {
+                Action::PermissionNext => {
+                    if let Some(ref mut perm) = self.permission {
+                        perm.next();
+                    }
+                    None
+                }
+                Action::PermissionPrev => {
+                    if let Some(ref mut perm) = self.permission {
+                        perm.prev();
+                    }
+                    None
+                }
+                Action::PermissionChoose => {
+                    if let Some(perm) = self.permission.take() {
+                        let choice = perm.current_choice();
+                        self.permission_queue.retain(|p| p.id != perm.id);
+                        Some(Effect::ResolvePermission {
+                            id: perm.id,
+                            choice,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                Action::Cancel => {
+                    self.permission = None;
+                    None
+                }
+                _ => None,
+            };
+        }
+
+        // Palette mode takes priority when open
+        if self.palette.open {
+            return match action {
+                Action::PaletteNext => {
+                    let filtered = crate::commands::filter("");
+                    if !filtered.is_empty() {
+                        self.palette.selected = (self.palette.selected + 1) % filtered.len();
+                    }
+                    None
+                }
+                Action::PalettePrev => {
+                    let filtered = crate::commands::filter("");
+                    if !filtered.is_empty() {
+                        if self.palette.selected == 0 {
+                            self.palette.selected = filtered.len() - 1;
+                        } else {
+                            self.palette.selected -= 1;
+                        }
+                    }
+                    None
+                }
+                Action::PaletteAccept => {
+                    let filtered = crate::commands::filter("");
+                    if let Some(cmd) = filtered.get(self.palette.selected) {
+                        self.palette.open = false;
+                        self.palette.selected = 0;
+                        self.composer.input = format!("/{} ", &cmd.name[1..]);
+                        self.composer.cursor = self.composer.input.chars().count();
+                        self.composer.slash_mode = true;
+                    }
+                    None
+                }
+                Action::Cancel => {
+                    self.palette.open = false;
+                    self.palette.selected = 0;
+                    None
+                }
+                Action::Insert(c) => {
+                    if self.composer.slash_mode {
+                        let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                        let mut chars: Vec<char> = self.composer.input.chars().collect();
+                        chars.insert(cursor, c);
+                        self.composer.input = chars.into_iter().collect();
+                        self.composer.cursor += 1;
+                    }
+                    None
+                }
+                Action::Backspace => {
+                    if self.composer.slash_mode && self.composer.cursor > 0 {
+                        let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                        let mut chars: Vec<char> = self.composer.input.chars().collect();
+                        chars.remove(cursor - 1);
+                        self.composer.input = chars.into_iter().collect();
+                        self.composer.cursor -= 1;
+                    }
+                    None
+                }
+                _ => None,
+            };
+        }
+
+        // Normal mode
+        match action {
+            Action::Insert(c) => {
+                // Insert at UTF-8 character boundary
+                let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                let mut chars: Vec<char> = self.composer.input.chars().collect();
+                chars.insert(cursor, c);
+                self.composer.input = chars.into_iter().collect();
+                self.composer.cursor += 1;
+                // Open palette for / or leading -
+                if self.composer.input == "/" || self.composer.input == "-" {
+                    self.composer.slash_mode = true;
+                    self.palette.open = true;
+                    self.palette.selected = 0;
+                }
+                None
+            }
+            Action::Backspace => {
+                if self.composer.cursor > 0 {
+                    let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                    let mut chars: Vec<char> = self.composer.input.chars().collect();
+                    chars.remove(cursor - 1);
+                    self.composer.input = chars.into_iter().collect();
+                    self.composer.cursor -= 1;
+                    // Exit slash mode if input no longer starts with / or -
+                    if !self.composer.input.starts_with('/') && !self.composer.input.starts_with('-') {
+                        self.composer.slash_mode = false;
+                        self.palette.open = false;
+                    }
+                }
+                None
+            }
+            Action::Submit => {
+                let input = self.composer.input.trim().to_string();
+                if input.is_empty() {
+                    return None;
+                }
+                self.composer.input.clear();
+                self.composer.cursor = 0;
+                self.composer.slash_mode = false;
+                self.palette.open = false;
+
+                // Check if it's a command (starts with / or -)
+                if input.starts_with('/') || input.starts_with('-') {
+                    match crate::commands::parse_invocation(&input) {
+                        Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
+                        Err(e) => {
+                            self.messages.push(format!("✗ {}", e));
+                            None
+                        }
+                    }
+                } else {
+                    Some(Effect::SubmitGoal(input))
+                }
+            }
+            Action::OpenPalette => {
+                self.palette.open = true;
+                self.palette.selected = 0;
+                self.composer.slash_mode = true;
+                None
+            }
+            Action::CycleMode => {
+                self.mode = self.mode.next();
+                self.status_line = Some(self.mode.label().to_string());
+                None
+            }
+            Action::CycleEffort => {
+                self.effort = match self.effort {
+                    Effort::Low => Effort::Medium,
+                    Effort::Medium => Effort::High,
+                    Effort::High => Effort::XHigh,
+                    Effort::XHigh => Effort::Max,
+                    Effort::Max => Effort::Ultracode,
+                    Effort::Ultracode => Effort::Low,
+                };
+                self.status_line = Some(self.effort.chip().to_string());
+                None
+            }
+            Action::Scroll(delta) => {
+                self.scroll = self.scroll.saturating_add_signed(delta as i16);
+                None
+            }
+            Action::ToggleTool => {
+                // Placeholder for tool toggle
+                None
+            }
+            Action::Interrupt => {
+                if self.running {
+                    self.interrupt_armed = true;
+                    Some(Effect::Interrupt)
+                } else {
+                    None
+                }
+            }
+            Action::Cancel => {
+                self.composer.input.clear();
+                self.composer.cursor = 0;
+                self.composer.slash_mode = false;
+                self.palette.open = false;
+                None
+            }
+            Action::Quit => {
+                self.exit_requested = true;
+                Some(Effect::Quit)
+            }
+            // Permission actions handled above when permission is active
+            Action::PermissionNext | Action::PermissionPrev | Action::PermissionChoose => None,
+            // Palette actions handled above when palette is open
+            Action::PaletteNext | Action::PalettePrev | Action::PaletteAccept => None,
+        }
+    }
+
     pub fn apply_event(&mut self, event: UiEvent) {
         match event {
             UiEvent::Header {
@@ -315,6 +555,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::input::map_key;
+    use crossterm::event::{KeyCode, KeyModifiers, KeyEvent};
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)

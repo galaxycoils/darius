@@ -9,7 +9,8 @@ pub mod terminal;
 pub mod theme;
 
 pub use app::{
-    Action, AppState, Effort, Mode, PermissionChoice, PermissionRequest, PermissionState,
+    Action, AppState, Effect, Effort, Mode, PaletteState, PermissionChoice, PermissionRequest,
+    PermissionState,
 };
 pub use controller::{ParsedCommand, RuntimeCommand, TuiController};
 pub use render::{

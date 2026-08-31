@@ -1,10 +1,10 @@
-use crate::app::{Action, AppState};
+use crate::app::{Action, AppState, PermissionState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Map a keyboard event to a TUI action based on current state.
 pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
     // Permission chooser takes priority when active
-    if !state.permission_queue.is_empty() {
+    if state.permission.is_some() {
         return match key.code {
             KeyCode::Up | KeyCode::Char('k') => Some(Action::PermissionNext),
             KeyCode::Down | KeyCode::Char('j') => Some(Action::PermissionPrev),
@@ -14,8 +14,8 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
         };
     }
 
-    // Slash palette mode
-    if state.composer.slash_mode {
+    // Palette mode takes priority when open
+    if state.palette.open {
         return match key.code {
             KeyCode::Esc => Some(Action::Cancel),
             KeyCode::Enter => Some(Action::PaletteAccept),
@@ -30,15 +30,19 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
 
     // Normal mode
     match key.code {
-        KeyCode::Char('/') => Some(Action::OpenPalette),
-        KeyCode::Char('q') if key.modifiers.is_empty() => Some(Action::Quit),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
-        KeyCode::Esc => Some(Action::Cancel),
-        KeyCode::Char('k') | KeyCode::PageUp => Some(Action::Scroll(-1)),
-        KeyCode::Char('j') | KeyCode::PageDown => Some(Action::Scroll(1)),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(if state.running {
+                Action::Interrupt
+            } else {
+                Action::Quit
+            })
+        }
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::CycleMode),
+        KeyCode::PageUp => Some(Action::Scroll(-1)),
+        KeyCode::PageDown => Some(Action::Scroll(1)),
         KeyCode::Enter => Some(Action::Submit),
         KeyCode::Backspace => Some(Action::Backspace),
+        KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char(c) => Some(Action::Insert(c)),
         _ => None,
     }
@@ -64,21 +68,24 @@ mod tests {
     fn slash_opens_palette() {
         let state = AppState::default();
         let key = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
-        assert_eq!(map_key(key, &state), Some(Action::OpenPalette));
+        // / is now typed as Insert, palette opens via reducer after Insert
+        assert_eq!(map_key(key, &state), Some(Action::Insert('/')));
     }
 
     #[test]
-    fn q_quits() {
-        let state = AppState::default();
-        let key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
-        assert_eq!(map_key(key, &state), Some(Action::Quit));
-    }
-
-    #[test]
-    fn ctrl_c_quits() {
+    fn ctrl_c_quits_when_idle() {
         let state = AppState::default();
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        // Not running, so Ctrl+C = Quit
         assert_eq!(map_key(key, &state), Some(Action::Quit));
+    }
+
+    #[test]
+    fn ctrl_c_interrupts_when_running() {
+        let mut state = AppState::default();
+        state.running = true;
+        let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(map_key(key, &state), Some(Action::Interrupt));
     }
 
     #[test]
@@ -89,22 +96,8 @@ mod tests {
     }
 
     #[test]
-    fn scroll_keys() {
+    fn page_keys_scroll() {
         let state = AppState::default();
-        assert_eq!(
-            map_key(
-                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-                &state
-            ),
-            Some(Action::Scroll(-1))
-        );
-        assert_eq!(
-            map_key(
-                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-                &state
-            ),
-            Some(Action::Scroll(1))
-        );
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE), &state),
             Some(Action::Scroll(-1))
@@ -125,7 +118,7 @@ mod tests {
     #[test]
     fn palette_navigation() {
         let mut state = AppState::default();
-        state.composer.slash_mode = true;
+        state.palette.open = true;
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &state),
             Some(Action::PalettePrev)
@@ -147,7 +140,13 @@ mod tests {
     #[test]
     fn permission_chooser_priority() {
         let mut state = AppState::default();
-        state.push_permission("p1".into(), "test".into());
+        // Set active permission directly (new API)
+        state.permission = Some(PermissionState::new(
+            "p1".into(),
+            "Write file".into(),
+            "fs::write".into(),
+            "Write to disk".into(),
+        ));
         // When permission is active, arrow keys navigate permission, not scroll
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &state),

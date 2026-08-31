@@ -20,6 +20,13 @@ pub enum CommandId {
     Quit,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandInvocation {
+    pub id: CommandId,
+    pub name: String,
+    pub args: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CommandSpec {
     pub id: CommandId,
@@ -181,6 +188,20 @@ pub fn dash_alias_to_slash(input: &str) -> String {
     } else {
         input.to_string()
     }
+}
+
+/// Parse a full command invocation with arguments.
+pub fn parse_invocation(input: &str) -> Result<CommandInvocation, String> {
+    let canonical = dash_alias_to_slash(input.trim());
+    let mut parts = canonical.splitn(2, char::is_whitespace);
+    let name = parts.next().unwrap_or_default();
+    let args = parts.next().unwrap_or_default().trim().to_string();
+    let spec = COMMANDS.iter().find(|item| item.name == name)
+        .ok_or_else(|| format!("unknown command: {name}"))?;
+    if !spec.accepts_args && !args.is_empty() {
+        return Err(format!("{} does not accept arguments", spec.name));
+    }
+    Ok(CommandInvocation { id: spec.id, name: spec.name.into(), args })
 }
 
 #[cfg(test)]
