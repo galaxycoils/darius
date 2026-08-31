@@ -13,7 +13,7 @@ pub use app::{
     PermissionChoice, PermissionRequest, PermissionState, TaskDisplay, TaskStatus, ToolView,
     TranscriptItem,
 };
-pub use controller::{ParsedCommand, RuntimeCommand, TuiController};
+pub use controller::{RuntimeCommand, TuiController};
 pub use terminal::run_tui;
 
 pub use darius_cognitive as cognitive;
