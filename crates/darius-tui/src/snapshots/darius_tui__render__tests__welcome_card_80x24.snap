@@ -1,0 +1,28 @@
+---
+source: crates/darius-tui/src/render.rs
+expression: rendered
+---
+╭◆ darius v1.1.0───────────────────────────────────────────────────────────────╮
+│Welcome back                                                                  │
+│model   gpt-4o-mini                                                           │
+│cwd     ~/dev/project                                                         │
+│profile default  ·  kernel rust  ·  /help                                     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
