@@ -227,7 +227,10 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let policy = darius_cognitive::LoopPolicy::default();
 
     let model: Box<dyn darius_cognitive::Model> = if config.is_configured() {
-        println!("Using live provider: {}", config.model.as_ref().unwrap().provider);
+        println!(
+            "Using live provider: {}",
+            config.model.as_ref().unwrap().provider
+        );
         let cache = std::sync::Arc::new(darius_daemon::CacheCoordinator::new());
         let router = darius_daemon::ModelRouter::new(cache);
         if let Some(ref model_config) = config.model {
@@ -238,10 +241,15 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 enabled: true,
             });
         }
-        Box::new(darius_daemon::LiveModel::new(router, darius_daemon::BudgetScope::Session))
+        Box::new(darius_daemon::LiveModel::new(
+            router,
+            darius_daemon::BudgetScope::Session,
+        ))
     } else {
         println!("No provider configured. Using offline MockModel.");
-        println!("Set DARIUS_API_KEY and create ~/.darius/profiles/default/config.toml to use live providers.");
+        println!(
+            "Set DARIUS_API_KEY and create ~/.darius/profiles/default/config.toml to use live providers."
+        );
         let plan_response = format!(
             r#"{{"tasks":[{{"title":"Plan for: {}"}}]}}"#,
             goal.replace('"', "\\\"")
@@ -250,7 +258,10 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
             "DONE".to_string(),
         ];
-        Box::new(darius_cognitive::MockModel::new(plan_response, react_responses))
+        Box::new(darius_cognitive::MockModel::new(
+            plan_response,
+            react_responses,
+        ))
     };
 
     let (plan, acceptance) =
