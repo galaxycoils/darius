@@ -250,4 +250,49 @@ mod tests {
         // Cleanup
         let _ = std::fs::remove_dir_all(&profile_dir);
     }
+
+    #[test]
+    fn ship_gate_spill_on_large_tool_output() {
+        let profile_dir =
+            std::env::temp_dir().join(format!("darius_ship_spill_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&profile_dir).unwrap();
+
+        let memory = darius_memory::MemoryEngine::open(&profile_dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&profile_dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        // Insert a record with large body (near 32 KiB)
+        let large_body = "x".repeat(32_768);
+        memory
+            .upsert(darius_memory::NewRecord {
+                kind: darius_memory::RecordKind::Note,
+                title: Some("large record".into()),
+                body: large_body,
+                tags: vec![],
+                importance: 0.5,
+                source: None,
+            })
+            .unwrap();
+
+        // Search should return the large record
+        let search_call = darius_tools::ToolCall {
+            id: "spill-test".into(),
+            name: "memory_search".into(),
+            arguments: serde_json::json!({"text": "large record"}),
+        };
+        let outcome = tools.execute(&search_call);
+        match outcome {
+            darius_tools::ToolOutcome::Ok { preview, .. } => {
+                // Preview should be capped at 1000 chars (from register_memory_builtins)
+                assert!(preview.len() <= 1001, "preview too long: {}", preview.len());
+            }
+            darius_tools::ToolOutcome::Err { message } => panic!("search failed: {message}"),
+        }
+
+        // Verify spill directory exists
+        let spill_dir = profile_dir.join("tool_results");
+        assert!(spill_dir.exists());
+
+        let _ = std::fs::remove_dir_all(&profile_dir);
+    }
 }
