@@ -411,8 +411,9 @@ fn cmd_tui(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         events: event_rx,
     };
 
-    // Run the TUI.
-    darius_tui::run_tui(state, controller).map_err(|e| e.into())
+    darius_tui::run_tui(state, controller)?;
+    let _ = worker_handle.join();
+    Ok(())
 }
 
 fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {

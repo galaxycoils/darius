@@ -265,6 +265,14 @@ pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &T
         Style::default().fg(theme.rule),
     )));
 
+    // Status line (e.g. "Done") above the mode footer, if set.
+    if let Some(ref status) = state.status_line {
+        lines.push(Line::from(vec![Span::styled(
+            status.clone(),
+            Style::default().fg(theme.active),
+        )]));
+    }
+
     // Mode footer
     let mode_text = format!(
         "{} (shift+tab to cycle) · ? for shortcuts",
