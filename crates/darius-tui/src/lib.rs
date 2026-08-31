@@ -31,6 +31,13 @@ pub struct TuiState {
     pub tasks: Vec<String>,
     pub input: String,
     pub slash_mode: bool,
+    pub permission_queue: Vec<PermissionRequest>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PermissionRequest {
+    pub id: String,
+    pub reason: String,
 }
 
 impl TuiState {
@@ -40,6 +47,7 @@ impl TuiState {
             tasks: vec![],
             input: String::new(),
             slash_mode: false,
+            permission_queue: vec![],
         }
     }
 
@@ -49,6 +57,32 @@ impl TuiState {
 
     pub fn set_tasks(&mut self, tasks: Vec<String>) {
         self.tasks = tasks;
+    }
+
+    pub fn push_permission(&mut self, id: String, reason: String) {
+        self.permission_queue.push(PermissionRequest { id, reason });
+    }
+
+    pub fn approve_permission(&mut self, id: &str) -> bool {
+        if let Some(pos) = self.permission_queue.iter().position(|p| p.id == id) {
+            self.permission_queue.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn deny_permission(&mut self, id: &str) -> bool {
+        if let Some(pos) = self.permission_queue.iter().position(|p| p.id == id) {
+            self.permission_queue.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn next_permission(&self) -> Option<&PermissionRequest> {
+        self.permission_queue.first()
     }
 }
 
@@ -151,6 +185,24 @@ pub fn run_tui() -> io::Result<()> {
                     match cmd.as_str() {
                         "quit" | "q" => break,
                         "help" => state.push_message("Commands: /run /stop /memory /pack /tasks /plan /approve /deny /mode /help /quit"),
+                        "approve" => {
+                            if let Some(perm) = state.next_permission() {
+                                let id = perm.id.clone();
+                                state.approve_permission(&id);
+                                state.push_message(format!("Approved: {id}"));
+                            } else {
+                                state.push_message("No pending permissions");
+                            }
+                        }
+                        "deny" => {
+                            if let Some(perm) = state.next_permission() {
+                                let id = perm.id.clone();
+                                state.deny_permission(&id);
+                                state.push_message(format!("Denied: {id}"));
+                            } else {
+                                state.push_message("No pending permissions");
+                            }
+                        }
                         _ => state.push_message(format!("Unknown command: /{}", cmd)),
                     }
                 }
@@ -192,5 +244,21 @@ mod tests {
         let mut state = TuiState::new();
         state.set_tasks(vec!["task 1".into(), "task 2".into()]);
         assert_eq!(state.tasks.len(), 2);
+    }
+
+    #[test]
+    fn tui_permission_queue() {
+        let mut state = TuiState::new();
+        assert!(state.next_permission().is_none());
+        
+        state.push_permission("perm-1".into(), "Write file".into());
+        assert!(state.next_permission().is_some());
+        
+        assert!(state.approve_permission("perm-1"));
+        assert!(state.next_permission().is_none());
+        
+        state.push_permission("perm-2".into(), "Read file".into());
+        assert!(state.deny_permission("perm-2"));
+        assert!(state.next_permission().is_none());
     }
 }
