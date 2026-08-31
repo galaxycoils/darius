@@ -31,6 +31,15 @@ impl From<String> for CognitiveError {
 pub mod ui_events;
 pub use ui_events::*;
 
+/// Run metadata — emitted in the Header event so consumers know which
+/// profile, model, and mode produced a given session.
+#[derive(Debug, Clone)]
+pub struct RunMetadata {
+    pub profile: String,
+    pub model: String,
+    pub mode: String,
+}
+
 /// CognitiveLoop — emits UiEvent progress via channel.
 pub struct CognitiveLoop {
     event_sender: Sender<UiEvent>,
@@ -44,6 +53,7 @@ impl CognitiveLoop {
 
     pub fn run(
         &self,
+        metadata: &RunMetadata,
         policy: &LoopPolicy,
         goal: &str,
         mut model: Box<dyn Model>,
@@ -51,8 +61,8 @@ impl CognitiveLoop {
         memory: &darius_memory::MemoryEngine,
     ) -> Result<(Plan, Acceptance), CognitiveError> {
         self.emit(UiEvent::Header {
-            profile: "default".into(),
-            model: "mock".into(),
+            profile: metadata.profile.clone(),
+            model: metadata.model.clone(),
             goal: goal.into(),
         });
 
@@ -256,6 +266,7 @@ pub enum Acceptance {
 
 /// Run a cognitive loop with the given policy, model, and goal.
 pub fn run_loop(
+    metadata: &RunMetadata,
     policy: &LoopPolicy,
     goal: &str,
     model: Box<dyn Model>,
@@ -263,7 +274,7 @@ pub fn run_loop(
     memory: &darius_memory::MemoryEngine,
 ) -> Result<(Plan, Acceptance), CognitiveError> {
     let (runner, _events) = CognitiveLoop::new();
-    runner.run(policy, goal, model, tools, memory)
+    runner.run(metadata, policy, goal, model, tools, memory)
 }
 
 /// Trait for models that can be used in the cognitive loop.
@@ -309,6 +320,14 @@ impl Model for MockModel {
 mod tests {
     use super::*;
 
+    fn default_metadata() -> RunMetadata {
+        RunMetadata {
+            profile: "default".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        }
+    }
+
     #[test]
     fn parse_plan_valid() {
         let json = r#"{"tasks":[{"title":"task 1"},{"title":"task 2"}]}"#;
@@ -339,6 +358,7 @@ mod tests {
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
 
+        let metadata = default_metadata();
         let policy = LoopPolicy::default();
         let goal = "test goal";
 
@@ -350,7 +370,8 @@ mod tests {
 
         let model = Box::new(MockModel::new(plan_response, react_responses));
 
-        let (plan, acceptance) = run_loop(&policy, goal, model, &mut tools, &memory).unwrap();
+        let (plan, acceptance) =
+            run_loop(&metadata, &policy, goal, model, &mut tools, &memory).unwrap();
 
         assert_eq!(plan.tasks.len(), 1);
         match acceptance {
@@ -369,6 +390,7 @@ mod tests {
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
 
+        let metadata = default_metadata();
         let policy = LoopPolicy::default();
         let goal = "test goal";
 
@@ -377,7 +399,7 @@ mod tests {
 
         let model = Box::new(MockModel::new(plan_response, react_responses));
 
-        let result = run_loop(&policy, goal, model, &mut tools, &memory);
+        let result = run_loop(&metadata, &policy, goal, model, &mut tools, &memory);
         assert!(result.is_err());
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -391,6 +413,7 @@ mod tests {
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
 
+        let metadata = default_metadata();
         let policy = LoopPolicy::default();
         let goal = "test goal";
 
@@ -404,7 +427,7 @@ mod tests {
 
         let model = Box::new(MockModel::new(plan_response, react_responses));
 
-        let result = run_loop(&policy, goal, model, &mut tools, &memory);
+        let result = run_loop(&metadata, &policy, goal, model, &mut tools, &memory);
         assert!(result.is_err());
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -418,6 +441,7 @@ mod tests {
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
 
+        let metadata = default_metadata();
         let policy = LoopPolicy::default();
         let goal = "test goal";
 
@@ -430,7 +454,7 @@ mod tests {
 
         let (loop_instance, rx) = CognitiveLoop::new();
         let (plan, acceptance) = loop_instance
-            .run(&policy, goal, model, &mut tools, &memory)
+            .run(&metadata, &policy, goal, model, &mut tools, &memory)
             .unwrap();
 
         assert_eq!(plan.tasks.len(), 1);
@@ -450,18 +474,59 @@ mod tests {
                 goal: goal.into()
             }
         );
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, UiEvent::ToolStart { .. }))
-        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, UiEvent::ToolStart { .. })));
         assert!(events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, UiEvent::Accept { passed: true, .. }))
-        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, UiEvent::Accept { passed: true, .. })));
         assert_eq!(events.last(), Some(&UiEvent::Done));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn header_emits_real_metadata_not_hardcoded() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_cognitive_test_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+
+        let metadata = RunMetadata {
+            profile: "work".into(),
+            model: "gpt-4o-mini".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+        let goal = "test goal";
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let model = Box::new(MockModel::new(plan_response, react_responses));
+
+        let (loop_instance, rx) = CognitiveLoop::new();
+        let (_plan, _acceptance) = loop_instance
+            .run(&metadata, &policy, goal, model, &mut tools, &memory)
+            .unwrap();
+
+        drop(loop_instance);
+
+        let events: Vec<UiEvent> = rx.iter().collect();
+        assert_eq!(
+            events[0],
+            UiEvent::Header {
+                profile: "work".into(),
+                model: "gpt-4o-mini".into(),
+                goal: goal.into()
+            }
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

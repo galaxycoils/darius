@@ -269,7 +269,7 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let (plan, acceptance) =
-        darius_cognitive::run_loop(&policy, &goal, model, &mut tools, &memory)?;
+        darius_cognitive::run_loop(&darius_cognitive::RunMetadata { profile: profile_name.clone(), model: "mock".into(), mode: "auto".into() }, &policy, &goal, model, &mut tools, &memory)?;
 
     println!("Plan: {} tasks", plan.tasks.len());
     match acceptance {
