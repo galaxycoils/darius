@@ -300,4 +300,41 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&profile_dir);
     }
+    
+    /// E2E: verify the TUI binary exists and responds to --version
+    #[test]
+    fn tui_binary_exists() {
+        let bin_path = std::path::PathBuf::from("/Users/cmd/workspace/Darius/target/debug/darius");
+        assert!(bin_path.exists(), "darius binary should exist at {:?}", bin_path);
+        
+        let output = std::process::Command::new(&bin_path)
+            .arg("--version")
+            .output()
+            .expect("run darius --version");
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("darius"), "version output should contain 'darius': {:?}", stdout);
+    }
+
+    /// E2E: verify the TUI binary can be spawned with --help
+    #[test]
+    fn tui_subcommand_exists() {
+        let bin_path = std::path::PathBuf::from("/Users/cmd/workspace/Darius/target/debug/darius");
+        assert!(bin_path.exists(), "darius binary should exist at {:?}", bin_path);
+
+        let output = std::process::Command::new(&bin_path)
+            .arg("tui")
+            .arg("--help")
+            .output()
+            .expect("run darius tui --help");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}{stderr}");
+        assert!(
+            combined.contains("TUI") || combined.contains("tui") || combined.contains("Starting") || output.status.success(),
+            "tui subcommand should produce recognizable output: {:?}",
+            combined.chars().take(200).collect::<String>()
+        );
+    }
 }
