@@ -231,7 +231,7 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let policy = darius_cognitive::LoopPolicy::default();
 
-    let model: Box<dyn darius_cognitive::Model> = if config.is_configured() {
+    let mut model: Box<dyn darius_cognitive::Model> = if config.is_configured() {
         println!(
             "Using live provider: {}",
             config.model.as_ref().unwrap().provider
@@ -281,7 +281,7 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         },
         &policy,
         &goal,
-        model,
+        &mut *model,
         &mut tools,
         &memory,
     )?;

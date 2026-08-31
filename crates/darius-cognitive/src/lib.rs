@@ -3,7 +3,8 @@
 pub mod skills;
 
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,6 +21,8 @@ pub enum CognitiveError {
     Io(#[from] std::io::Error),
     #[error("board error: {0}")]
     Board(String),
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl From<String> for CognitiveError {
@@ -31,6 +34,33 @@ impl From<String> for CognitiveError {
 pub mod ui_events;
 pub use ui_events::*;
 
+/// Control handle for cancellation and tool approval.
+pub trait RunControl: Send + Sync {
+    fn is_cancelled(&self) -> bool;
+    fn approve_tool(
+        &self,
+        call: &darius_tools::ToolCall,
+        risk: darius_tools::ToolRisk,
+    ) -> Result<PermissionChoice, CognitiveError>;
+}
+
+/// No-op RunControl for CLI tests — never cancelled, auto-approves tools.
+pub struct NoopRunControl;
+
+impl RunControl for NoopRunControl {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+
+    fn approve_tool(
+        &self,
+        _call: &darius_tools::ToolCall,
+        _risk: darius_tools::ToolRisk,
+    ) -> Result<PermissionChoice, CognitiveError> {
+        Ok(PermissionChoice::AllowOnce)
+    }
+}
+
 /// Run metadata — emitted in the Header event so consumers know which
 /// profile, model, and mode produced a given session.
 #[derive(Debug, Clone)]
@@ -40,15 +70,23 @@ pub struct RunMetadata {
     pub mode: String,
 }
 
-/// CognitiveLoop — emits UiEvent progress via channel.
+/// CognitiveLoop — emits UiEvent progress via an EventSink and honors RunControl.
 pub struct CognitiveLoop {
-    event_sender: Sender<UiEvent>,
+    sink: Arc<dyn EventSink>,
+    control: Arc<dyn RunControl>,
 }
 
 impl CognitiveLoop {
-    pub fn new() -> (Self, std::sync::mpsc::Receiver<UiEvent>) {
+    pub fn new(sink: Arc<dyn EventSink>, control: Arc<dyn RunControl>) -> Self {
+        Self { sink, control }
+    }
+
+    /// Create a CognitiveLoop backed by an std mpsc channel and NoopRunControl.
+    pub fn with_channel() -> (Self, std::sync::mpsc::Receiver<UiEvent>) {
         let (tx, rx) = mpsc::channel();
-        (Self { event_sender: tx }, rx)
+        let sink = Arc::new(ChannelEventSink::new(tx));
+        let control = Arc::new(NoopRunControl);
+        (Self { sink, control }, rx)
     }
 
     pub fn run(
@@ -56,7 +94,7 @@ impl CognitiveLoop {
         metadata: &RunMetadata,
         policy: &LoopPolicy,
         goal: &str,
-        mut model: Box<dyn Model>,
+        model: &mut dyn Model,
         tools: &mut darius_tools::ToolRegistry,
         memory: &darius_memory::MemoryEngine,
     ) -> Result<(Plan, Acceptance), CognitiveError> {
@@ -65,6 +103,15 @@ impl CognitiveLoop {
             model: metadata.model.clone(),
             goal: goal.into(),
         });
+
+        // Check cancellation before planning.
+        if self.control.is_cancelled() {
+            self.emit(UiEvent::Status {
+                line: "Interrupted".into(),
+            });
+            self.emit(UiEvent::Done);
+            return Err(CognitiveError::Cancelled);
+        }
 
         // Step 1: Get plan from model
         let plan_text = model.plan(goal)?;
@@ -92,6 +139,15 @@ impl CognitiveLoop {
         for task_id in &task_ids {
             let mut iter_count = 0;
             while iter_count < policy.max_react_iters {
+                // Check cancellation before each ReAct iteration.
+                if self.control.is_cancelled() {
+                    self.emit(UiEvent::Status {
+                        line: "Interrupted".into(),
+                    });
+                    self.emit(UiEvent::Done);
+                    return Err(CognitiveError::Cancelled);
+                }
+
                 if board
                     .get(task_id)
                     .map(|t| t.status == darius_tools::TaskStatus::Completed)
@@ -124,6 +180,15 @@ impl CognitiveLoop {
                 }
 
                 for call in &tool_calls {
+                    // Check cancellation before each tool.
+                    if self.control.is_cancelled() {
+                        self.emit(UiEvent::Status {
+                            line: "Interrupted".into(),
+                        });
+                        self.emit(UiEvent::Done);
+                        return Err(CognitiveError::Cancelled);
+                    }
+
                     self.emit(UiEvent::ToolStart {
                         id: call.id.clone(),
                         name: call.name.clone(),
@@ -190,8 +255,8 @@ impl CognitiveLoop {
     }
 
     fn emit(&self, event: UiEvent) {
-        let _ = self.event_sender.send(event);
-    }
+            self.sink.emit(event);
+        }
 
     fn emit_task_board(&self, board: &darius_tools::TaskBoard) {
         let snapshots: Vec<TaskSnapshot> = board
@@ -269,11 +334,11 @@ pub fn run_loop(
     metadata: &RunMetadata,
     policy: &LoopPolicy,
     goal: &str,
-    model: Box<dyn Model>,
+    model: &mut dyn Model,
     tools: &mut darius_tools::ToolRegistry,
     memory: &darius_memory::MemoryEngine,
 ) -> Result<(Plan, Acceptance), CognitiveError> {
-    let (runner, _events) = CognitiveLoop::new();
+    let (runner, _events) = CognitiveLoop::with_channel();
     runner.run(metadata, policy, goal, model, tools, memory)
 }
 
@@ -368,10 +433,10 @@ mod tests {
             "DONE".to_string(),
         ];
 
-        let model = Box::new(MockModel::new(plan_response, react_responses));
+        let mut model = MockModel::new(plan_response, react_responses);
 
         let (plan, acceptance) =
-            run_loop(&metadata, &policy, goal, model, &mut tools, &memory).unwrap();
+            run_loop(&metadata, &policy, goal, &mut model, &mut tools, &memory).unwrap();
 
         assert_eq!(plan.tasks.len(), 1);
         match acceptance {
@@ -397,9 +462,9 @@ mod tests {
         let plan_response = r#"{"tasks":[]}"#.to_string();
         let react_responses = vec![];
 
-        let model = Box::new(MockModel::new(plan_response, react_responses));
+        let mut model = MockModel::new(plan_response, react_responses);
 
-        let result = run_loop(&metadata, &policy, goal, model, &mut tools, &memory);
+        let result = run_loop(&metadata, &policy, goal, &mut model, &mut tools, &memory);
         assert!(result.is_err());
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -425,9 +490,9 @@ mod tests {
         let plan_response = format!(r#"{{"tasks":[{}]}}"#, tasks.join(","));
         let react_responses = vec![];
 
-        let model = Box::new(MockModel::new(plan_response, react_responses));
+        let mut model = MockModel::new(plan_response, react_responses);
 
-        let result = run_loop(&metadata, &policy, goal, model, &mut tools, &memory);
+        let result = run_loop(&metadata, &policy, goal, &mut model, &mut tools, &memory);
         assert!(result.is_err());
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -450,11 +515,11 @@ mod tests {
             r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
             "DONE".to_string(),
         ];
-        let model = Box::new(MockModel::new(plan_response, react_responses));
+        let mut model = MockModel::new(plan_response, react_responses);
 
-        let (loop_instance, rx) = CognitiveLoop::new();
+        let (loop_instance, rx) = CognitiveLoop::with_channel();
         let (plan, acceptance) = loop_instance
-            .run(&metadata, &policy, goal, model, &mut tools, &memory)
+            .run(&metadata, &policy, goal, &mut model, &mut tools, &memory)
             .unwrap();
 
         assert_eq!(plan.tasks.len(), 1);
@@ -511,11 +576,11 @@ mod tests {
             r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
             "DONE".to_string(),
         ];
-        let model = Box::new(MockModel::new(plan_response, react_responses));
+        let mut model = MockModel::new(plan_response, react_responses);
 
-        let (loop_instance, rx) = CognitiveLoop::new();
+        let (loop_instance, rx) = CognitiveLoop::with_channel();
         let (_plan, _acceptance) = loop_instance
-            .run(&metadata, &policy, goal, model, &mut tools, &memory)
+            .run(&metadata, &policy, goal, &mut model, &mut tools, &memory)
             .unwrap();
 
         drop(loop_instance);
@@ -529,6 +594,296 @@ mod tests {
                 goal: goal.into()
             }
         );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn model_is_reusable_across_two_turns() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+
+        let metadata = default_metadata();
+        let policy = LoopPolicy::default();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        // First turn
+        let (plan1, acceptance1) = run_loop(
+            &metadata,
+            &policy,
+            "first goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        )
+        .unwrap();
+        assert_eq!(plan1.tasks.len(), 1);
+        assert!(matches!(acceptance1, Acceptance::Accepted));
+
+        // Second turn with the same model
+        let (plan2, acceptance2) = run_loop(
+            &metadata,
+            &policy,
+            "second goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        )
+        .unwrap();
+        assert_eq!(plan2.tasks.len(), 1);
+        assert!(matches!(acceptance2, Acceptance::Accepted));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --- Task 3.2: EventSink and cancellation tests ---
+
+    /// Test EventSink that collects emitted events.
+    struct TestSink {
+        events: std::sync::Mutex<Vec<UiEvent>>,
+    }
+
+    impl TestSink {
+        fn raw() -> Self {
+            Self {
+                events: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn events(&self) -> std::sync::MutexGuard<'_, Vec<UiEvent>> {
+            self.events.lock().unwrap()
+        }
+    }
+
+    impl EventSink for TestSink {
+        fn emit(&self, event: UiEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    /// Test RunControl with configurable cancellation.
+    struct TestRunControl {
+        cancelled: std::sync::atomic::AtomicBool,
+    }
+
+    impl TestRunControl {
+        fn new(cancelled: bool) -> Self {
+            Self {
+                cancelled: std::sync::atomic::AtomicBool::new(cancelled),
+            }
+        }
+    }
+
+    impl RunControl for TestRunControl {
+        fn is_cancelled(&self) -> bool {
+            self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        fn approve_tool(
+            &self,
+            _call: &darius_tools::ToolCall,
+            _risk: darius_tools::ToolRisk,
+        ) -> Result<PermissionChoice, CognitiveError> {
+            Ok(PermissionChoice::AllowOnce)
+        }
+    }
+
+    fn setup_cognitive_test() -> (
+        std::path::PathBuf,
+        darius_memory::MemoryEngine,
+        darius_tools::ToolRegistry,
+        RunMetadata,
+        LoopPolicy,
+    ) {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+        (dir, memory, tools, metadata, policy)
+    }
+
+    #[test]
+    fn event_sink_receives_events_as_they_happen() {
+        let (dir, memory, mut tools, metadata, policy) = setup_cognitive_test();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(TestRunControl::new(false));
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let (_plan, _acceptance) = loop_inst
+            .run(&metadata, &policy, "test goal", &mut model, &mut tools, &memory)
+            .unwrap();
+
+        let events = sink.events();
+        assert!(!events.is_empty());
+        assert!(events.iter().any(|e| matches!(e, UiEvent::Header { .. })));
+        assert!(events.iter().any(|e| matches!(e, UiEvent::TaskBoard(_))));
+        assert!(events.iter().any(|e| matches!(e, UiEvent::ToolStart { .. })));
+        assert!(events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
+        assert!(events.iter().any(|e| matches!(e, UiEvent::Accept { .. })));
+        assert_eq!(events.last(), Some(&UiEvent::Done));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cancellation_prevents_tool_execution() {
+        let (dir, memory, mut tools, metadata, policy) = setup_cognitive_test();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        // Cancel before planning even starts.
+        let control = Arc::new(TestRunControl::new(true));
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CognitiveError::Cancelled));
+
+        let events = sink.events();
+        // Should have Header, Status "Interrupted", Done — but no tool events.
+        assert!(events.iter().any(|e| matches!(e, UiEvent::Header { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, UiEvent::Status { line } if line == "Interrupted"))
+        );
+        assert!(!events.iter().any(|e| matches!(e, UiEvent::ToolStart { .. })));
+        assert!(!events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cancellation_always_ends_with_done() {
+        let (dir, memory, mut tools, metadata, policy) = setup_cognitive_test();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(TestRunControl::new(true));
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_err());
+
+        let events = sink.events();
+        // Last event must always be Done.
+        assert_eq!(events.last(), Some(&UiEvent::Done));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn two_turns_dont_leak_events() {
+        let (dir, memory, mut tools, metadata, policy) = setup_cognitive_test();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+
+        // Turn 1
+        let sink1 = Arc::new(TestSink::raw());
+        let control1 = Arc::new(TestRunControl::new(false));
+        let loop1 = CognitiveLoop::new(sink1.clone(), control1);
+        let mut model1 = MockModel::new(plan_response.clone(), react_responses.clone());
+        loop1
+            .run(
+                &metadata,
+                &policy,
+                "first goal",
+                &mut model1,
+                &mut tools,
+                &memory,
+            )
+            .unwrap();
+
+        // Turn 2 with a fresh sink
+        let sink2 = Arc::new(TestSink::raw());
+        let control2 = Arc::new(TestRunControl::new(false));
+        let loop2 = CognitiveLoop::new(sink2.clone(), control2);
+        let mut model2 = MockModel::new(plan_response, react_responses);
+        loop2
+            .run(
+                &metadata,
+                &policy,
+                "second goal",
+                &mut model2,
+                &mut tools,
+                &memory,
+            )
+            .unwrap();
+
+        let events1 = sink1.events();
+        let events2 = sink2.events();
+
+        // Each sink should have exactly its own events.
+        assert!(!events1.is_empty());
+        assert!(!events2.is_empty());
+
+        // Both should start with Header and end with Done.
+        assert!(events1.iter().any(|e| matches!(e, UiEvent::Header { .. })));
+        assert_eq!(events1.last(), Some(&UiEvent::Done));
+        assert!(events2.iter().any(|e| matches!(e, UiEvent::Header { .. })));
+        assert_eq!(events2.last(), Some(&UiEvent::Done));
+
+        // Turn 2 events should NOT contain "first goal" header.
+        assert!(!events2
+            .iter()
+            .any(|e| matches!(e, UiEvent::Header { goal, .. } if goal == "first goal")));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

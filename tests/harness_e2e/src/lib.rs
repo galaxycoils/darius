@@ -227,10 +227,10 @@ mod tests {
             r#"TOOL {"name":"memory_search","arguments":{"text":"France"}}"#.to_string(),
             "DONE".to_string(),
         ];
-        let model = Box::new(darius_cognitive::MockModel::new(
+        let mut model = darius_cognitive::MockModel::new(
             plan_response,
             react_responses,
-        ));
+        );
 
         let (plan, acceptance) = darius_cognitive::run_loop(
             &darius_cognitive::RunMetadata {
@@ -240,7 +240,7 @@ mod tests {
             },
             &policy,
             "what is the capital of France?",
-            model,
+            &mut model,
             &mut tools,
             &memory,
         )

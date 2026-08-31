@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc::Sender;
 
 /// UiEvent bus — sole producer of agent progress events.
 /// Consumers: TUI, Web (SSE), A2A task status.
@@ -90,4 +91,27 @@ pub enum PermissionChoice {
     AllowOnce,
     AllowSession,
     Deny,
+}
+
+/// Sink for live UiEvent progress. Implementations forward events to
+/// the TUI, a web SSE stream, or a test collector.
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: UiEvent);
+}
+
+/// Channel-backed EventSink — sends events through a std mpsc channel.
+pub struct ChannelEventSink {
+    sender: Sender<UiEvent>,
+}
+
+impl ChannelEventSink {
+    pub fn new(sender: Sender<UiEvent>) -> Self {
+        Self { sender }
+    }
+}
+
+impl EventSink for ChannelEventSink {
+    fn emit(&self, event: UiEvent) {
+        let _ = self.sender.send(event);
+    }
 }

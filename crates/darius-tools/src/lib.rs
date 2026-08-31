@@ -137,6 +137,13 @@ impl TaskBoard {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ToolRisk {
+    Low,
+    Medium,
+    High,
+}
+
 /// Type alias for tool handler functions.
 pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError>>;
 
