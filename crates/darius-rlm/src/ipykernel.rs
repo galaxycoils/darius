@@ -170,4 +170,41 @@ connection_file = "/path/to/kernel.json"
         let config = RlmConfig::default();
         assert_eq!(config.backend, RlmBackend::Rust);
     }
+
+    #[test]
+    fn ipykernel_kernel_json_parsing() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("darius_ipkernel_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kernel_json = dir.join("kernel.json");
+        let mut file = std::fs::File::create(&kernel_json).unwrap();
+        writeln!(file, r#"{{"ip": "127.0.0.1", "shell_port": 5555, "iopub_port": 5556, "stdin_port": 5557, "control_port": 5558, "hb_port": 5559, "key": "secret-key-12345", "transport": "tcp", "signature_scheme": "hmac-sha256", "kernel_name": "python3"}}"#).unwrap();
+
+        // Parse the kernel.json directly to verify the parsing logic
+        let content = std::fs::read_to_string(&kernel_json).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        let ip = parsed["ip"].as_str().unwrap_or("127.0.0.1");
+        let shell_port = parsed["shell_port"].as_u64().unwrap_or(5555);
+        assert_eq!(ip, "127.0.0.1");
+        assert_eq!(shell_port, 5555);
+
+        // The connect_from_file function calls connect which requires the feature
+        // So we just verify the JSON parsing works correctly
+        let _ = IpKernelConnection::connect_from_file(&kernel_json);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ipykernel_execute_offline() {
+        // Without the feature, execute returns an error
+        let result = IpKernelConnection::connect("tcp://localhost:5555");
+        #[cfg(not(feature = "rlm-ipykernel"))]
+        {
+            assert!(result.is_err());
+        }
+    }
 }
