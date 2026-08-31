@@ -307,104 +307,12 @@ pub enum Acceptance {
 pub fn run_loop(
     policy: &LoopPolicy,
     goal: &str,
-    mut model: Box<dyn Model>,
+    model: Box<dyn Model>,
     tools: &mut darius_tools::ToolRegistry,
     memory: &darius_memory::MemoryEngine,
 ) -> Result<(Plan, Acceptance), CognitiveError> {
-    // Step 1: Get plan from model
-    let plan_text = model.plan(goal)?;
-    let plan = parse_plan(&plan_text)?;
-
-    if plan.tasks.len() > policy.max_tasks {
-        return Err(CognitiveError::InvalidPlan(format!(
-            "too many tasks: {} > {}",
-            plan.tasks.len(),
-            policy.max_tasks
-        )));
-    }
-
-    // Step 2: Create task board
-    let mut board = darius_tools::TaskBoard::new(policy.max_tasks);
-    for task in &plan.tasks {
-        board.add(&task.title)?;
-    }
-
-    // Step 3: Execute tasks with ReAct loop
-    let task_ids: Vec<String> = board.list().iter().map(|t| t.id.clone()).collect();
-    for task_id in &task_ids {
-        let mut iter_count = 0;
-        while iter_count < policy.max_react_iters {
-            // Check if task is complete
-            if board
-                .get(task_id)
-                .map(|t| t.status == darius_tools::TaskStatus::Completed)
-                .unwrap_or(false)
-            {
-                break;
-            }
-
-            // Get memory pack
-            let pack = memory.build_pack(policy.memory_max_chars, 12)?;
-            let pack_text = if pack.plain.is_empty() {
-                String::new()
-            } else {
-                format!("Memory:\n{}", pack.plain)
-            };
-
-            // Get task title
-            let task_title = board
-                .get(task_id)
-                .map(|t| t.title.clone())
-                .unwrap_or_default();
-
-            // Ask model what to do
-            let response = model.react(&format!("Task: {}\n{}", task_title, pack_text))?;
-
-            // Parse tool calls
-            let tool_calls = darius_tools::extract_tool_calls(&response);
-            if tool_calls.is_empty() {
-                // No tools used, check for final answer
-                if response.contains("DONE") || response.contains("COMPLETE") {
-                    board.complete(task_id)?;
-                }
-                break;
-            }
-
-            // Execute tools
-            for call in &tool_calls {
-                let outcome = tools.execute(call);
-                match &outcome {
-                    darius_tools::ToolOutcome::Ok { preview, .. } => {
-                        // Store evidence
-                        let _ = board.add_evidence(task_id, preview);
-                    }
-                    darius_tools::ToolOutcome::Err { message } => {
-                        let _ = board.add_evidence(task_id, &format!("Error: {message}"));
-                    }
-                }
-            }
-
-            iter_count += 1;
-        }
-    }
-
-    // Step 4: Accept
-    let acceptance = if policy.require_acceptance {
-        // Check if all tasks completed
-        let all_complete = board
-            .list()
-            .iter()
-            .all(|t| t.status == darius_tools::TaskStatus::Completed);
-        if all_complete {
-            Acceptance::Accepted
-        } else {
-            Acceptance::Rejected("not all tasks completed".into())
-        }
-    } else {
-        Acceptance::Accepted
-    };
-
-    Ok((plan, acceptance))
+    let (runner, _events) = CognitiveLoop::new();
+    runner.run(policy, goal, model, tools, memory)
 }
 
 /// Trait for models that can be used in the cognitive loop.
