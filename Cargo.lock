@@ -718,6 +718,8 @@ dependencies = [
  "pretty_assertions",
  "ratatui",
  "serde",
+ "tokio",
+ "tokio-util",
  "unicode-width",
  "uuid",
 ]

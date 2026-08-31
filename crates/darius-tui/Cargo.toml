@@ -17,6 +17,8 @@ unicode-width = "0.1"
 darius-cognitive = { path = "../darius-cognitive" }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true }
+tokio = { workspace = true }
+tokio-util = "0.7"
 
 [dev-dependencies]
 insta = "1"
