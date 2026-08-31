@@ -27,21 +27,20 @@ pub enum RuntimeCommand {
 
 /// The TUI's handle to the runtime: send commands, receive events.
 pub struct TuiController {
-    pub commands: tokio::sync::mpsc::Sender<RuntimeCommand>,
+    pub commands: std::sync::mpsc::Sender<RuntimeCommand>,
     pub events: tokio::sync::broadcast::Receiver<UiEvent>,
 }
 
 impl TuiController {
     /// Create a new controller with the given channel capacities.
     pub fn new(
-        command_capacity: usize,
         event_capacity: usize,
     ) -> (
         Self,
-        tokio::sync::mpsc::Receiver<RuntimeCommand>,
+        std::sync::mpsc::Receiver<RuntimeCommand>,
         tokio::sync::broadcast::Sender<UiEvent>,
     ) {
-        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(command_capacity);
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(event_capacity);
         (
             Self {
@@ -68,43 +67,40 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn channel_ordering_is_fifo() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn channel_ordering_is_fifo() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
 
         controller
             .commands
             .send(RuntimeCommand::Interrupt)
-            .await
             .unwrap();
         controller
             .commands
             .send(RuntimeCommand::Shutdown)
-            .await
             .unwrap();
         controller
             .commands
             .send(RuntimeCommand::Interrupt)
-            .await
             .unwrap();
 
         assert!(matches!(
-            cmd_rx.recv().await,
-            Some(RuntimeCommand::Interrupt)
+            cmd_rx.recv().unwrap(),
+            RuntimeCommand::Interrupt
         ));
         assert!(matches!(
-            cmd_rx.recv().await,
-            Some(RuntimeCommand::Shutdown)
+            cmd_rx.recv().unwrap(),
+            RuntimeCommand::Shutdown
         ));
         assert!(matches!(
-            cmd_rx.recv().await,
-            Some(RuntimeCommand::Interrupt)
+            cmd_rx.recv().unwrap(),
+            RuntimeCommand::Interrupt
         ));
     }
 
-    #[tokio::test]
-    async fn broadcast_delivers_events_to_receiver() {
-        let (mut controller, _cmd_rx, event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn broadcast_delivers_events_to_receiver() {
+        let (mut controller, _cmd_rx, event_tx) = TuiController::new(64);
 
         event_tx.send(UiEvent::Done).unwrap();
         event_tx
@@ -113,34 +109,30 @@ mod tests {
             })
             .unwrap();
 
-        assert!(matches!(controller.events.recv().await, Ok(UiEvent::Done)));
+        assert!(matches!(controller.events.try_recv().unwrap(), UiEvent::Done));
         assert!(
-            matches!(controller.events.recv().await, Ok(UiEvent::Status { line }) if line == "hello")
+            matches!(controller.events.try_recv().unwrap(), UiEvent::Status { line } if line == "hello")
         );
     }
 
-    #[tokio::test]
-    async fn shutdown_command_drops_cleanly() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn shutdown_command_drops_cleanly() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::Shutdown)
-            .await
             .unwrap();
-        // Drop the sender to simulate runtime shutdown.
         drop(controller);
-        // The queued message is still delivered.
         assert!(matches!(
-            cmd_rx.recv().await,
-            Some(RuntimeCommand::Shutdown)
+            cmd_rx.recv().unwrap(),
+            RuntimeCommand::Shutdown
         ));
-        // Then the channel closes.
-        assert!(cmd_rx.recv().await.is_none());
+        assert!(cmd_rx.recv().is_err());
     }
 
-    #[tokio::test]
-    async fn submit_goal_carries_text_mode_and_effort() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn submit_goal_carries_text_mode_and_effort() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::SubmitGoal {
@@ -148,11 +140,10 @@ mod tests {
                 mode: Mode::Plan,
                 effort: Effort::Max,
             })
-            .await
             .unwrap();
 
-        match cmd_rx.recv().await {
-            Some(RuntimeCommand::SubmitGoal { text, mode, effort }) => {
+        match cmd_rx.recv().unwrap() {
+            RuntimeCommand::SubmitGoal { text, mode, effort } => {
                 assert_eq!(text, "build a feature");
                 assert_eq!(mode, Mode::Plan);
                 assert_eq!(effort, Effort::Max);
@@ -161,17 +152,16 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn execute_slash_uses_canonical_invocation() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn execute_slash_uses_canonical_invocation() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ExecuteSlash(dummy_invocation()))
-            .await
             .unwrap();
 
-        match cmd_rx.recv().await {
-            Some(RuntimeCommand::ExecuteSlash(inv)) => {
+        match cmd_rx.recv().unwrap() {
+            RuntimeCommand::ExecuteSlash(inv) => {
                 assert_eq!(inv.id, CommandId::Help);
                 assert_eq!(inv.name, "/help");
                 assert!(inv.args.is_empty());
@@ -180,20 +170,19 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn resolve_permission_carries_id_and_choice() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
+    #[test]
+    fn resolve_permission_carries_id_and_choice() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ResolvePermission {
                 id: "perm-1".into(),
                 choice: crate::app::PermissionChoice::AllowOnce,
             })
-            .await
             .unwrap();
 
-        match cmd_rx.recv().await {
-            Some(RuntimeCommand::ResolvePermission { id, choice }) => {
+        match cmd_rx.recv().unwrap() {
+            RuntimeCommand::ResolvePermission { id, choice } => {
                 assert_eq!(id, "perm-1");
                 assert_eq!(choice, crate::app::PermissionChoice::AllowOnce);
             }
@@ -201,25 +190,21 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn lag_event_receivers_get_latest_after_catch_up() {
-        let (_controller, _cmd_rx, event_tx) = TuiController::new(16, 4);
-        // Fill the channel beyond capacity.
+    #[test]
+    fn lag_event_receivers_get_latest_after_catch_up() {
+        let (_controller, _cmd_rx, event_tx) = TuiController::new(4);
         for i in 0..10 {
             let _ = event_tx.send(UiEvent::Status {
                 line: format!("evt-{i}"),
             });
         }
-        // The channel should still function (lagging receivers get Lag error).
         assert!(event_tx.send(UiEvent::Done).is_ok());
     }
 
-    #[tokio::test]
-    async fn closed_command_channel_signals_runtime_stop() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(16, 16);
-        // Drop the controller's sender immediately.
+    #[test]
+    fn closed_command_channel_signals_runtime_stop() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         drop(controller);
-        // The runtime sees None and should stop.
-        assert!(cmd_rx.recv().await.is_none());
+        assert!(cmd_rx.recv().is_err());
     }
 }

@@ -189,13 +189,51 @@ impl CognitiveLoop {
                         return Err(CognitiveError::Cancelled);
                     }
 
+                    // Gate mutating and shell tools behind permission approval.
+                    let risk = tools
+                        .risk(&call.name)
+                        .unwrap_or(darius_tools::ToolRisk::ReadOnly);
+                    let (outcome, denied) = match risk {
+                        darius_tools::ToolRisk::ReadOnly => {
+                            let outcome = tools.execute(call);
+                            (outcome, false)
+                        }
+                        darius_tools::ToolRisk::Mutating | darius_tools::ToolRisk::Shell => {
+                            match self.control.approve_tool(call, risk) {
+                                Ok(PermissionChoice::AllowOnce)
+                                | Ok(PermissionChoice::AllowSession) => {
+                                    let outcome = tools.execute(call);
+                                    (outcome, false)
+                                }
+                                Ok(PermissionChoice::Deny) => {
+                                    self.emit(UiEvent::PermissionResolved {
+                                        id: call.id.clone(),
+                                        choice: PermissionChoice::Deny,
+                                    });
+                                    (
+                                        darius_tools::ToolOutcome::Err {
+                                            message: "permission denied by user".into(),
+                                        },
+                                        true,
+                                    )
+                                }
+                                Err(_) => {
+                                    self.emit(UiEvent::Status {
+                                        line: "Interrupted".into(),
+                                    });
+                                    self.emit(UiEvent::Done);
+                                    return Err(CognitiveError::Cancelled);
+                                }
+                            }
+                        }
+                    };
+
                     self.emit(UiEvent::ToolStart {
                         id: call.id.clone(),
                         name: call.name.clone(),
                         args_preview: format!("{:?}", call.arguments),
                     });
 
-                    let outcome = tools.execute(call);
                     match &outcome {
                         darius_tools::ToolOutcome::Ok {
                             preview,
@@ -212,7 +250,12 @@ impl CognitiveLoop {
                             });
                         }
                         darius_tools::ToolOutcome::Err { message } => {
-                            let _ = board.add_evidence(task_id, &format!("Error: {message}"));
+                            let evidence = if denied {
+                                format!("Denied: {message}")
+                            } else {
+                                format!("Error: {message}")
+                            };
+                            let _ = board.add_evidence(task_id, &evidence);
                             self.emit(UiEvent::ToolEnd {
                                 id: call.id.clone(),
                                 ok: false,
@@ -343,7 +386,7 @@ pub fn run_loop(
 }
 
 /// Trait for models that can be used in the cognitive loop.
-pub trait Model {
+pub trait Model: Send {
     fn plan(&mut self, goal: &str) -> Result<String, CognitiveError>;
     fn react(&mut self, context: &str) -> Result<String, CognitiveError>;
 }
@@ -884,6 +927,379 @@ mod tests {
         assert!(!events2
             .iter()
             .any(|e| matches!(e, UiEvent::Header { goal, .. } if goal == "first goal")));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --- Task 5.2: Permission gating tests ---
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Test RunControl with configurable approval behavior and call counter.
+    struct CountingRunControl {
+        cancelled: AtomicUsize,
+        // 0 = deny, 1 = allow once, 2 = allow session
+        behavior: AtomicUsize,
+        session_approvals: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl CountingRunControl {
+        fn new(behavior: usize) -> Self {
+            Self {
+                cancelled: AtomicUsize::new(0),
+                behavior: AtomicUsize::new(behavior),
+                session_approvals: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_denial() -> Self {
+            Self::new(0)
+        }
+
+        fn with_allow_once() -> Self {
+            Self::new(1)
+        }
+
+        fn with_allow_session() -> Self {
+            Self::new(2)
+        }
+
+        fn set_cancelled(&self) {
+            self.cancelled.store(1, Ordering::SeqCst);
+        }
+    }
+
+    impl RunControl for CountingRunControl {
+        fn is_cancelled(&self) -> bool {
+            self.cancelled.load(Ordering::SeqCst) != 0
+        }
+
+        fn approve_tool(
+            &self,
+            call: &darius_tools::ToolCall,
+            _risk: darius_tools::ToolRisk,
+        ) -> Result<PermissionChoice, CognitiveError> {
+            match self.behavior.load(Ordering::SeqCst) {
+                0 => Ok(PermissionChoice::Deny),
+                1 => Ok(PermissionChoice::AllowOnce),
+                2 => {
+                    self.session_approvals
+                        .lock()
+                        .unwrap()
+                        .push(call.name.clone());
+                    Ok(PermissionChoice::AllowSession)
+                }
+                _ => Ok(PermissionChoice::Deny),
+            }
+        }
+    }
+
+    #[test]
+    fn permission_deny_prevents_tool_execution() {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        // Counter increments on every memory_remember execution.
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        tools.register_with_risk(
+            "memory_remember",
+            darius_tools::ToolRisk::Mutating,
+            move |_call| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                // Call the real implementation would require memory, so just count.
+                Ok(darius_tools::ToolOutcome::Ok {
+                    preview: "remembered".into(),
+                    spilled_path: None,
+                })
+            },
+        );
+
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(CountingRunControl::with_denial());
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        // Loop completes successfully even when tools are denied.
+        assert!(result.is_ok());
+        // Counter must remain zero because the tool was denied.
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+
+        let events = sink.events();
+        // PermissionResolved with Deny should be emitted.
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UiEvent::PermissionResolved {
+                choice: PermissionChoice::Deny,
+                ..
+            }
+        )));
+        // ToolEnd with ok=false should be emitted for the denied tool.
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UiEvent::ToolEnd { ok: false, .. }
+        )));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn permission_allow_once_executes_tool() {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        tools.register_with_risk(
+            "memory_remember",
+            darius_tools::ToolRisk::Mutating,
+            move |_call| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                Ok(darius_tools::ToolOutcome::Ok {
+                    preview: "remembered".into(),
+                    spilled_path: None,
+                })
+            },
+        );
+
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(CountingRunControl::with_allow_once());
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_ok());
+        // Counter becomes one after approval.
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn permission_allow_session_caches_for_same_tool() {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        tools.register_with_risk(
+            "memory_remember",
+            darius_tools::ToolRisk::Mutating,
+            move |_call| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                Ok(darius_tools::ToolOutcome::Ok {
+                    preview: "remembered".into(),
+                    spilled_path: None,
+                })
+            },
+        );
+
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+
+        // Two tool calls to the same tool in one turn.
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"first"}}
+TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
+                .to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(CountingRunControl::with_allow_session());
+        let loop_inst = CognitiveLoop::new(sink.clone(), control.clone());
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_ok());
+        // Both tool calls executed.
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        // approve_tool was called twice (session caching is handled by the caller).
+        let approvals = control.session_approvals.lock().unwrap();
+        assert_eq!(approvals.len(), 2);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn permission_shell_tool_requires_approval() {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_coding_builtins(&mut tools);
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        tools.register_with_risk("shell", darius_tools::ToolRisk::Shell, move |_call| {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+            Ok(darius_tools::ToolOutcome::Ok {
+                preview: "shell output".into(),
+                spilled_path: None,
+            })
+        });
+
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"shell","arguments":{"command": "echo hi"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        let control = Arc::new(CountingRunControl::with_allow_once());
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn permission_read_only_tool_skips_approval() {
+        let dir = std::env::temp_dir()
+            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        tools.register_with_risk(
+            "memory_search",
+            darius_tools::ToolRisk::ReadOnly,
+            move |_call| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                Ok(darius_tools::ToolOutcome::Ok {
+                    preview: "search results".into(),
+                    spilled_path: None,
+                })
+            },
+        );
+
+        let metadata = RunMetadata {
+            profile: "test".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let policy = LoopPolicy::default();
+
+        let plan_response = r#"{"tasks":[{"title":"task 1"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_search","arguments":{"text":"test"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let mut model = MockModel::new(plan_response, react_responses);
+
+        let sink = Arc::new(TestSink::raw());
+        // Even with deny behavior, read-only tools execute without approval.
+        let control = Arc::new(CountingRunControl::with_denial());
+        let loop_inst = CognitiveLoop::new(sink.clone(), control);
+
+        let result = loop_inst.run(
+            &metadata,
+            &policy,
+            "test goal",
+            &mut model,
+            &mut tools,
+            &memory,
+        );
+
+        assert!(result.is_ok());
+        // ReadOnly tool executes without needing approval.
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        // No PermissionRequired events emitted.
+        let events = sink.events();
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e, UiEvent::PermissionRequired { .. })));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

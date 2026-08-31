@@ -143,6 +143,26 @@ pub enum PermissionChoice {
     Deny,
 }
 
+impl From<darius_cognitive::PermissionChoice> for PermissionChoice {
+    fn from(p: darius_cognitive::PermissionChoice) -> Self {
+        match p {
+            darius_cognitive::PermissionChoice::AllowOnce => PermissionChoice::AllowOnce,
+            darius_cognitive::PermissionChoice::AllowSession => PermissionChoice::AllowSession,
+            darius_cognitive::PermissionChoice::Deny => PermissionChoice::Deny,
+        }
+    }
+}
+
+impl From<PermissionChoice> for darius_cognitive::PermissionChoice {
+    fn from(p: PermissionChoice) -> Self {
+        match p {
+            PermissionChoice::AllowOnce => darius_cognitive::PermissionChoice::AllowOnce,
+            PermissionChoice::AllowSession => darius_cognitive::PermissionChoice::AllowSession,
+            PermissionChoice::Deny => darius_cognitive::PermissionChoice::Deny,
+        }
+    }
+}
+
 impl PermissionChoice {
     /// The three options in display order.
     pub const ALL: [Self; 3] = [Self::AllowOnce, Self::AllowSession, Self::Deny];

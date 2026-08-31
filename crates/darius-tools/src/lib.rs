@@ -150,7 +150,7 @@ struct RegisteredTool {
 }
 
 /// Type alias for tool handler functions.
-pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError>>;
+pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + Send>;
 
 /// Tool registry with disk spill for large results.
 pub struct ToolRegistry {
@@ -173,7 +173,7 @@ impl ToolRegistry {
     /// Register a tool with explicit risk classification.
     pub fn register_with_risk<F>(&mut self, name: &str, risk: ToolRisk, handler: F)
     where
-        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + 'static,
+        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + Send + 'static,
     {
         self.handlers.insert(
             name.into(),
@@ -187,7 +187,7 @@ impl ToolRegistry {
     /// Register a tool defaulting to ReadOnly risk. Prefer `register_with_risk`.
     pub fn register<F>(&mut self, name: &str, handler: F)
     where
-        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + 'static,
+        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + Send + 'static,
     {
         self.register_with_risk(name, ToolRisk::ReadOnly, handler);
     }

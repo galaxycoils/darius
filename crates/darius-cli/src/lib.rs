@@ -1,12 +1,16 @@
 //! Darius CLI with persistent subcommand support for daemon, status, and session management.
 
+use darius_tui::{AppState, TuiController};
 use std::env;
+use std::path::PathBuf;
 use std::process;
+use crate::tui_runtime::TuiWorker;
 
 mod config;
 mod events;
 pub mod runtime;
 mod safety;
+pub mod tui_runtime;
 
 pub use config::ProfileConfig;
 
@@ -32,7 +36,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "memory" => cmd_memory(&args[2..]),
         "run" => cmd_run(&args[2..]),
         "session-smoke" => cmd_session_smoke(&args[2..]),
-        "tui" => cmd_tui(),
+        "tui" => cmd_tui(&args[2..]),
         "serve" => cmd_serve(&args[2..]),
         "config" => cmd_config(&args[2..]),
         "a2a" => cmd_a2a(&args[2..]),
@@ -362,13 +366,53 @@ fn get_profile(args: &[String]) -> String {
     "default".to_string()
 }
 
-fn get_profile_dir(profile: &str) -> std::path::PathBuf {
+fn get_profile_dir(profile: &str) -> PathBuf {
     ProfileConfig::profile_dir(profile)
 }
 
-fn cmd_tui() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting TUI... (press q to quit)");
-    darius_tui::run_tui().map_err(|e| e.into())
+fn get_cwd(args: &[String]) -> Option<String> {
+    for i in 0..args.len() {
+        if args[i] == "--cwd" && i + 1 < args.len() {
+            return Some(args[i + 1].clone());
+        }
+    }
+    None
+}
+
+fn cmd_tui(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let profile = get_profile(args);
+    let cwd = get_cwd(args);
+
+    println!("Starting TUI with profile: {profile}");
+
+    // Build the session runtime.
+    let runtime = if let Some(ref cwd) = cwd {
+        crate::tui_runtime::build_runtime_with_cwd(&profile, PathBuf::from(cwd))?
+    } else {
+        crate::tui_runtime::build_runtime(&profile)?
+    };
+
+    // Create the worker and event channel.
+    let (mut worker, event_rx) = TuiWorker::new(runtime);
+    let control = worker.control();
+
+    // Create the controller channels.
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+
+    // Spawn the worker thread.
+    let worker_handle = std::thread::spawn(move || {
+        worker.run_loop(cmd_rx)
+    });
+
+    // Create the TUI controller.
+    let state = AppState::default();
+    let controller = TuiController {
+        commands: cmd_tx,
+        events: event_rx,
+    };
+
+    // Run the TUI.
+    darius_tui::run_tui(state, controller).map_err(|e| e.into())
 }
 
 fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {

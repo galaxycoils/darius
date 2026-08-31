@@ -150,7 +150,7 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
                                     if cmd_is_quit(&cmd) {
                                         break Ok(());
                                     }
-                                    match controller.commands.blocking_send(cmd) {
+                                    match controller.commands.send(cmd) {
                                         Ok(()) => {}
                                         Err(_) => {
                                             // Worker dropped — exit gracefully.
@@ -286,7 +286,7 @@ mod tests {
         events: Vec<UiEvent>,
         keys: Vec<crossterm::event::KeyEvent>,
     ) -> (AppState, Vec<RuntimeCommand>) {
-        let (mut controller, mut cmd_rx, event_tx) = TuiController::new(64, 64);
+        let (mut controller, mut cmd_rx, event_tx) = TuiController::new(64);
 
         // Replay the canned events.
         for ev in events {
@@ -312,7 +312,7 @@ mod tests {
                 if let Some(effect) = local_state.reduce(action) {
                     if let Some(cmd) = effect_to_command(&local_state, effect) {
                         collected.push(cmd.clone());
-                        if controller.commands.blocking_send(cmd).is_err() {
+                        if controller.commands.send(cmd).is_err() {
                             break;
                         }
                     }
