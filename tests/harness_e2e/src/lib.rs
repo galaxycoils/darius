@@ -327,7 +327,11 @@ mod tests {
             .expect("run darius --version");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("darius"), "version output should contain 'darius': {:?}", stdout);
+        assert!(
+            stdout.contains("darius"),
+            "version output should contain 'darius': {:?}",
+            stdout
+        );
     }
 
     /// E2E: verify the TUI binary can be spawned with --help
