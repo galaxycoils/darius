@@ -12,17 +12,191 @@ use std::io;
 use crate::app::AppState;
 use crate::theme::{ColorMode, Theme};
 
+// ── View types for rendering transcript items ──────────────────────────
+
+/// A tool call view with its result.
+#[derive(Debug, Clone)]
+pub struct ToolView {
+    pub name: String,
+    pub args_preview: String,
+    pub result: String,
+    pub ok: bool,
+}
+
+/// A diff view with file, summary, and lines.
+#[derive(Debug, Clone)]
+pub struct DiffView {
+    pub file: String,
+    pub summary: String,
+    pub lines: Vec<DiffLineView>,
+}
+
+/// A single diff line.
+#[derive(Debug, Clone)]
+pub struct DiffLineView {
+    pub kind: DiffLineKind,
+    pub old: Option<u32>,
+    pub new: Option<u32>,
+    pub text: String,
+}
+
+/// The kind of diff line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Context,
+    Add,
+    Delete,
+}
+
+/// A transcript item to render.
+#[derive(Debug, Clone)]
+pub enum TranscriptItem {
+    User { text: String },
+    Assistant { text: String },
+    Thinking { text: String, elapsed_ms: u64 },
+    Tool { tool: ToolView, expanded: bool },
+    Tasks { tasks: Vec<TaskDisplay> },
+    Diff { diff: DiffView },
+}
+
+/// A task display with status glyph.
+#[derive(Debug, Clone)]
+pub struct TaskDisplay {
+    pub title: String,
+    pub status: TaskStatus,
+}
+
+/// Task status for rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStatus {
+    Done,
+    Active,
+    Todo,
+}
+
+// ── Render functions ───────────────────────────────────────────────────
+
+/// Render a user message: `❯ text`.
+pub fn render_user(text: &str, theme: &Theme) -> Vec<Line<'static>> {
+    vec![Line::from(vec![
+        Span::styled("❯ ", Style::default().fg(theme.brand)),
+        Span::styled(text.to_string(), Style::default().fg(theme.text)),
+    ])]
+}
+
+/// Render assistant text (no role chip).
+pub fn render_assistant(text: &str, theme: &Theme) -> Vec<Line<'static>> {
+    text.lines()
+        .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(theme.text))))
+        .collect()
+}
+
+/// Render thinking: `✦ <verb>... (<elapsed>ms)`.
+pub fn render_thinking(text: &str, elapsed_ms: u64, theme: &Theme) -> Vec<Line<'static>> {
+    vec![Line::from(vec![
+        Span::styled("✦ ", Style::default().fg(theme.muted)),
+        Span::styled(
+            format!("{} ({}ms)", text, elapsed_ms),
+            Style::default().fg(theme.muted),
+        ),
+    ])]
+}
+
+/// Render a tool call with its result.
+pub fn render_tool(tool: &ToolView, expanded: bool, theme: &Theme) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(vec![
+        Span::styled("⏺ ", Style::default().fg(theme.brand)),
+        Span::styled(
+            format!("{}({})", tool.name, tool.args_preview),
+            Style::default().fg(theme.text),
+        ),
+    ])];
+
+    if expanded {
+        for result_line in tool.result.lines() {
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default().fg(theme.muted)),
+                Span::styled("⎿ ", Style::default().fg(theme.muted)),
+                Span::styled(
+                    result_line.to_string(),
+                    Style::default().fg(if tool.ok { theme.text } else { theme.delete }),
+                ),
+            ]));
+        }
+    }
+
+    lines
+}
+
+/// Render a task board with status glyphs.
+pub fn render_tasks(tasks: &[TaskDisplay], theme: &Theme) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "Update Todos",
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+    ))];
+
+    for task in tasks {
+        let (glyph, color) = match task.status {
+            TaskStatus::Done => ("✓", theme.muted),
+            TaskStatus::Active => ("◐", theme.auto_mode),
+            TaskStatus::Todo => ("○", theme.muted),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {glyph} "), Style::default().fg(color)),
+            Span::styled(task.title.clone(), Style::default().fg(theme.text)),
+        ]));
+    }
+
+    lines
+}
+
+/// Render a diff with filename, summary, and line-numbered rows.
+pub fn render_diff(diff: &DiffView, theme: &Theme) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(diff.file.clone(), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("  {}", diff.summary),
+                Style::default().fg(theme.muted),
+            ),
+        ]),
+    ];
+
+    for line in &diff.lines {
+        let (prefix, color) = match line.kind {
+            DiffLineKind::Context => (" ", theme.muted),
+            DiffLineKind::Add => ("+", theme.add),
+            DiffLineKind::Delete => ("-", theme.delete),
+        };
+        let old_num = line.old.map(|n| n.to_string()).unwrap_or_default();
+        let new_num = line.new.map(|n| n.to_string()).unwrap_or_default();
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{old_num:>4} {new_num:>4} {prefix} "),
+                Style::default().fg(color),
+            ),
+            Span::styled(line.text.clone(), Style::default().fg(color)),
+        ]));
+    }
+
+    lines
+}
+
+/// Render a transcript item to lines.
+pub fn render_transcript_item(item: &TranscriptItem, theme: &Theme) -> Vec<Line<'static>> {
+    match item {
+        TranscriptItem::User { text } => render_user(text, theme),
+        TranscriptItem::Assistant { text } => render_assistant(text, theme),
+        TranscriptItem::Thinking { text, elapsed_ms } => render_thinking(text, *elapsed_ms, theme),
+        TranscriptItem::Tool { tool, expanded } => render_tool(tool, *expanded, theme),
+        TranscriptItem::Tasks { tasks } => render_tasks(tasks, theme),
+        TranscriptItem::Diff { diff } => render_diff(diff, theme),
+    }
+}
+
+// ── Welcome card ───────────────────────────────────────────────────────
+
 /// Render the welcome / launch card in the given area.
-///
-/// Produces a compact single-border card:
-/// ```text
-/// ╭─ ◆ darius v1.1.1 ─────────────────────────────────────────╮
-/// │ Welcome back                                              │
-/// │ model   gpt-4o-mini                                       │
-/// │ cwd     ~/dev/project                                     │
-/// │ profile default  ·  kernel rust  ·  /help                 │
-/// ╰────────────────────────────────────────────────────────────╯
-/// ```
 pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     let version = env!("CARGO_PKG_VERSION");
     let title = format!("◆ darius v{version}");
@@ -54,13 +228,30 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     card.render(area, buf);
 }
 
-/// Helper for snapshot tests: render the welcome card into a buffer
-/// and return its string representation.
-fn render_to_string(width: u16, height: u16, state: &AppState) -> String {
+// ── Snapshot helpers ───────────────────────────────────────────────────
+
+/// Render a transcript to a string for snapshot testing.
+fn render_transcript_to_string(width: u16, height: u16, items: &[TranscriptItem]) -> String {
     let theme = Theme::for_mode(ColorMode::Truecolor);
     let area = Rect::new(0, 0, width, height);
     let mut buffer = Buffer::empty(area);
-    render_welcome(area, &mut buffer, state, &theme);
+
+    // Render items vertically starting at y=0
+    let mut y_offset: u16 = 0;
+    for item in items {
+        let lines = render_transcript_item(item, &theme);
+        for line in &lines {
+            if y_offset >= height {
+                break;
+            }
+            let line_area = Rect::new(0, y_offset, width, 1);
+            Paragraph::new(line.clone()).render(line_area, &mut buffer);
+            y_offset += 1;
+        }
+        // Add a blank line between items
+        y_offset += 1;
+    }
+
     buffer_to_string(&buffer)
 }
 
@@ -78,7 +269,6 @@ fn buffer_to_string(buffer: &Buffer) -> String {
                 line.push_str(sym);
             }
         }
-        // Trim trailing whitespace but keep the line
         let trimmed = line.trim_end();
         if !trimmed.is_empty() || y < buffer.area().height - 1 {
             result.push_str(trimmed);
@@ -173,15 +363,117 @@ mod tests {
 
     #[test]
     fn welcome_card_80x24() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
         let state = fixture_state();
-        let rendered = render_to_string(80, 24, &state);
-        insta::assert_snapshot!("welcome_card_80x24", rendered);
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buffer = Buffer::empty(area);
+        render_welcome(area, &mut buffer, &state, &theme);
+        insta::assert_snapshot!("welcome_card_80x24", buffer_to_string(&buffer));
     }
 
     #[test]
     fn welcome_card_120x36() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
         let state = fixture_state();
-        let rendered = render_to_string(120, 36, &state);
-        insta::assert_snapshot!("welcome_card_120x36", rendered);
+        let area = Rect::new(0, 0, 120, 36);
+        let mut buffer = Buffer::empty(area);
+        render_welcome(area, &mut buffer, &state, &theme);
+        insta::assert_snapshot!("welcome_card_120x36", buffer_to_string(&buffer));
+    }
+
+    /// Full transcript fixture: user, assistant, thinking, todos, tool (collapsed + expanded), diff.
+    fn full_transcript_fixture() -> Vec<TranscriptItem> {
+        vec![
+            TranscriptItem::User {
+                text: "Summarize the main.rs file".into(),
+            },
+            TranscriptItem::Assistant {
+                text: "I'll read the main.rs file for you.".into(),
+            },
+            TranscriptItem::Thinking {
+                text: "analyzing".into(),
+                elapsed_ms: 1240,
+            },
+            TranscriptItem::Tasks {
+                tasks: vec![
+                    TaskDisplay {
+                        title: "Read main.rs".into(),
+                        status: TaskStatus::Done,
+                    },
+                    TaskDisplay {
+                        title: "Analyze structure".into(),
+                        status: TaskStatus::Active,
+                    },
+                    TaskDisplay {
+                        title: "Write summary".into(),
+                        status: TaskStatus::Todo,
+                    },
+                ],
+            },
+            TranscriptItem::Tool {
+                tool: ToolView {
+                    name: "read_file".into(),
+                    args_preview: "src/main.rs".into(),
+                    result: "fn main() {\n    println!(\"hello\");\n}".into(),
+                    ok: true,
+                },
+                expanded: false,
+            },
+            TranscriptItem::Tool {
+                tool: ToolView {
+                    name: "read_file".into(),
+                    args_preview: "src/main.rs".into(),
+                    result: "fn main() {\n    println!(\"hello\");\n}".into(),
+                    ok: true,
+                },
+                expanded: true,
+            },
+            TranscriptItem::Diff {
+                diff: DiffView {
+                    file: "src/main.rs".into(),
+                    summary: "2 additions, 1 removal in 3 lines".into(),
+                    lines: vec![
+                        DiffLineView {
+                            kind: DiffLineKind::Context,
+                            old: Some(1),
+                            new: Some(1),
+                            text: "fn main() {".into(),
+                        },
+                        DiffLineView {
+                            kind: DiffLineKind::Delete,
+                            old: Some(2),
+                            new: None,
+                            text: "    println!(\"goodbye\");".into(),
+                        },
+                        DiffLineView {
+                            kind: DiffLineKind::Add,
+                            old: None,
+                            new: Some(2),
+                            text: "    println!(\"hello\");".into(),
+                        },
+                        DiffLineView {
+                            kind: DiffLineKind::Context,
+                            old: Some(3),
+                            new: Some(3),
+                            text: "}".into(),
+                        },
+                    ],
+                },
+            },
+        ]
+    }
+
+    #[test]
+    fn full_transcript_80x24() {
+        let items = full_transcript_fixture();
+        let rendered = render_transcript_to_string(80, 24, &items);
+        insta::assert_snapshot!("full_transcript_80x24", rendered);
+    }
+
+    #[test]
+    fn full_transcript_120x36() {
+        let items = full_transcript_fixture();
+        let rendered = render_transcript_to_string(120, 36, &items);
+        insta::assert_snapshot!("full_transcript_120x36", rendered);
     }
 }

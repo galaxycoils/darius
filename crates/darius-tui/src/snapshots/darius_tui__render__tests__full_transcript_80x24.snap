@@ -1,0 +1,27 @@
+---
+source: crates/darius-tui/src/render.rs
+expression: rendered
+---
+❯ Summarize the main.rs file
+
+I'll read the main.rs file for you.
+
+✦ analyzing (1240ms)
+
+Update Todos
+  ✓ Read main.rs
+  ◐ Analyze structure
+  ○ Write summary
+
+⏺ read_file(src/main.rs)
+
+⏺ read_file(src/main.rs)
+  ⎿ fn main() {
+  ⎿     println!("hello");
+  ⎿ }
+
+src/main.rs  2 additions, 1 removal in 3 lines
+   1    1   fn main() {
+   2      -     println!("goodbye");
+        2 +     println!("hello");
+   3    3   }
