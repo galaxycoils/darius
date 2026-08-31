@@ -9,71 +9,12 @@ use ratatui::{
 };
 use std::io;
 
-use crate::app::{AppState, PermissionChoice, PermissionState};
+use crate::app::{
+    AppState, DiffLineKind, DiffLineView, DiffView, PermissionChoice, PermissionState, TaskDisplay,
+    TaskStatus, ToolView, TranscriptItem,
+};
 use crate::commands::{COMMANDS, CommandSpec};
 use crate::theme::{ColorMode, Theme};
-
-// ── View types for rendering transcript items ──────────────────────────
-
-/// A tool call view with its result.
-#[derive(Debug, Clone)]
-pub struct ToolView {
-    pub name: String,
-    pub args_preview: String,
-    pub result: String,
-    pub ok: bool,
-}
-
-/// A diff view with file, summary, and lines.
-#[derive(Debug, Clone)]
-pub struct DiffView {
-    pub file: String,
-    pub summary: String,
-    pub lines: Vec<DiffLineView>,
-}
-
-/// A single diff line.
-#[derive(Debug, Clone)]
-pub struct DiffLineView {
-    pub kind: DiffLineKind,
-    pub old: Option<u32>,
-    pub new: Option<u32>,
-    pub text: String,
-}
-
-/// The kind of diff line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffLineKind {
-    Context,
-    Add,
-    Delete,
-}
-
-/// A transcript item to render.
-#[derive(Debug, Clone)]
-pub enum TranscriptItem {
-    User { text: String },
-    Assistant { text: String },
-    Thinking { text: String, elapsed_ms: u64 },
-    Tool { tool: ToolView, expanded: bool },
-    Tasks { tasks: Vec<TaskDisplay> },
-    Diff { diff: DiffView },
-}
-
-/// A task display with status glyph.
-#[derive(Debug, Clone)]
-pub struct TaskDisplay {
-    pub title: String,
-    pub status: TaskStatus,
-}
-
-/// Task status for rendering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskStatus {
-    Done,
-    Active,
-    Todo,
-}
 
 // ── Render functions ───────────────────────────────────────────────────
 
@@ -450,73 +391,99 @@ pub fn draw(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &AppState,
 ) -> io::Result<()> {
-    let theme = Theme::for_mode(ColorMode::Truecolor);
+    draw_inner(terminal, state)
+}
+
+/// Inner draw implementation, generic over the backend for testability.
+fn draw_inner<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    state: &AppState,
+) -> io::Result<()> {
+    let theme = Theme::detect(&crate::theme::OsEnv);
     terminal.draw(|f| {
+        let area = f.size();
+        let has_user_turn = state
+            .transcript
+            .iter()
+            .any(|item| matches!(item, TranscriptItem::User { .. }));
+
+        // Build vertical constraints: welcome, transcript, [palette], [permission], composer.
+        let mut constraints: Vec<Constraint> = vec![];
+        if !has_user_turn {
+            constraints.push(Constraint::Length(6)); // welcome card
+        }
+        constraints.push(Constraint::Min(1)); // transcript
+        if state.palette.open {
+            constraints.push(Constraint::Length(8)); // palette
+        }
+        if state.permission.is_some() {
+            constraints.push(Constraint::Length(9)); // permission chooser
+        }
+        constraints.push(Constraint::Length(5)); // composer
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .margin(1)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(5),
-                Constraint::Length(8),
-                Constraint::Length(3),
-            ])
-            .split(f.size());
+            .constraints(constraints)
+            .split(area);
 
-        // Header
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(
-                "darius",
-                Style::default()
-                    .fg(theme.brand)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" │ ", Style::default().fg(theme.muted)),
-            Span::styled(
-                format!("profile: {}", state.profile),
-                Style::default().fg(theme.text),
-            ),
-            Span::styled(" │ ", Style::default().fg(theme.muted)),
-            Span::styled(
-                format!("model: {}", state.model),
-                Style::default().fg(theme.text),
-            ),
-        ]))
-        .block(Block::default().borders(Borders::ALL).title(" Header "));
-        f.render_widget(header, chunks[0]);
+        let mut idx = 0;
 
-        // Stream
-        let messages: Vec<ListItem> = state
-            .messages
-            .iter()
-            .map(|m| ListItem::new(Line::from(Span::styled(m, Style::default().fg(theme.text)))))
+        // 1. Optional welcome card while no user turn.
+        if !has_user_turn {
+            render_welcome(chunks[idx], f.buffer_mut(), state, &theme);
+            idx += 1;
+        }
+
+        // 2. Scrollable transcript consuming all flexible rows.
+        let transcript_area = chunks[idx];
+        let mut transcript_lines: Vec<Line<'static>> = vec![];
+        for item in &state.transcript {
+            transcript_lines.extend(render_transcript_item(item, &theme));
+            transcript_lines.push(Line::raw("")); // blank separator between items
+        }
+        let max_scroll = transcript_lines
+            .len()
+            .saturating_sub(transcript_area.height as usize) as u16;
+        let scroll_y = state.scroll.min(max_scroll);
+        let transcript_paragraph = Paragraph::new(transcript_lines).scroll((scroll_y, 0));
+        transcript_paragraph.render(transcript_area, f.buffer_mut());
+        idx += 1;
+
+        // 3. Palette above composer only while open.
+        if state.palette.open {
+            let query = state.composer.input.as_str();
+            render_palette(
+                chunks[idx],
+                f.buffer_mut(),
+                query,
+                state.palette.selected,
+                &theme,
+            );
+            idx += 1;
+        }
+
+        // 4. Permission chooser above composer while active.
+        if let Some(ref perm) = state.permission {
+            render_permission(chunks[idx], f.buffer_mut(), perm, &theme);
+            idx += 1;
+        }
+
+        // 5. Fixed 5-row dual-rule composer at bottom.
+        let composer_area = chunks[idx];
+        render_composer(composer_area, f.buffer_mut(), state, &theme);
+
+        // 6. Cursor at composer_area.x + 2 + display_width(input[..cursor]).
+        let prefix: String = state
+            .composer
+            .input
+            .chars()
+            .take(state.composer.cursor)
             .collect();
-        let stream =
-            List::new(messages).block(Block::default().borders(Borders::ALL).title(" Stream "));
-        f.render_widget(stream, chunks[1]);
-
-        // Tasks
-        let tasks: Vec<ListItem> = state
-            .tasks
-            .iter()
-            .map(|t| ListItem::new(Line::from(Span::styled(t, Style::default().fg(theme.add)))))
-            .collect();
-        let task_list =
-            List::new(tasks).block(Block::default().borders(Borders::ALL).title(" Tasks "));
-        f.render_widget(task_list, chunks[2]);
-
-        // Input
-        let input_text = if state.composer.slash_mode {
-            format!("/{}", state.composer.input)
-        } else {
-            state.composer.input.clone()
-        };
-        let input = Paragraph::new(Line::from(Span::styled(
-            input_text,
-            Style::default().fg(theme.brand),
-        )))
-        .block(Block::default().borders(Borders::ALL).title(" Input "));
-        f.render_widget(input, chunks[3]);
+        let cursor_x = composer_area.x
+            + 2
+            + unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
+        let cursor_y = composer_area.y + 2; // input line is the 3rd row
+        f.set_cursor(cursor_x, cursor_y);
     })?;
     Ok(())
 }

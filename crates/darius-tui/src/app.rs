@@ -1,6 +1,68 @@
 use darius_cognitive::UiEvent;
 use crate::commands::CommandInvocation;
 
+// ── View types for rendering transcript items ──────────────────────────
+
+/// A tool call view with its result.
+#[derive(Debug, Clone)]
+pub struct ToolView {
+    pub name: String,
+    pub args_preview: String,
+    pub result: String,
+    pub ok: bool,
+}
+
+/// A diff view with file, summary, and lines.
+#[derive(Debug, Clone)]
+pub struct DiffView {
+    pub file: String,
+    pub summary: String,
+    pub lines: Vec<DiffLineView>,
+}
+
+/// A single diff line.
+#[derive(Debug, Clone)]
+pub struct DiffLineView {
+    pub kind: DiffLineKind,
+    pub old: Option<u32>,
+    pub new: Option<u32>,
+    pub text: String,
+}
+
+/// The kind of diff line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Context,
+    Add,
+    Delete,
+}
+
+/// A transcript item to render.
+#[derive(Debug, Clone)]
+pub enum TranscriptItem {
+    User { text: String },
+    Assistant { text: String },
+    Thinking { text: String, elapsed_ms: u64 },
+    Tool { tool: ToolView, expanded: bool },
+    Tasks { tasks: Vec<TaskDisplay> },
+    Diff { diff: DiffView },
+}
+
+/// A task display with status glyph.
+#[derive(Debug, Clone)]
+pub struct TaskDisplay {
+    pub title: String,
+    pub status: TaskStatus,
+}
+
+/// Task status for rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStatus {
+    Done,
+    Active,
+    Todo,
+}
+
 /// Effects that the reducer can produce for the runtime to execute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -154,8 +216,8 @@ pub struct AppState {
     pub profile: String,
     pub model: String,
     pub goal: Option<String>,
-    pub messages: Vec<String>,
-    pub tasks: Vec<String>,
+    pub transcript: Vec<TranscriptItem>,
+    pub tasks: Vec<TaskDisplay>,
     pub running: bool,
     pub mode: Mode,
     pub effort: Effort,
@@ -196,7 +258,7 @@ impl Default for AppState {
             profile: "default".into(),
             model: "mock".into(),
             goal: None,
-            messages: vec!["Welcome to Darius TUI. Type /help for commands.".into()],
+            transcript: vec![],
             tasks: vec![],
             running: false,
             mode: Mode::Auto,
@@ -215,10 +277,11 @@ impl Default for AppState {
 
 impl AppState {
     pub fn push_message(&mut self, msg: impl Into<String>) {
-        self.messages.push(msg.into());
+        self.transcript
+            .push(TranscriptItem::Assistant { text: msg.into() });
     }
 
-    pub fn set_tasks(&mut self, tasks: Vec<String>) {
+    pub fn set_tasks(&mut self, tasks: Vec<TaskDisplay>) {
         self.tasks = tasks;
     }
 
@@ -423,7 +486,9 @@ impl AppState {
                     match crate::commands::parse_invocation(&input) {
                         Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
                         Err(e) => {
-                            self.messages.push(format!("✗ {}", e));
+                            self.transcript.push(TranscriptItem::Assistant {
+                                text: format!("✗ {}", e),
+                            });
                             None
                         }
                     }
@@ -501,28 +566,83 @@ impl AppState {
                 self.running = true;
             }
             UiEvent::UserMessage { text } => {
-                self.messages.push(format!("❯ {text}"));
+                self.transcript.push(TranscriptItem::User { text });
             }
             UiEvent::AssistantDelta { text } => {
-                self.messages.push(text);
+                // Coalesce consecutive deltas into one assistant item.
+                if let Some(TranscriptItem::Assistant { text: existing }) =
+                    self.transcript.last_mut()
+                {
+                    existing.push_str(&text);
+                } else {
+                    self.transcript
+                        .push(TranscriptItem::Assistant { text });
+                }
             }
-            UiEvent::Thinking { text, .. } => {
-                self.messages.push(format!("✦ {text}"));
+            UiEvent::Thinking {
+                text, elapsed_ms, ..
+            } => {
+                self.transcript
+                    .push(TranscriptItem::Thinking { text, elapsed_ms });
             }
             UiEvent::ToolStart {
                 name, args_preview, ..
             } => {
-                self.messages.push(format!("⏺ {name}({args_preview})"));
+                self.transcript.push(TranscriptItem::Tool {
+                    tool: ToolView {
+                        name,
+                        args_preview,
+                        result: String::new(),
+                        ok: true,
+                    },
+                    expanded: false,
+                });
             }
             UiEvent::ToolEnd { ok, preview, .. } => {
-                let mark = if ok { "✓" } else { "✗" };
-                self.messages.push(format!("⎿ {mark} {preview}"));
+                // Pair with the most recent tool item.
+                if let Some(TranscriptItem::Tool { tool, .. }) = self.transcript.last_mut() {
+                    tool.ok = ok;
+                    tool.result = preview;
+                }
+            }
+            UiEvent::Diff {
+                file, summary, lines, ..
+            } => {
+                let diff_lines: Vec<DiffLineView> = lines
+                    .into_iter()
+                    .map(|l| DiffLineView {
+                        kind: match l.kind {
+                            darius_cognitive::DiffKind::Context => DiffLineKind::Context,
+                            darius_cognitive::DiffKind::Add => DiffLineKind::Add,
+                            darius_cognitive::DiffKind::Delete => DiffLineKind::Delete,
+                        },
+                        old: l.old,
+                        new: l.new,
+                        text: l.text,
+                    })
+                    .collect();
+                self.transcript.push(TranscriptItem::Diff {
+                    diff: DiffView {
+                        file,
+                        summary,
+                        lines: diff_lines,
+                    },
+                });
             }
             UiEvent::TaskBoard(tasks) => {
                 self.tasks = tasks
                     .into_iter()
-                    .map(|t| format!("{:?}: {}", t.status, t.title))
+                    .map(|t| TaskDisplay {
+                        title: t.title,
+                        status: match t.status.as_str() {
+                            "done" => TaskStatus::Done,
+                            "active" => TaskStatus::Active,
+                            _ => TaskStatus::Todo,
+                        },
+                    })
                     .collect();
+                self.transcript
+                    .push(TranscriptItem::Tasks { tasks: self.tasks.clone() });
             }
             UiEvent::PermissionRequired {
                 id,
@@ -533,17 +653,21 @@ impl AppState {
                 self.permission = Some(PermissionState::new(id, title, command, reason));
             }
             UiEvent::Accept { passed, notes } => {
-                self.messages.push(if passed {
-                    format!("✓ Accepted — {notes}")
-                } else {
-                    format!("✗ Rejected — {notes}")
+                self.transcript.push(TranscriptItem::Assistant {
+                    text: if passed {
+                        format!("✓ Accepted — {notes}")
+                    } else {
+                        format!("✗ Rejected — {notes}")
+                    },
                 });
             }
             UiEvent::Status { line } => {
-                self.messages.push(line);
+                self.transcript
+                    .push(TranscriptItem::Assistant { text: line });
             }
             UiEvent::Done => {
                 self.running = false;
+                self.status_line = Some("Done".into());
             }
             _ => {}
         }
@@ -555,7 +679,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::input::map_key;
-    use crossterm::event::{KeyCode, KeyModifiers, KeyEvent};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
@@ -573,7 +697,10 @@ mod tests {
     fn submitting_text_returns_runtime_goal_and_clears_input() {
         let mut state = AppState::default();
         state.composer.input = "hello".into();
-        assert_eq!(state.reduce(Action::Submit), Some(Effect::SubmitGoal("hello".into())));
+        assert_eq!(
+            state.reduce(Action::Submit),
+            Some(Effect::SubmitGoal("hello".into()))
+        );
         assert!(state.composer.input.is_empty());
     }
 
@@ -595,7 +722,7 @@ mod tests {
     #[test]
     fn tui_state_new() {
         let state = AppState::default();
-        assert!(!state.messages.is_empty());
+        assert!(state.transcript.is_empty());
         assert!(state.tasks.is_empty());
         assert!(!state.running);
     }
@@ -604,13 +731,25 @@ mod tests {
     fn tui_state_push_message() {
         let mut state = AppState::default();
         state.push_message("hello");
-        assert_eq!(state.messages.last().unwrap(), "hello");
+        match state.transcript.last().unwrap() {
+            TranscriptItem::Assistant { text } => assert_eq!(text, "hello"),
+            other => panic!("expected Assistant, got {:?}", other),
+        }
     }
 
     #[test]
     fn tui_state_set_tasks() {
         let mut state = AppState::default();
-        state.set_tasks(vec!["task 1".into(), "task 2".into()]);
+        state.set_tasks(vec![
+            TaskDisplay {
+                title: "task 1".into(),
+                status: TaskStatus::Todo,
+            },
+            TaskDisplay {
+                title: "task 2".into(),
+                status: TaskStatus::Active,
+            },
+        ]);
         assert_eq!(state.tasks.len(), 2);
     }
 
@@ -645,12 +784,285 @@ mod tests {
     }
 
     #[test]
-    fn apply_event_done() {
+    fn apply_event_user_message() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::UserMessage {
+            text: "hello world".into(),
+        });
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::User { text } => assert_eq!(text, "hello world"),
+            other => panic!("expected User, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_coalesces_consecutive_deltas() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::AssistantDelta {
+            text: "Hello ".into(),
+        });
+        state.apply_event(UiEvent::AssistantDelta {
+            text: "world".into(),
+        });
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::Assistant { text } => assert_eq!(text, "Hello world"),
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_delta_after_user_does_not_coalesce() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::UserMessage {
+            text: "hi".into(),
+        });
+        state.apply_event(UiEvent::AssistantDelta {
+            text: "reply".into(),
+        });
+        assert_eq!(state.transcript.len(), 2);
+        match &state.transcript[1] {
+            TranscriptItem::Assistant { text } => assert_eq!(text, "reply"),
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_tool_start_end_pairing() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::ToolStart {
+            id: "t1".into(),
+            name: "read_file".into(),
+            args_preview: "src/main.rs".into(),
+        });
+        // ToolStart creates a tool item with empty result.
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::Tool { tool, .. } => {
+                assert_eq!(tool.name, "read_file");
+                assert_eq!(tool.args_preview, "src/main.rs");
+                assert!(tool.result.is_empty());
+                assert!(tool.ok);
+            }
+            other => panic!("expected Tool, got {:?}", other),
+        }
+        state.apply_event(UiEvent::ToolEnd {
+            id: "t1".into(),
+            ok: true,
+            preview: "fn main() {}".into(),
+            spilled: None,
+        });
+        // ToolEnd pairs with the last tool item.
+        match &state.transcript[0] {
+            TranscriptItem::Tool { tool, .. } => {
+                assert_eq!(tool.result, "fn main() {}");
+                assert!(tool.ok);
+            }
+            other => panic!("expected Tool, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_tool_end_fail() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::ToolStart {
+            id: "t1".into(),
+            name: "shell".into(),
+            args_preview: "ls".into(),
+        });
+        state.apply_event(UiEvent::ToolEnd {
+            id: "t1".into(),
+            ok: false,
+            preview: "permission denied".into(),
+            spilled: None,
+        });
+        match &state.transcript[0] {
+            TranscriptItem::Tool { tool, .. } => {
+                assert!(!tool.ok);
+                assert_eq!(tool.result, "permission denied");
+            }
+            other => panic!("expected Tool, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_task_status_mapping() {
+        use darius_cognitive::{TaskSnapshot, UiEvent};
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::TaskBoard(vec![
+            TaskSnapshot {
+                id: "1".into(),
+                title: "done task".into(),
+                status: "done".into(),
+            },
+            TaskSnapshot {
+                id: "2".into(),
+                title: "active task".into(),
+                status: "active".into(),
+            },
+            TaskSnapshot {
+                id: "3".into(),
+                title: "todo task".into(),
+                status: "todo".into(),
+            },
+            TaskSnapshot {
+                id: "4".into(),
+                title: "unknown task".into(),
+                status: "something".into(),
+            },
+        ]));
+        assert_eq!(state.tasks.len(), 4);
+        assert_eq!(state.tasks[0].status, TaskStatus::Done);
+        assert_eq!(state.tasks[0].title, "done task");
+        assert_eq!(state.tasks[1].status, TaskStatus::Active);
+        assert_eq!(state.tasks[2].status, TaskStatus::Todo);
+        assert_eq!(state.tasks[3].status, TaskStatus::Todo); // unknown -> Todo
+        // Also a Tasks item pushed to transcript.
+        match &state.transcript[0] {
+            TranscriptItem::Tasks { tasks } => assert_eq!(tasks.len(), 4),
+            other => panic!("expected Tasks, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_diff_mapping() {
+        use darius_cognitive::{DiffKind, DiffLine, UiEvent};
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::Diff {
+            file: "src/main.rs".into(),
+            summary: "1 addition".into(),
+            lines: vec![
+                DiffLine {
+                    kind: DiffKind::Context,
+                    old: Some(1),
+                    new: Some(1),
+                    text: "fn main() {".into(),
+                },
+                DiffLine {
+                    kind: DiffKind::Add,
+                    old: None,
+                    new: Some(2),
+                    text: "    println!(\"hi\");".into(),
+                },
+                DiffLine {
+                    kind: DiffKind::Delete,
+                    old: Some(2),
+                    new: None,
+                    text: "    println!(\"bye\");".into(),
+                },
+            ],
+        });
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::Diff { diff } => {
+                assert_eq!(diff.file, "src/main.rs");
+                assert_eq!(diff.summary, "1 addition");
+                assert_eq!(diff.lines.len(), 3);
+                assert_eq!(diff.lines[0].kind, DiffLineKind::Context);
+                assert_eq!(diff.lines[1].kind, DiffLineKind::Add);
+                assert_eq!(diff.lines[2].kind, DiffLineKind::Delete);
+            }
+            other => panic!("expected Diff, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_permission_sets_state() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::PermissionRequired {
+            id: "p1".into(),
+            title: "Run shell command".into(),
+            command: "ls -la".into(),
+            reason: "List files".into(),
+        });
+        assert!(state.permission.is_some());
+        let perm = state.permission.as_ref().unwrap();
+        assert_eq!(perm.id, "p1");
+        assert_eq!(perm.title, "Run shell command");
+        assert_eq!(perm.command, "ls -la");
+        assert_eq!(perm.reason, "List files");
+    }
+
+    #[test]
+    fn apply_event_accept_passed() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::Accept {
+            passed: true,
+            notes: "all checks green".into(),
+        });
+        match &state.transcript[0] {
+            TranscriptItem::Assistant { text } => {
+                assert_eq!(text, "✓ Accepted — all checks green")
+            }
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_accept_failed() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::Accept {
+            passed: false,
+            notes: "test failed".into(),
+        });
+        match &state.transcript[0] {
+            TranscriptItem::Assistant { text } => {
+                assert_eq!(text, "✗ Rejected — test failed")
+            }
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_status_becomes_assistant_item() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::Status {
+            line: "Compiling...".into(),
+        });
+        match &state.transcript[0] {
+            TranscriptItem::Assistant { text } => assert_eq!(text, "Compiling..."),
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_done_clears_running_and_sets_status() {
         use darius_cognitive::UiEvent;
         let mut state = AppState::default();
         state.running = true;
         state.apply_event(UiEvent::Done);
         assert!(!state.running);
+        assert_eq!(state.status_line.as_deref(), Some("Done"));
+    }
+
+    #[test]
+    fn apply_event_thinking() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::Thinking {
+            text: "analyzing".into(),
+            elapsed_ms: 1234,
+        });
+        match &state.transcript[0] {
+            TranscriptItem::Thinking {
+                text,
+                elapsed_ms,
+            } => {
+                assert_eq!(text, "analyzing");
+                assert_eq!(*elapsed_ms, 1234);
+            }
+            other => panic!("expected Thinking, got {:?}", other),
+        }
     }
 
     // ── Permission chooser tests ─────────────────────────────────────

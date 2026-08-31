@@ -9,13 +9,11 @@ pub mod terminal;
 pub mod theme;
 
 pub use app::{
-    Action, AppState, Effect, Effort, Mode, PaletteState, PermissionChoice, PermissionRequest,
-    PermissionState,
+    Action, AppState, DiffLineKind, DiffLineView, DiffView, Effect, Effort, Mode, PaletteState,
+    PermissionChoice, PermissionRequest, PermissionState, TaskDisplay, TaskStatus, ToolView,
+    TranscriptItem,
 };
 pub use controller::{ParsedCommand, RuntimeCommand, TuiController};
-pub use render::{
-    DiffLineKind, DiffLineView, DiffView, TaskDisplay, TaskStatus, ToolView, TranscriptItem,
-};
 pub use terminal::run_tui;
 
 pub use darius_cognitive as cognitive;
