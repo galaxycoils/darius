@@ -220,10 +220,8 @@ mod tests {
     }
 
     #[test]
-    fn all_commands_have_unique_names() {
-        let mut names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
-        names.sort();
-        let unique: Vec<&str> = names.clone().into_iter().collect();
-        assert_eq!(names.len(), unique.len());
+    fn slash_command_preserves_arguments() {
+        assert_eq!(parse_invocation("/mode plan").unwrap().args, "plan");
+        assert_eq!(parse_invocation("-memory brakes").unwrap().args, "brakes");
     }
 }

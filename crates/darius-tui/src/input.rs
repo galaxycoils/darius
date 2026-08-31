@@ -48,6 +48,18 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
 mod tests {
     use super::*;
 
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn ordinary_letters_edit_the_composer() {
+        let state = AppState::default();
+        assert_eq!(map_key(key('q'), &state), Some(Action::Insert('q')));
+        assert_eq!(map_key(key('j'), &state), Some(Action::Insert('j')));
+        assert_eq!(map_key(key('k'), &state), Some(Action::Insert('k')));
+    }
+
     #[test]
     fn slash_opens_palette() {
         let state = AppState::default();

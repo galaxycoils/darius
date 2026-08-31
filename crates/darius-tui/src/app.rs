@@ -314,6 +314,27 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::map_key;
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn ordinary_letters_edit_the_composer() {
+        let state = AppState::default();
+        assert_eq!(map_key(key('q'), &state), Some(Action::Insert('q')));
+        assert_eq!(map_key(key('j'), &state), Some(Action::Insert('j')));
+        assert_eq!(map_key(key('k'), &state), Some(Action::Insert('k')));
+    }
+
+    #[test]
+    fn submitting_text_returns_runtime_goal_and_clears_input() {
+        let mut state = AppState::default();
+        state.composer.input = "hello".into();
+        assert_eq!(state.reduce(Action::Submit), Some(Effect::SubmitGoal("hello".into())));
+        assert!(state.composer.input.is_empty());
+    }
 
     #[test]
     fn mode_cycle() {
