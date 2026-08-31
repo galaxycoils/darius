@@ -38,6 +38,63 @@ impl Effort {
     }
 }
 
+/// The three permission choices matching the interaction contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionChoice {
+    AllowOnce,
+    AllowSession,
+    Deny,
+}
+
+impl PermissionChoice {
+    /// The three options in display order.
+    pub const ALL: [Self; 3] = [Self::AllowOnce, Self::AllowSession, Self::Deny];
+
+    /// Short label for the rose permission box.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::AllowOnce => "Yes",
+            Self::AllowSession => "Yes, and don't ask again this session",
+            Self::Deny => "No, and tell Darius what to do (esc)",
+        }
+    }
+}
+
+/// Active permission chooser state with selection.
+#[derive(Debug, Clone)]
+pub struct PermissionState {
+    pub id: String,
+    pub title: String,
+    pub command: String,
+    pub reason: String,
+    pub selection: usize,
+}
+
+impl PermissionState {
+    pub fn new(id: String, title: String, command: String, reason: String) -> Self {
+        Self { id, title, command, reason, selection: 0 }
+    }
+
+    /// Current choice based on selection index.
+    pub fn current_choice(&self) -> PermissionChoice {
+        PermissionChoice::ALL[self.selection]
+    }
+
+    /// Move selection up (wraps to bottom).
+    pub fn prev(&mut self) {
+        if self.selection == 0 {
+            self.selection = PermissionChoice::ALL.len() - 1;
+        } else {
+            self.selection -= 1;
+        }
+    }
+
+    /// Move selection down (wraps to top).
+    pub fn next(&mut self) {
+        self.selection = (self.selection + 1) % PermissionChoice::ALL.len();
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PermissionRequest {
     pub id: String,
@@ -62,6 +119,7 @@ pub struct AppState {
     pub effort: Effort,
     pub composer: ComposerState,
     pub permission_queue: Vec<PermissionRequest>,
+    pub permission: Option<PermissionState>,
     pub scroll: u16,
 }
 
@@ -86,6 +144,7 @@ impl Default for AppState {
             effort: Effort::High,
             composer: ComposerState::default(),
             permission_queue: vec![],
+            permission: None,
             scroll: 0,
         }
     }
@@ -126,6 +185,36 @@ impl AppState {
         self.permission_queue.first()
     }
 
+    /// Apply a UI action to the state. Returns an optional permission choice
+    /// when the user confirms via the permission chooser.
+    pub fn apply_action(&mut self, action: Action) -> Option<PermissionChoice> {
+        match action {
+            Action::PermissionNext => {
+                if let Some(ref mut perm) = self.permission {
+                    perm.next();
+                }
+                None
+            }
+            Action::PermissionPrev => {
+                if let Some(ref mut perm) = self.permission {
+                    perm.prev();
+                }
+                None
+            }
+            Action::PermissionChoose => {
+                if let Some(perm) = self.permission.take() {
+                    let choice = perm.current_choice();
+                    // Remove from queue as well
+                    self.permission_queue.retain(|p| p.id != perm.id);
+                    Some(choice)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn apply_event(&mut self, event: UiEvent) {
         match event {
             UiEvent::Header { profile, model, goal } => {
@@ -153,8 +242,8 @@ impl AppState {
             UiEvent::TaskBoard(tasks) => {
                 self.tasks = tasks.into_iter().map(|t| format!("{:?}: {}", t.status, t.title)).collect();
             }
-            UiEvent::PermissionRequired { id, title, reason, .. } => {
-                self.permission_queue.push(PermissionRequest { id, reason: format!("{title}: {reason}") });
+            UiEvent::PermissionRequired { id, title, command, reason } => {
+                self.permission = Some(PermissionState::new(id, title, command, reason));
             }
             UiEvent::Accept { passed, notes } => {
                 self.messages.push(if passed {
@@ -252,5 +341,87 @@ mod tests {
         state.running = true;
         state.apply_event(UiEvent::Done);
         assert!(!state.running);
+    }
+
+    // ── Permission chooser tests ─────────────────────────────────────
+
+    #[test]
+    fn permission_selection_wraps_down() {
+        let mut perm = PermissionState::new(
+            "p1".into(),
+            "Run command".into(),
+            "ls -la".into(),
+            "List files".into(),
+        );
+        assert_eq!(perm.selection, 0);
+        perm.next();
+        assert_eq!(perm.selection, 1);
+        perm.next();
+        assert_eq!(perm.selection, 2);
+        perm.next(); // wraps to 0
+        assert_eq!(perm.selection, 0);
+    }
+
+    #[test]
+    fn permission_selection_wraps_up() {
+        let mut perm = PermissionState::new(
+            "p1".into(),
+            "Run command".into(),
+            "ls -la".into(),
+            "List files".into(),
+        );
+        assert_eq!(perm.selection, 0);
+        perm.prev(); // wraps to last
+        assert_eq!(perm.selection, 2);
+        perm.prev();
+        assert_eq!(perm.selection, 1);
+    }
+
+    #[test]
+    fn permission_choose_returns_choice() {
+        let mut state = AppState::default();
+        state.permission = Some(PermissionState::new(
+            "p1".into(),
+            "Run command".into(),
+            "ls -la".into(),
+            "List files".into(),
+        ));
+        // Move to AllowSession
+        state.permission.as_mut().unwrap().next();
+        let choice = state.apply_action(Action::PermissionChoose);
+        assert_eq!(choice, Some(PermissionChoice::AllowSession));
+        // Permission is consumed
+        assert!(state.permission.is_none());
+    }
+
+    #[test]
+    fn permission_deny_consumes_and_returns_deny() {
+        let mut state = AppState::default();
+        state.permission = Some(PermissionState::new(
+            "p1".into(),
+            "Run command".into(),
+            "ls -la".into(),
+            "List files".into(),
+        ));
+        // Move to Deny (index 2)
+        state.permission.as_mut().unwrap().next();
+        state.permission.as_mut().unwrap().next();
+        let choice = state.apply_action(Action::PermissionChoose);
+        assert_eq!(choice, Some(PermissionChoice::Deny));
+        assert!(state.permission.is_none());
+    }
+
+    #[test]
+    fn permission_allow_session_persists_in_state() {
+        let mut state = AppState::default();
+        state.permission = Some(PermissionState::new(
+            "p1".into(),
+            "Run command".into(),
+            "ls -la".into(),
+            "List files".into(),
+        ));
+        state.permission.as_mut().unwrap().next(); // AllowSession
+        let choice = state.apply_action(Action::PermissionChoose);
+        assert_eq!(choice, Some(PermissionChoice::AllowSession));
     }
 }

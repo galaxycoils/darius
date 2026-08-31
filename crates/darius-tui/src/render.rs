@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::io;
 
-use crate::app::AppState;
+use crate::app::{AppState, PermissionChoice, PermissionState};
 use crate::theme::{ColorMode, Theme};
 
 // ── View types for rendering transcript items ──────────────────────────
@@ -228,9 +228,46 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     card.render(area, buf);
 }
 
+// ── Permission chooser ────────────────────────────────────────────────
+
+/// Render the rose permission chooser box with the three options.
+/// The selected option is marked with `❯`.
+pub fn render_permission(area: Rect, buf: &mut Buffer, perm: &PermissionState, theme: &Theme) {
+    let mut body = vec![
+        Line::from(vec![
+            Span::styled(&perm.title, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled(&perm.command, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled(&perm.reason, Style::default().fg(theme.muted)),
+        ]),
+        Line::from(Span::raw("")),
+    ];
+
+    for (i, choice) in PermissionChoice::ALL.iter().enumerate() {
+        let marker = if i == perm.selection { "❯" } else { " " };
+        let color = if i == perm.selection { theme.active } else { theme.text };
+        body.push(Line::from(vec![
+            Span::styled(format!("{marker} {}", choice.label()), Style::default().fg(color)),
+        ]));
+    }
+
+    let card = Paragraph::new(body).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.permission))
+            .title(" Permission Required "),
+    );
+    card.render(area, buf);
+}
+
 // ── Snapshot helpers ───────────────────────────────────────────────────
 
 /// Render a transcript to a string for snapshot testing.
+#[cfg(test)]
 fn render_transcript_to_string(width: u16, height: u16, items: &[TranscriptItem]) -> String {
     let theme = Theme::for_mode(ColorMode::Truecolor);
     let area = Rect::new(0, 0, width, height);
@@ -256,6 +293,7 @@ fn render_transcript_to_string(width: u16, height: u16, items: &[TranscriptItem]
 }
 
 /// Convert a ratatui Buffer to a printable string for snapshot testing.
+#[cfg(test)]
 fn buffer_to_string(buffer: &Buffer) -> String {
     let mut result = String::new();
     for y in 0..buffer.area().height {
@@ -475,5 +513,36 @@ mod tests {
         let items = full_transcript_fixture();
         let rendered = render_transcript_to_string(120, 36, &items);
         insta::assert_snapshot!("full_transcript_120x36", rendered);
+    }
+
+    #[test]
+    fn permission_chooser_80x24() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let perm = PermissionState::new(
+            "perm-1".into(),
+            "Run shell command".into(),
+            "ls -la ~/".into(),
+            "List files in home directory".into(),
+        );
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buffer = Buffer::empty(area);
+        render_permission(area, &mut buffer, &perm, &theme);
+        insta::assert_snapshot!("permission_chooser_80x24", buffer_to_string(&buffer));
+    }
+
+    #[test]
+    fn permission_chooser_selected_session() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let mut perm = PermissionState::new(
+            "perm-1".into(),
+            "Run shell command".into(),
+            "ls -la ~/".into(),
+            "List files in home directory".into(),
+        );
+        perm.next(); // move to AllowSession
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buffer = Buffer::empty(area);
+        render_permission(area, &mut buffer, &perm, &theme);
+        insta::assert_snapshot!("permission_chooser_selected_session", buffer_to_string(&buffer));
     }
 }

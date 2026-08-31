@@ -1,0 +1,28 @@
+---
+source: crates/darius-tui/src/render.rs
+expression: buffer_to_string(&buffer)
+---
+╭ Permission Required ─────────────────────────────────────────────────────────╮
+│Run shell command                                                             │
+│ls -la ~/                                                                     │
+│List files in home directory                                                  │
+│                                                                              │
+│  Yes                                                                         │
+│❯ Yes, and don't ask again this session                                       │
+│  No, and tell Darius what to do (esc)                                        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

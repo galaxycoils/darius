@@ -5,7 +5,8 @@ pub mod render;
 pub mod terminal;
 pub mod theme;
 
-pub use app::{Action, AppState, Effort, Mode, PermissionRequest};
+pub use app::{Action, AppState, Effort, Mode, PermissionChoice, PermissionRequest, PermissionState};
+pub use render::{DiffView, DiffLineView, DiffLineKind, TaskDisplay, TaskStatus, ToolView, TranscriptItem};
 pub use terminal::run_tui;
 
 pub use darius_cognitive as cognitive;
