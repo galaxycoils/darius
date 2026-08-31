@@ -1,0 +1,14 @@
+---
+source: crates/darius-tui/src/render.rs
+expression: buffer_to_string(&buffer)
+---
+╭ Slash Commands ──────────────────────────────────────────────────────────────╮
+│Commands                                                                      │
+│❯ /model              Show or select the session model                        │
+│  /mode               Cycle or select auto/manual/accept-edits/plan           │
+│  /status             Show profile/model/context/kernel status                │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

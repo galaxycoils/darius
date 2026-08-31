@@ -1,0 +1,19 @@
+---
+source: crates/darius-tui/src/render.rs
+expression: buffer_to_string(&buffer)
+---
+╭ Slash Commands ──────────────────────────────────────────────────────────────╮
+│Commands                                                                      │
+│❯ /help               Show commands and keyboard shortcuts                    │
+│  /clear              Clear the visible transcript                            │
+│  /compact            Compact session context into memory                     │
+│  /model              Show or select the session model                        │
+│  /mode               Cycle or select auto/manual/accept-edits/plan           │
+│  /effort             Select low/medium/high/xhigh/max/ultracode              │
+│  /permissions        Show the current permission policy                      │
+│  /memory             Search durable memory                                   │
+│  /pack               Show the bounded MemoryPack                             │
+│  /tasks              Show the current task board                             │
+│  /plan               Enter plan mode                                         │
+│  /status             Show profile/model/context/kernel status                │
+╰──────────────────────────────────────────────────────────────────────────────╯

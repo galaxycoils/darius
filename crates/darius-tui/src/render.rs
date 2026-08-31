@@ -10,6 +10,7 @@ use ratatui::{
 use std::io;
 
 use crate::app::{AppState, PermissionChoice, PermissionState};
+use crate::commands::{CommandSpec, COMMANDS};
 use crate::theme::{ColorMode, Theme};
 
 // ── View types for rendering transcript items ──────────────────────────
@@ -262,6 +263,90 @@ pub fn render_permission(area: Rect, buf: &mut Buffer, perm: &PermissionState, t
             .title(" Permission Required "),
     );
     card.render(area, buf);
+}
+
+// ── Composer ───────────────────────────────────────────────────────────
+
+/// Render the dual-rule composer with effort chip and mode footer.
+pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    let width = area.width as usize;
+    let rule = "─".repeat(width.saturating_sub(2));
+
+    let mut lines = vec![];
+
+    // Effort chip line
+    let effort_text = format!("{} · /effort", state.effort.chip());
+    lines.push(Line::from(vec![
+        Span::styled(effort_text, Style::default().fg(theme.muted)),
+    ]));
+
+    // Top rule
+    lines.push(Line::from(Span::styled(&rule, Style::default().fg(theme.rule))));
+
+    // Input line
+    let input_text = if state.composer.slash_mode {
+        format!("/{}", state.composer.input)
+    } else {
+        state.composer.input.clone()
+    };
+    lines.push(Line::from(vec![
+        Span::styled("❯ ", Style::default().fg(theme.brand)),
+        Span::styled(input_text, Style::default().fg(theme.text)),
+    ]));
+
+    // Bottom rule
+    lines.push(Line::from(Span::styled(&rule, Style::default().fg(theme.rule))));
+
+    // Mode footer
+    let mode_text = format!("{} (shift+tab to cycle) · ? for shortcuts", state.mode.label());
+    lines.push(Line::from(vec![
+        Span::styled(mode_text, Style::default().fg(theme.muted)),
+    ]));
+
+    let composer = Paragraph::new(lines);
+    composer.render(area, buf);
+}
+
+// ── Slash palette ──────────────────────────────────────────────────────
+
+/// Render the slash command palette above the composer.
+pub fn render_palette(area: Rect, buf: &mut Buffer, query: &str, selected_idx: usize, theme: &Theme) {
+    let filtered: Vec<&CommandSpec> = if query.is_empty() {
+        COMMANDS.iter().collect()
+    } else {
+        let q = query.to_lowercase();
+        COMMANDS.iter()
+            .filter(|cmd| cmd.name.contains(&q) || cmd.description.to_lowercase().contains(&q))
+            .collect()
+    };
+
+    let mut items: Vec<ListItem> = Vec::new();
+
+    // Header
+    items.push(ListItem::new(Line::from(vec![
+        Span::styled("Commands", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+    ])));
+
+    for (i, cmd) in filtered.iter().enumerate() {
+        let marker = if i == selected_idx { "❯" } else { " " };
+        let color = if i == selected_idx { theme.active } else { theme.text };
+        let name_width = 20;
+        let name = format!("{:width$}", cmd.name, width = name_width);
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(format!("{marker} "), Style::default().fg(color)),
+            Span::styled(name, Style::default().fg(color)),
+            Span::styled(cmd.description, Style::default().fg(theme.muted)),
+        ])));
+    }
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.rule))
+            .title(" Slash Commands "),
+    );
+    list.render(area, buf);
 }
 
 // ── Snapshot helpers ───────────────────────────────────────────────────
@@ -544,5 +629,36 @@ mod tests {
         let mut buffer = Buffer::empty(area);
         render_permission(area, &mut buffer, &perm, &theme);
         insta::assert_snapshot!("permission_chooser_selected_session", buffer_to_string(&buffer));
+    }
+
+    #[test]
+    fn composer_80x6() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let mut state = fixture_state();
+        state.effort = crate::app::Effort::XHigh;
+        state.mode = crate::app::Mode::Auto;
+        state.composer.input = "hello world".into();
+        let area = Rect::new(0, 0, 80, 6);
+        let mut buffer = Buffer::empty(area);
+        render_composer(area, &mut buffer, &state, &theme);
+        insta::assert_snapshot!("composer_80x6", buffer_to_string(&buffer));
+    }
+
+    #[test]
+    fn palette_80x10() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let area = Rect::new(0, 0, 80, 10);
+        let mut buffer = Buffer::empty(area);
+        render_palette(area, &mut buffer, "/mo", 0, &theme);
+        insta::assert_snapshot!("palette_80x10", buffer_to_string(&buffer));
+    }
+
+    #[test]
+    fn palette_empty_query() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let area = Rect::new(0, 0, 80, 15);
+        let mut buffer = Buffer::empty(area);
+        render_palette(area, &mut buffer, "", 0, &theme);
+        insta::assert_snapshot!("palette_empty_query", buffer_to_string(&buffer));
     }
 }
