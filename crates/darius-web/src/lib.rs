@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use darius_cognitive::TaskSnapshot;
-pub use darius_cognitive::UiEvent;
+use darius_cognitive::UiEvent;
 
 // Re-export canonical UiEvent so downstream users can match the same type.
 pub use darius_cognitive::UiEvent as CanonicalUiEvent;

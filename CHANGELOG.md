@@ -2,26 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2026-08-30
+## [1.1.1] - 2026-08-31
 
 ### Added
-- **darius-memory**: Single SQLite file per profile, WAL mode, FTS5 full-text search, MemoryPack capped at 3500 chars, content-hash dedupe, JSONL import/export
-- **darius-tools**: ToolRegistry with disk spill above 32 KiB preview, TOOL line protocol, built-in memory/task tools, shell/read_file/write_file/glob tools
-- **darius-cognitive**: CognitiveLoop (Plan → TaskBoard → ReAct → Accept), MockModel for offline tests
-- **Live ModelRouter**: `LiveModel` behind `DARIUS_LIVE_MODEL` env var for `darius run`
-- **Messaging adapter**: Thin I/O layer for Telegram/Discord/Slack (stub)
-- **Optional Jupyter/ZMQ**: `IpKernelConnection` behind `rlm-ipykernel` feature
-- **Isolation hardening**: `force_terminate`, `detect_gvisor`, `terminate_with_timeout`
-- **CLI**: `darius run`, `darius memory *`, `darius session-smoke`
-- **Integration e2e**: Temp profile → memory → tools → cognitive loop test
+- Claude-Code-style Darius TUI with streaming turns, command palette, modes, effort, todos, diffs, and permission chooser
+- Darius web dashboard (Axum + SSE)
+- A2A agent card + task server
+- SessionRuntime shared across CLI, TUI, web, and A2A
+- Real OpenAI-compatible provider HTTP client with wiremock tests
+- IPyKernel RLM backend (feature-gated)
+- Terminal lifecycle guard with drop-order test
+- CI workflow for continuous integration
 
-### Phase 2 (prior)
-- Content-hash anchored PUT/CUT edits with stale-anchor rejection
-- Pure-Rust RLM core with compact-safe handles
-- SQLite event replay, versioned session handoffs, persistent daemon sessions
-- Profile isolation, skill loading/registry, model-role routing
+### Fixed
+- Unified UiEvent/runtime across CLI, TUI, web, and A2A
+- Real OpenAI-compatible provider requests and localhost server startup
+- Verified release checksums and tag handling
 
-### Known Limitations
-- Live provider HTTP integration is stub (Mock works offline)
-- Production messaging I/O is stub
-- No Firecracker, embeddings, cloud sync, or training
+### Notes
+- Brainless was used as visual/interaction inspiration only. No source was copied.
+
+## [1.1.0] - 2026-08-18
+
+### Added
+- FTS5-backed memory search
+- Extended tool registry (shell, read_file, write_file, glob)
+- Live ModelRouter for `darius run`
+
+## [1.0.0] - 2026-08-18
+
+### Added
+- Initial release
+- Offline MockModel (no network)
+- Live provider when configured
+- Durable SQLite memory with FTS5 search
+- Plan–execute–accept cognitive loop
+- CLI with memory operations
+- Session handoff + event replay

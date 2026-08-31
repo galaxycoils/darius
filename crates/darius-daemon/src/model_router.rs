@@ -436,7 +436,7 @@ mod tests {
     fn openai_client_connection_failure_maps_to_provider_error() {
         let client = OpenAiCompatibleClient::new().unwrap();
         let result = client.chat_completion(
-            "http://localhost:1",  // Nothing listening here
+            "http://localhost:1", // Nothing listening here
             "DARIUS_TEST_KEY_NEVER_SET",
             "gpt-4o",
             &[serde_json::json!({"role":"user","content":"hi"})],

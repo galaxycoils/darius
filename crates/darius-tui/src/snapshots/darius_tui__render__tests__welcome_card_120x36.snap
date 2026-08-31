@@ -1,8 +1,8 @@
 ---
 source: crates/darius-tui/src/render.rs
-expression: rendered
+expression: buffer_to_string(&buffer)
 ---
-╭◆ darius v1.1.0───────────────────────────────────────────────────────────────────────────────────────────────────────╮
+╭◆ darius v1.1.1───────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │Welcome back                                                                                                          │
 │model   gpt-4o-mini                                                                                                   │
 │cwd     ~/dev/project                                                                                                 │

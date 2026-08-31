@@ -1,6 +1,6 @@
-# Darius v1.0.0
+# Darius v1.1.1
 
-**Open-source lean agent harness** — durable memory, tool ACI, plan–execute–accept loop. Local-first, provider-optional, zero API keys required to get started.
+**Open-source lean agent harness** — Claude-Code-style TUI, durable memory, tool ACI, plan–execute–accept loop. Local-first, provider-optional, zero API keys required to get started.
 
 ## Install
 
@@ -24,14 +24,19 @@ cargo install --git https://github.com/galaxycoils/darius darius-cli
 darius session-smoke
 ```
 
-### 2. Use memory
+### 2. Launch the TUI
 
 ```sh
-# Memory is stored in ~/.darius/profiles/default/memory.db (SQLite with FTS5)
+darius tui
+```
+
+### 3. Use memory
+
+```sh
 darius memory stats
 ```
 
-### 3. Configure a live provider (optional)
+### 4. Configure a live provider (optional)
 
 ```sh
 mkdir -p ~/.darius/profiles/default
@@ -46,7 +51,7 @@ EOF
 export DARIUS_API_KEY="sk-your-key-here"
 ```
 
-### 4. Run with a real goal
+### 5. Run with a real goal
 
 ```sh
 darius run "analyze this codebase and summarize the architecture"
@@ -54,17 +59,64 @@ darius run "analyze this codebase and summarize the architecture"
 
 Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful for testing the loop without network.
 
+## TUI Keyboard Reference
+
+| Key | Action |
+|-----|--------|
+| `❯ text` + Enter | Send a message |
+| `/` | Open command palette |
+| `-` at column zero | Also opens palette |
+| `Shift+Tab` | Cycle mode (auto → manual → accept-edits → plan) |
+| `Esc` | Close palette / interrupt |
+| `q` | Quit |
+
+## TUI Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/clear` | Clear transcript |
+| `/compact` | Compact context |
+| `/model` | Show/set model |
+| `/mode` | Cycle interaction mode |
+| `/effort` | Set effort level |
+| `/permissions` | View permission policy |
+| `/memory` | Memory stats |
+| `/pack` | Build MemoryPack |
+| `/tasks` | Show task board |
+| `/plan` | Show current plan |
+| `/status` | Session status |
+| `/config` | Show/set config |
+| `/skills` | List skills |
+| `/a2a` | A2A card info |
+| `/serve` | Start localhost server |
+| `/stop` | Stop current operation |
+| `/quit` | Exit TUI |
+
+## Modes
+
+| Mode | Indicator | Behavior |
+|------|-----------|----------|
+| Auto | ⏵⏵ auto | Full autonomous execution |
+| Manual | ⏸ manual | Pause after each step |
+| Accept Edits | ⏵⏵ accept edits | Auto-accept file edits |
+| Plan | ⏸ plan | Planning only, no execution |
+
 ## CLI Commands
 
 | Command | Description |
 |---------|-------------|
 | `darius run "goal"` | Cognitive loop (Mock or live if configured) |
+| `darius tui` | Launch Claude-Code-style TUI |
+| `darius serve` | Start web dashboard + A2A server |
 | `darius session-smoke` | Integrated daemon + session + handoff test |
 | `darius memory search <q>` | FTS5 search |
 | `darius memory pack` | Bounded MemoryPack (≤3500 chars) |
 | `darius memory import <file>` | Deduped JSONL import |
 | `darius memory export <file>` | JSONL export |
 | `darius memory stats` | Record count + DB path |
+| `darius config show` | Show profile config |
+| `darius a2a card` | Show A2A agent card |
 
 ## Environment Variables
 
@@ -72,6 +124,7 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 |----------|-------------|
 | `DARIUS_API_KEY` | API key for live provider |
 | `DARIUS_PROFILE` | Profile name (default: `default`) |
+| `DARIUS_LIVE_MODEL` | Force live model for `darius run` |
 
 ## Architecture
 
@@ -79,8 +132,10 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 darius-memory     → SQLite FTS5, MemoryPack, JSONL
 darius-tools      → ToolRegistry, TOOL line protocol, spill
 darius-cognitive  → Plan → TaskBoard → ReAct → Accept
-darius-daemon     → Session, event log, handoff
-darius-cli        → CLI surface
+darius-daemon     → Session, event log, handoff, model router
+darius-tui        → Claude-Code-style terminal UI (ratatui)
+darius-web        → Axum web dashboard + A2A server
+darius-cli        → CLI surface + session runtime
 ```
 
 ### Lean resource caps
@@ -93,23 +148,21 @@ darius-cli        → CLI surface
 | ReAct iters | 12 per task |
 | Body size | 32 KiB per record |
 
-## What's in v1
+## What's in v1.1.1
 
+- ✅ Claude-Code-style TUI with streaming turns, command palette, modes, effort, todos, diffs, permission chooser
 - ✅ Offline MockModel (no network)
-- ✅ Live provider when configured
+- ✅ Live OpenAI-compatible provider when configured
 - ✅ Durable SQLite memory with FTS5 search
 - ✅ Plan–execute–accept cognitive loop
-- ✅ CLI with memory operations
+- ✅ CLI with memory operations, TUI, serve, A2A
 - ✅ Session handoff + event replay
+- ✅ Web dashboard + A2A server (SSE)
+- ✅ Unified UiEvent/runtime across CLI, TUI, web, A2A
 
-## What's NOT in v1
+## Design inspiration
 
-- Multi-platform messaging (Telegram/Discord)
-- Jupyter/ZMQ backend
-- gVisor/Firecracker isolation
-- Embeddings/vector DB
-- Cloud sync
-- Training/fine-tuning
+Visual/interaction grammar inspired by [Brainless](https://brainless.swerdlow.dev/). No Brainless source code was copied or translated.
 
 ## Build & Test
 

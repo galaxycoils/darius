@@ -149,14 +149,15 @@ pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
 }
 
 /// Parse input into a command, supporting both `/command` and `-command` aliases.
+#[allow(clippy::question_mark)]
 pub fn parse(input: &str) -> Option<&'static CommandSpec> {
     let trimmed = input.trim();
 
     // Strip leading / or - and extract the command name
-    let rest = if trimmed.starts_with('/') {
-        &trimmed[1..]
-    } else if trimmed.starts_with('-') {
-        &trimmed[1..]
+    let rest = if let Some(s) = trimmed.strip_prefix('/') {
+        s
+    } else if let Some(s) = trimmed.strip_prefix('-') {
+        s
     } else {
         return None;
     };
@@ -175,8 +176,8 @@ pub fn parse(input: &str) -> Option<&'static CommandSpec> {
 
 /// Convert dash alias to slash form.
 pub fn dash_alias_to_slash(input: &str) -> String {
-    if input.starts_with('-') {
-        format!("/{}", &input[1..])
+    if let Some(rest) = input.strip_prefix('-') {
+        format!("/{}", rest)
     } else {
         input.to_string()
     }

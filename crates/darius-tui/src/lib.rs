@@ -1,3 +1,5 @@
+// darius-tui: Claude-code-style TUI
+#![allow(clippy::field_reassign_with_default)]
 pub mod app;
 pub mod commands;
 pub mod controller;

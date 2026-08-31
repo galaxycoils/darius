@@ -1,9 +1,9 @@
 use ratatui::{
-    Frame, Terminal,
+    Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Widget},
 };
@@ -525,7 +525,8 @@ pub fn draw(
 mod tests {
     use super::*;
 
-    fn fixture_state() -> AppState {
+    #[allow(clippy::field_reassign_with_default)]
+fn fixture_state() -> AppState {
         let mut state = AppState::default();
         state.profile = "default".into();
         state.model = "gpt-4o-mini".into();

@@ -1,11 +1,10 @@
-use crate::app::{Action, AppState, Mode};
-use crate::cognitive::UiEvent;
+use crate::app::{Action, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Map a keyboard event to a TUI action based on current state.
 pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
     // Permission chooser takes priority when active
-    if state.permission_queue.first().is_some() {
+    if !state.permission_queue.is_empty() {
         return match key.code {
             KeyCode::Up | KeyCode::Char('k') => Some(Action::PermissionNext),
             KeyCode::Down | KeyCode::Char('j') => Some(Action::PermissionPrev),

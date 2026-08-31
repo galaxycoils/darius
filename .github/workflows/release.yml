@@ -36,18 +36,21 @@ jobs:
       - name: Build release
         run: cargo build --release -p darius-cli --target ${{ matrix.target }}
 
-      - name: Package (Unix)
+      - name: Package and checksum (Unix)
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
           tar -czf ../../../${{ asset_name }}.tar.gz darius
           cd ../../..
+          sha256sum ${{ asset_name }}.tar.gz > ${{ asset_name }}.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ asset_name }}
-          path: ${{ asset_name }}.tar.gz
+          path: |
+            ${{ asset_name }}.tar.gz
+            ${{ asset_name }}.sha256
 
   release:
     name: Create Release
@@ -62,12 +65,12 @@ jobs:
           path: artifacts
 
       - name: Create GitHub Release
-        env:
-          # Safe: github.ref_name is the tag that triggered this release (validated by on.push.tags filter)
-          TAG: ${{ github.ref_name }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "$TAG"
-          files: artifacts/*/*.tar.gz
+          # Safe: github.ref_name is the tag that triggered this release (validated by on.push.tags filter)
+          tag_name: ${{ github.ref_name }}
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/*/*.sha256
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
