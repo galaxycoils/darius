@@ -16,22 +16,19 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 /// RLM backend type.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[allow(dead_code)]
 pub enum RlmBackend {
     #[serde(rename = "rust")]
+    #[default]
     Rust,
     #[serde(rename = "ipykernel")]
     Ipkernel,
 }
 
-impl Default for RlmBackend {
-    fn default() -> Self {
-        RlmBackend::Rust
-    }
-}
-
 /// RLM config from profile.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct RlmConfig {
     #[serde(default)]
     pub backend: RlmBackend,
@@ -41,6 +38,7 @@ pub struct RlmConfig {
 /// Jupyter kernel connection handle.
 #[derive(Debug)]
 pub struct IpKernelConnection {
+    #[allow(dead_code)]
     endpoint: String,
 }
 
@@ -78,8 +76,8 @@ impl IpKernelConnection {
     pub fn connect_from_file(path: &PathBuf) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read connection file: {e}"))?;
-        let mut parsed: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Invalid kernel.json: {e}"))?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| format!("Invalid kernel.json: {e}"))?;
 
         // Encrypt shell + hmac fields if needed
         let endpoint = format!(
@@ -109,13 +107,18 @@ impl IpKernelConnection {
 
     /// Stop the kernel child process.
     pub fn stop_kernel(child: &mut std::process::Child) -> Result<(), String> {
-        child.kill().map_err(|e| format!("Failed to kill kernel: {e}"))?;
-        child.wait().map_err(|e| format!("Failed to wait for kernel: {e}"))?;
+        child
+            .kill()
+            .map_err(|e| format!("Failed to kill kernel: {e}"))?;
+        child
+            .wait()
+            .map_err(|e| format!("Failed to wait for kernel: {e}"))?;
         Ok(())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct KernelPorts {
     pub shell_port: u16,
     pub iopub_port: u16,

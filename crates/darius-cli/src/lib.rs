@@ -414,6 +414,7 @@ fn cmd_a2a(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(clippy::collapsible_if)]
 fn get_port(args: &[String]) -> u16 {
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {

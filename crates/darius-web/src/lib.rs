@@ -1,10 +1,10 @@
 //! Darius web dashboard + A2A server.
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     response::sse::{Event, Sse},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -13,16 +13,44 @@ use tokio::sync::broadcast;
 /// UiEvent (mirrors darius_cognitive::UiEvent).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum UiEvent {
-    Header { profile: String, model: String, goal: String },
-    AssistantDelta { text: String },
-    Thinking { text: String },
-    ToolStart { id: String, name: String, args_preview: String },
-    ToolEnd { id: String, ok: bool, preview: String, spilled: Option<String> },
+    Header {
+        profile: String,
+        model: String,
+        goal: String,
+    },
+    AssistantDelta {
+        text: String,
+    },
+    Thinking {
+        text: String,
+    },
+    ToolStart {
+        id: String,
+        name: String,
+        args_preview: String,
+    },
+    ToolEnd {
+        id: String,
+        ok: bool,
+        preview: String,
+        spilled: Option<String>,
+    },
     TaskBoard(Vec<TaskSnapshot>),
-    PermissionRequired { id: String, reason: String },
-    Accept { passed: bool, notes: String },
-    Status { line: String },
-    A2aTask { task_id: String, state: String },
+    PermissionRequired {
+        id: String,
+        reason: String,
+    },
+    Accept {
+        passed: bool,
+        notes: String,
+    },
+    Status {
+        line: String,
+    },
+    A2aTask {
+        task_id: String,
+        state: String,
+    },
     Done,
 }
 
@@ -124,7 +152,9 @@ function submitGoal(){const g=document.getElementById('goal').value;fetch('/api/
 }
 
 /// SSE handler.
-async fn sse_handler(State(state): State<ServerState>) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+async fn sse_handler(
+    State(state): State<ServerState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
     let mut rx = state.event_sender.subscribe();
     let stream = async_stream::stream! {
         while let Ok(event) = rx.recv().await {

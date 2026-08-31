@@ -1,12 +1,12 @@
 //! Darius TUI — ratatui session UI.
 
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Terminal,
 };
 use std::io;
 
@@ -14,15 +14,10 @@ use std::io;
 mod tokens {
     use ratatui::style::Color;
 
-    pub const BG: Color = Color::Rgb(0x0c, 0x0e, 0x12);
-    pub const SURFACE: Color = Color::Rgb(0x14, 0x18, 0x20);
-    pub const BORDER: Color = Color::Rgb(0x2a, 0x31, 0x40);
     pub const TEXT: Color = Color::Rgb(0xe8, 0xea, 0xef);
     pub const MUTED: Color = Color::Rgb(0x8b, 0x93, 0xa7);
     pub const ACCENT: Color = Color::Rgb(0xe8, 0xa5, 0x4b);
     pub const OK: Color = Color::Rgb(0x3d, 0xd6, 0x8c);
-    pub const WARN: Color = Color::Rgb(0xf0, 0xc1, 0x4a);
-    pub const ERR: Color = Color::Rgb(0xf0, 0x71, 0x78);
 }
 
 /// TUI state.
@@ -86,6 +81,12 @@ impl TuiState {
     }
 }
 
+impl Default for TuiState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Draw the TUI.
 pub fn draw(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -96,16 +97,21 @@ pub fn draw(
             .direction(Direction::Vertical)
             .margin(1)
             .constraints([
-                Constraint::Length(3),  // header
+                Constraint::Length(3), // header
                 Constraint::Min(5),    // stream
-                Constraint::Length(8),  // tasks
-                Constraint::Length(3),  // input
+                Constraint::Length(8), // tasks
+                Constraint::Length(3), // input
             ])
             .split(f.size());
 
         // Header
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("darius", Style::default().fg(tokens::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "darius",
+                Style::default()
+                    .fg(tokens::ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" │ ", Style::default().fg(tokens::MUTED)),
             Span::styled("profile: default", Style::default().fg(tokens::TEXT)),
             Span::styled(" │ ", Style::default().fg(tokens::MUTED)),
@@ -118,13 +124,15 @@ pub fn draw(
         let messages: Vec<ListItem> = state
             .messages
             .iter()
-            .map(|m| ListItem::new(Line::from(Span::styled(m, Style::default().fg(tokens::TEXT)))))
+            .map(|m| {
+                ListItem::new(Line::from(Span::styled(
+                    m,
+                    Style::default().fg(tokens::TEXT),
+                )))
+            })
             .collect();
-        let stream = List::new(messages).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Stream "),
-        );
+        let stream =
+            List::new(messages).block(Block::default().borders(Borders::ALL).title(" Stream "));
         f.render_widget(stream, chunks[1]);
 
         // Tasks
@@ -133,11 +141,8 @@ pub fn draw(
             .iter()
             .map(|t| ListItem::new(Line::from(Span::styled(t, Style::default().fg(tokens::OK)))))
             .collect();
-        let task_list = List::new(tasks).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Tasks "),
-        );
+        let task_list =
+            List::new(tasks).block(Block::default().borders(Borders::ALL).title(" Tasks "));
         f.render_widget(task_list, chunks[2]);
 
         // Input
@@ -250,13 +255,13 @@ mod tests {
     fn tui_permission_queue() {
         let mut state = TuiState::new();
         assert!(state.next_permission().is_none());
-        
+
         state.push_permission("perm-1".into(), "Write file".into());
         assert!(state.next_permission().is_some());
-        
+
         assert!(state.approve_permission("perm-1"));
         assert!(state.next_permission().is_none());
-        
+
         state.push_permission("perm-2".into(), "Read file".into());
         assert!(state.deny_permission("perm-2"));
         assert!(state.next_permission().is_none());

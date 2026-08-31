@@ -3,6 +3,7 @@ use std::path::Path;
 
 /// Ensure the default profile directory exists with safe workspace root.
 /// Called on first run of any command that uses a profile.
+#[allow(dead_code)]
 pub fn ensure_profile(profile: &str) -> std::path::PathBuf {
     let dir = ProfileConfig::profile_dir(profile);
     std::fs::create_dir_all(&dir).ok();
@@ -15,6 +16,7 @@ pub fn ensure_profile(profile: &str) -> std::path::PathBuf {
 }
 
 /// Check if a path is safe to write to (under profile directory).
+#[allow(dead_code)]
 pub fn is_safe_write_path(profile: &str, path: &str) -> bool {
     let profile_dir = ProfileConfig::profile_dir(profile);
     let target = Path::new(path);
