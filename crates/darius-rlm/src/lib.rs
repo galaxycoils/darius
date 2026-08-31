@@ -247,8 +247,10 @@ mod handle_registry {
 pub use handle_registry::HandleRegistry;
 
 mod evaluate;
+mod ipykernel;
 
 pub use evaluate::rlm_evaluate;
+pub use ipykernel::IpKernelConnection;
 
 /// Entry point: spawn an RLM turn, returning a handle.
 pub fn rlm(_prompt: &str, opts: RlmOptions) -> Result<RlmHandle, DariusError> {

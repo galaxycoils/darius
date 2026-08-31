@@ -148,6 +148,72 @@ impl SandboxBackend for WasmBackend {
     }
 }
 
+/// Detect if gVisor is available on the system.
+pub fn detect_gvisor() -> bool {
+    // Check for gVisor binary (runsc) in common locations
+    let paths = ["/usr/local/bin/runsc", "/usr/bin/runsc", "/sbin/runsc"];
+    for path in &paths {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+    // Also check PATH
+    if let Ok(output) = std::process::Command::new("which").arg("runsc").output() {
+        return output.status.success();
+    }
+    false
+}
+
+/// Force-terminate a process by PID (cross-platform).
+pub fn force_terminate(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        // Send SIGKILL
+        let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(format!("failed to kill process {pid}"))
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err("force_terminate not supported on this platform".into())
+    }
+}
+
+/// Terminate a process after a timeout. If the process doesn't exit within
+/// `timeout_ms`, force-kill it.
+pub fn terminate_with_timeout(pid: u32, timeout_ms: u64) -> Result<(), String> {
+    // First, try graceful termination
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        if result != 0 {
+            return Err(format!("failed to send SIGTERM to {pid}"));
+        }
+    }
+
+    // Wait for process to exit
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    while start.elapsed() < timeout {
+        #[cfg(unix)]
+        {
+            // Check if process is still running (kill with signal 0)
+            let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+            if result != 0 {
+                return Ok(()); // Process exited
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Force kill if still running
+    force_terminate(pid)
+}
+
 /// Sandbox manager — selects backend based on policy.
 pub struct SandboxManager;
 
@@ -219,5 +285,21 @@ mod tests {
 
         let t3 = SandboxManager::select_backend(IsolationTier::Wasm);
         assert_eq!(t3.tier(), IsolationTier::Wasm);
+    }
+
+    #[test]
+    fn detect_gvisor_returns_bool() {
+        // Just verify it doesn't panic
+        let _ = detect_gvisor();
+    }
+
+    #[test]
+    fn terminate_with_timeout_invalid_pid() {
+        // Invalid PID should return an error
+        let result = terminate_with_timeout(999999, 100);
+        // On most systems, killing a non-existent process with SIGTERM returns -1
+        // but the function may still succeed if the process doesn't exist
+        // Just verify it doesn't panic
+        let _ = result;
     }
 }

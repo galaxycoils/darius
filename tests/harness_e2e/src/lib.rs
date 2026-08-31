@@ -179,4 +179,75 @@ mod tests {
         let grade = rlm_evaluate("target", "rubric").unwrap();
         assert!(grade.passed);
     }
+
+    #[test]
+    fn cognitive_integration_e2e_on_temp_profile() {
+        let profile_dir =
+            std::env::temp_dir().join(format!("darius_cognitive_e2e_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&profile_dir).unwrap();
+
+        // Step 1: Memory upsert + pack
+        let memory = darius_memory::MemoryEngine::open(&profile_dir).unwrap();
+        memory
+            .upsert(darius_memory::NewRecord {
+                kind: darius_memory::RecordKind::Fact,
+                title: Some("test fact".into()),
+                body: "the capital of France is Paris".into(),
+                tags: vec!["geography".into()],
+                importance: 0.8,
+                source: None,
+            })
+            .unwrap();
+
+        let pack = memory.build_pack(3500, 12).unwrap();
+        assert!(pack.plain.contains("Paris"));
+        assert_eq!(pack.record_ids.len(), 1);
+
+        // Step 2: Tool registry + memory_search
+        let mut tools = darius_tools::ToolRegistry::new(&profile_dir).unwrap();
+        darius_tools::register_memory_builtins(&mut tools, &memory);
+
+        let search_call = darius_tools::ToolCall {
+            id: "s1".into(),
+            name: "memory_search".into(),
+            arguments: serde_json::json!({"text": "France"}),
+        };
+        let outcome = tools.execute(&search_call);
+        match outcome {
+            darius_tools::ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.contains("Paris"));
+            }
+            darius_tools::ToolOutcome::Err { message } => panic!("search failed: {message}"),
+        }
+
+        // Step 3: CognitiveLoop with MockModel
+        let policy = darius_cognitive::LoopPolicy::default();
+        let plan_response = r#"{"tasks":[{"title":"answer geography question"}]}"#.to_string();
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_search","arguments":{"text":"France"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        let model = Box::new(darius_cognitive::MockModel::new(
+            plan_response,
+            react_responses,
+        ));
+
+        let (plan, acceptance) = darius_cognitive::run_loop(
+            &policy,
+            "what is the capital of France?",
+            model,
+            &mut tools,
+            &memory,
+        )
+        .unwrap();
+
+        assert_eq!(plan.tasks.len(), 1);
+        match acceptance {
+            darius_cognitive::Acceptance::Accepted => {}
+            darius_cognitive::Acceptance::Rejected(reason) => panic!("rejected: {reason}"),
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&profile_dir);
+    }
 }

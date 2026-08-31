@@ -17,3 +17,7 @@ darius-core = { path = "../../crates/darius-core" }
 darius-rlm = { path = "../../crates/darius-rlm" }
 darius-daemon = { path = "../../crates/darius-daemon" }
 darius-eval = { path = "../../crates/darius-eval" }
+darius-memory = { path = "../../crates/darius-memory" }
+darius-tools = { path = "../../crates/darius-tools" }
+darius-cognitive = { path = "../../crates/darius-cognitive" }
+serde_json = "1"

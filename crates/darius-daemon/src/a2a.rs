@@ -81,7 +81,17 @@ impl A2aServer {
         }
     }
 
-    /// Serve the Agent Card.
+    /// Build an HTTP response for the Agent Card (GET /).
+    pub fn http_card_response(&self) -> String {
+        let body = self.agent_card.serve();
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    /// Serve the Agent Card as JSON (legacy compatibility).
     pub fn serve_card(&self) -> String {
         self.agent_card.serve()
     }
@@ -165,6 +175,23 @@ mod tests {
         let json = card.serve();
         assert!(json.contains("darius"));
         assert!(json.contains("0.1.0"));
+        assert!(json.contains("rlm"));
+    }
+
+    #[test]
+    fn http_card_response_has_json_body() {
+        let card = AgentCard::new("darius", "0.1.0", "agent harness")
+            .with_capabilities(vec!["rlm".to_string()]);
+        let server = A2aServer::new(card);
+        let response = server.http_card_response();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("Content-Type: application/json"));
+        // Body after \r\n\r\n should be parseable JSON with name + capabilities
+        let body = response.split("\r\n\r\n").nth(1).unwrap();
+        let value: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(value["name"], "darius");
+        assert!(value["capabilities"].is_array());
     }
 
     #[test]

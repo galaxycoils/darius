@@ -15,6 +15,9 @@ pub mod event_log;
 pub mod handoff;
 pub mod kanban;
 pub mod memory;
+mod messaging;
+
+pub use messaging::{MessagingError, MessagingMessage, task_state_status};
 pub mod model_router;
 pub mod platform_adapters;
 pub mod profile;
@@ -41,7 +44,8 @@ pub use handoff::{HandoffError, HandoffStore};
 pub use kanban::{KanbanBoard, KanbanError, KanbanTask, TaskStatus};
 pub use memory::{HindsightMemory, MemoryError, MentalModel, SessionMemory};
 pub use model_router::{
-    BudgetEnforcer, BudgetScope, ModelRole, ModelRouter, Provider, ProviderRegistry, RouterError,
+    BudgetEnforcer, BudgetScope, LiveModel, ModelRole, ModelRouter, Provider, ProviderRegistry,
+    RouterError,
 };
 pub use platform_adapters::{
     AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter,

@@ -420,8 +420,9 @@ impl MemoryEngine {
 }
 
 impl Clone for MemoryEngine {
+    #[allow(clippy::cmp_owned)]
     fn clone(&self) -> Self {
-        if self.db_path == *":memory:" {
+        if self.db_path == PathBuf::from(":memory:") {
             let conn =
                 Connection::open(":memory:").expect("failed to clone in-memory MemoryEngine");
             Self {

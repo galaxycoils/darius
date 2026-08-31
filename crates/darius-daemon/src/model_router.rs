@@ -261,11 +261,54 @@ impl ModelRouter {
     pub fn cache_metrics(&self) -> CacheMetrics {
         self.cache_coordinator.metrics()
     }
+
+    /// Route a plan request, returning JSON plan text.
+    pub fn route_plan(&self, goal: &str, scope: BudgetScope) -> Result<String, RouterError> {
+        let response = self.route(ModelRole::Default, goal, scope)?;
+        // Wrap the router response in a JSON plan
+        Ok(format!(r#"{{"tasks":[{{"title":"{response}"}}]}}"#))
+    }
+
+    /// Route a react request, returning the tool/response text.
+    pub fn route_react(&self, context: &str, scope: BudgetScope) -> Result<String, RouterError> {
+        self.route(ModelRole::Default, context, scope)
+    }
+}
+
+/// A model that uses the ModelRouter for live provider routing.
+/// Falls back to stub responses when no providers are configured.
+pub struct LiveModel {
+    router: ModelRouter,
+    scope: BudgetScope,
+}
+
+impl LiveModel {
+    pub fn new(router: ModelRouter, scope: BudgetScope) -> Self {
+        Self { router, scope }
+    }
+}
+
+impl darius_cognitive::Model for LiveModel {
+    fn plan(&mut self, goal: &str) -> Result<String, darius_cognitive::CognitiveError> {
+        self.router
+            .route_plan(goal, self.scope)
+            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))
+    }
+
+    fn react(&mut self, context: &str) -> Result<String, darius_cognitive::CognitiveError> {
+        let response = self
+            .router
+            .route_react(context, self.scope)
+            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))?;
+        // Wrap in DONE to signal completion
+        Ok(format!("{response}\nDONE"))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darius_cognitive::Model;
 
     #[test]
     fn budget_enforcer_within_limit() {
@@ -342,5 +385,26 @@ mod tests {
         // Eval scope has 10,000 token limit.
         let result = router.route(ModelRole::Default, &"x".repeat(100_000), BudgetScope::Eval);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn live_model_routes_plan() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache);
+        let mut live = LiveModel::new(router, BudgetScope::Session);
+
+        let plan = live.plan("test goal").unwrap();
+        assert!(plan.contains("Response from gpt-4"));
+    }
+
+    #[test]
+    fn live_model_routes_react() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache);
+        let mut live = LiveModel::new(router, BudgetScope::Session);
+
+        let response = live.react("context").unwrap();
+        assert!(response.contains("Response from gpt-4"));
+        assert!(response.contains("DONE"));
     }
 }

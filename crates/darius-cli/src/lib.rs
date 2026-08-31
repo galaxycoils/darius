@@ -217,20 +217,29 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let policy = darius_cognitive::LoopPolicy::default();
 
-    // Use mock model for now
-    let plan_response = format!(
-        r#"{{"tasks":[{{"title":"Plan for: {}"}}]}}"#,
-        goal.replace('"', "\\\"")
-    );
-    let react_responses = vec![
-        r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
-        "DONE".to_string(),
-    ];
-
-    let model = Box::new(darius_cognitive::MockModel::new(
-        plan_response,
-        react_responses,
-    ));
+    // Check if live provider config is present
+    let model: Box<dyn darius_cognitive::Model> = if std::env::var("DARIUS_LIVE_MODEL").is_ok() {
+        let cache = std::sync::Arc::new(darius_daemon::CacheCoordinator::new());
+        let router = darius_daemon::ModelRouter::new(cache);
+        Box::new(darius_daemon::LiveModel::new(
+            router,
+            darius_daemon::BudgetScope::Session,
+        ))
+    } else {
+        // Use mock model
+        let plan_response = format!(
+            r#"{{"tasks":[{{"title":"Plan for: {}"}}]}}"#,
+            goal.replace('"', "\\\"")
+        );
+        let react_responses = vec![
+            r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
+            "DONE".to_string(),
+        ];
+        Box::new(darius_cognitive::MockModel::new(
+            plan_response,
+            react_responses,
+        ))
+    };
 
     let (plan, acceptance) =
         darius_cognitive::run_loop(&policy, &goal, model, &mut tools, &memory)?;
