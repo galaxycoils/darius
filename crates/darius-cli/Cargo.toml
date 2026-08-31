@@ -33,3 +33,7 @@ tokio-util = "0.7"
 thiserror = { workspace = true }
 parking_lot = "0.12"
 
+[dev-dependencies]
+portable-pty = "0.8"
+wait-timeout = "0.2"
+

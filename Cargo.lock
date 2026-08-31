@@ -548,6 +548,7 @@ dependencies = [
  "darius-web",
  "dirs",
  "parking_lot",
+ "portable-pty",
  "serde",
  "thiserror 2.0.20",
  "tokio",
@@ -556,6 +557,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "wait-timeout",
 ]
 
 [[package]]
