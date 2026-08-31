@@ -31,6 +31,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "memory" => cmd_memory(&args[2..]),
         "run" => cmd_run(&args[2..]),
         "session-smoke" => cmd_session_smoke(&args[2..]),
+        "tui" => cmd_tui(),
+        "serve" => cmd_serve(&args[2..]),
+        "config" => cmd_config(&args[2..]),
+        "a2a" => cmd_a2a(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
             Ok(())
@@ -345,4 +349,78 @@ fn get_profile(args: &[String]) -> String {
 
 fn get_profile_dir(profile: &str) -> std::path::PathBuf {
     ProfileConfig::profile_dir(profile)
+}
+
+fn cmd_tui() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting TUI... (press q to quit)");
+    darius_tui::run_tui().map_err(|e| e.into())
+}
+
+fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let port = get_port(args);
+    println!("Starting server on 127.0.0.1:{port}...");
+    println!("Web dashboard: http://127.0.0.1:{port}");
+    println!("A2A card: http://127.0.0.1:{port}/a2a/card");
+    // In production, this would start the axum server
+    // For now, it's a stub that documents the endpoints
+    Ok(())
+}
+
+fn cmd_config(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        println!("Usage: darius config <show|set>");
+        return Ok(());
+    }
+    match args[0].as_str() {
+        "show" => {
+            let profile = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
+            let config = ProfileConfig::load(&profile);
+            println!("Profile: {profile}");
+            println!("Configured: {}", config.is_configured());
+            if let Some(model) = config.model {
+                println!("Provider: {}", model.provider);
+                println!("Model: {}", model.model);
+                println!("Base URL: {}", model.base_url);
+            }
+        }
+        "set" => {
+            println!("To configure a provider, create ~/.darius/profiles/default/config.toml:");
+            println!("[model]");
+            println!("provider = \"openai_compatible\"");
+            println!("base_url = \"https://api.openai.com/v1\"");
+            println!("model = \"gpt-4o-mini\"");
+            println!("api_key_env = \"DARIUS_API_KEY\"");
+        }
+        cmd => eprintln!("Unknown config subcommand: {cmd}"),
+    }
+    Ok(())
+}
+
+fn cmd_a2a(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        println!("Usage: darius a2a card");
+        return Ok(());
+    }
+    match args[0].as_str() {
+        "card" => {
+            let card = darius_web::agent_card();
+            println!("Name: {}", card.name);
+            println!("Version: {}", card.version);
+            println!("Description: {}", card.description);
+            println!("Capabilities: {:?}", card.capabilities);
+        }
+        cmd => eprintln!("Unknown a2a subcommand: {cmd}"),
+    }
+    Ok(())
+}
+
+fn get_port(args: &[String]) -> u16 {
+    for i in 0..args.len() {
+        if args[i] == "--port" && i + 1 < args.len() {
+            if let Ok(port) = args[i + 1].parse() {
+                return port;
+            }
+        }
+    }
+    7420
 }

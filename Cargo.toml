@@ -14,6 +14,8 @@ members = [
     "crates/darius-memory",
     "crates/darius-tools",
     "crates/darius-cognitive",
+    "crates/darius-tui",
+    "crates/darius-web",
     "tests/harness_e2e",
 ]
 exclude = ["target"]

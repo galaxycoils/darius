@@ -1,0 +1,20 @@
+[package]
+name = "darius-web"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+description = "Darius web dashboard + A2A"
+
+[lib]
+name = "darius_web"
+path = "src/lib.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+uuid = { workspace = true }
+futures = "0.3"
+async-stream = "0.3"
