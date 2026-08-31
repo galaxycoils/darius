@@ -526,7 +526,7 @@ mod tests {
     use super::*;
 
     #[allow(clippy::field_reassign_with_default)]
-fn fixture_state() -> AppState {
+    fn fixture_state() -> AppState {
         let mut state = AppState::default();
         state.profile = "default".into();
         state.model = "gpt-4o-mini".into();
