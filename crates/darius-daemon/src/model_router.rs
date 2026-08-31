@@ -273,6 +273,11 @@ impl ModelRouter {
     pub fn route_react(&self, context: &str, scope: BudgetScope) -> Result<String, RouterError> {
         self.route(ModelRole::Default, context, scope)
     }
+
+    /// Register a provider.
+    pub fn register_provider(&self, provider: Provider) {
+        self.provider_registry.register(provider);
+    }
 }
 
 /// A model that uses the ModelRouter for live provider routing.

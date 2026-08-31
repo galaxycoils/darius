@@ -3,7 +3,11 @@
 use std::env;
 use std::process;
 
+mod config;
 mod events;
+mod safety;
+
+pub use config::ProfileConfig;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -138,7 +142,8 @@ fn cmd_memory(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let profile_dir = get_profile_dir();
+    let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
+    let profile_dir = get_profile_dir(&profile_name);
     let engine = darius_memory::MemoryEngine::open(&profile_dir)?;
 
     match args[0].as_str() {
@@ -203,30 +208,40 @@ fn cmd_memory(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || args[0].is_empty() {
         eprintln!("Error: goal required");
-        println!("Usage: darius run --goal \"your goal here\"");
+        println!("Usage: darius run \"your goal here\"");
         process::exit(1);
     }
 
     let goal = args.join(" ");
     println!("Running cognitive loop with goal: {goal}");
 
-    let profile_dir = get_profile_dir();
+    let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
+    let profile_dir = ProfileConfig::profile_dir(&profile_name);
+    let config = ProfileConfig::load(&profile_name);
+
     let memory = darius_memory::MemoryEngine::open(&profile_dir)?;
     let mut tools = darius_tools::ToolRegistry::new(&profile_dir)?;
     darius_tools::register_memory_builtins(&mut tools, &memory);
+    darius_tools::register_coding_builtins(&mut tools);
 
     let policy = darius_cognitive::LoopPolicy::default();
 
-    // Check if live provider config is present
-    let model: Box<dyn darius_cognitive::Model> = if std::env::var("DARIUS_LIVE_MODEL").is_ok() {
+    let model: Box<dyn darius_cognitive::Model> = if config.is_configured() {
+        println!("Using live provider: {}", config.model.as_ref().unwrap().provider);
         let cache = std::sync::Arc::new(darius_daemon::CacheCoordinator::new());
         let router = darius_daemon::ModelRouter::new(cache);
-        Box::new(darius_daemon::LiveModel::new(
-            router,
-            darius_daemon::BudgetScope::Session,
-        ))
+        if let Some(ref model_config) = config.model {
+            router.register_provider(darius_daemon::Provider {
+                name: model_config.provider.clone(),
+                model: model_config.model.clone(),
+                base_url: model_config.base_url.clone(),
+                enabled: true,
+            });
+        }
+        Box::new(darius_daemon::LiveModel::new(router, darius_daemon::BudgetScope::Session))
     } else {
-        // Use mock model
+        println!("No provider configured. Using offline MockModel.");
+        println!("Set DARIUS_API_KEY and create ~/.darius/profiles/default/config.toml to use live providers.");
         let plan_response = format!(
             r#"{{"tasks":[{{"title":"Plan for: {}"}}]}}"#,
             goal.replace('"', "\\\"")
@@ -235,10 +250,7 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
             "DONE".to_string(),
         ];
-        Box::new(darius_cognitive::MockModel::new(
-            plan_response,
-            react_responses,
-        ))
+        Box::new(darius_cognitive::MockModel::new(plan_response, react_responses))
     };
 
     let (plan, acceptance) =
@@ -320,7 +332,6 @@ fn get_profile(args: &[String]) -> String {
     "default".to_string()
 }
 
-fn get_profile_dir() -> std::path::PathBuf {
-    let profile = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
-    std::path::PathBuf::from(format!("./darius_data/{profile}"))
+fn get_profile_dir(profile: &str) -> std::path::PathBuf {
+    ProfileConfig::profile_dir(profile)
 }

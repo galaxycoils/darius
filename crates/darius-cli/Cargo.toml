@@ -24,4 +24,6 @@ uuid = { workspace = true }
 darius-memory = { path = "../darius-memory" }
 darius-tools = { path = "../darius-tools" }
 darius-cognitive = { path = "../darius-cognitive" }
+toml = "0.8"
+dirs = "5"
 

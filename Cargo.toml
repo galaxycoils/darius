@@ -19,7 +19,7 @@ members = [
 exclude = ["target"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/galaxycoils/darius"
@@ -33,7 +33,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 blake3 = "1"
-sqlite = "0.30"
+rusqlite = { version = "0.31", features = ["bundled"] }
 bytes = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

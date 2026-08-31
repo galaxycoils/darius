@@ -402,9 +402,215 @@ pub fn register_task_builtins(
     });
 }
 
+/// Register coding builtins (shell, read_file, write_file, glob) on a tool registry.
+pub fn register_coding_builtins(registry: &mut ToolRegistry) {
+    registry.register("shell", |call| {
+        let command = call
+            .arguments
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if command.is_empty() {
+            return Err(ToolError::InvalidArgs("command required".into()));
+        }
+
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .output()
+            .map_err(ToolError::Io)?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        let mut preview = stdout;
+        if !stderr.is_empty() {
+            preview.push_str(&format!("\n[stderr]\n{stderr}"));
+        }
+
+        Ok(ToolOutcome::Ok {
+            preview: preview.chars().take(2000).collect(),
+            spilled_path: None,
+        })
+    });
+
+    registry.register("read_file", |call| {
+        let path = call
+            .arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if path.is_empty() {
+            return Err(ToolError::InvalidArgs("path required".into()));
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        Ok(ToolOutcome::Ok {
+            preview: content.chars().take(2000).collect(),
+            spilled_path: None,
+        })
+    });
+
+    registry.register("write_file", |call| {
+        let path = call
+            .arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let content = call
+            .arguments
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if path.is_empty() {
+            return Err(ToolError::InvalidArgs("path required".into()));
+        }
+
+        std::fs::write(path, content)?;
+        Ok(ToolOutcome::Ok {
+            preview: format!("wrote {} bytes to {}", content.len(), path),
+            spilled_path: None,
+        })
+    });
+
+    registry.register("glob", |call| {
+        let pattern = call
+            .arguments
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if pattern.is_empty() {
+            return Err(ToolError::InvalidArgs("pattern required".into()));
+        }
+
+        // Simple glob: walk directory and match against pattern
+        let path = std::path::Path::new(pattern);
+        let parent = path.parent().unwrap_or(std::path::Path::new("."));
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        let mut results = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                // Simple wildcard match: * matches everything
+                if name_str.contains(&file_name.replace('*', "")) || file_name == "*" {
+                    results.push(entry.path().display().to_string());
+                    if results.len() >= 50 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(ToolOutcome::Ok {
+            preview: results.join("\n"),
+            spilled_path: None,
+        })
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_tool_executes_command() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let call = ToolCall {
+            id: "test-1".into(),
+            name: "shell".into(),
+            arguments: serde_json::json!({"command": "echo hello world"}),
+        };
+
+        let outcome = registry.execute(&call);
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => assert!(preview.contains("hello world")),
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_file_tool_reads_file() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("test.txt");
+        std::fs::write(&file_path, "test content").unwrap();
+
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let call = ToolCall {
+            id: "test-2".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": file_path.to_string_lossy()}),
+        };
+
+        let outcome = registry.execute(&call);
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => assert!(preview.contains("test content")),
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_file_tool_writes_file() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("output.txt");
+
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let call = ToolCall {
+            id: "test-3".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": file_path.to_string_lossy(), "content": "hello from write_file"}),
+        };
+
+        let outcome = registry.execute(&call);
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => assert!(preview.contains("output.txt")),
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "hello from write_file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn glob_tool_finds_files() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "").unwrap();
+        std::fs::write(dir.join("b.rs"), "").unwrap();
+
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let call = ToolCall {
+            id: "test-4".into(),
+            name: "glob".into(),
+            arguments: serde_json::json!({"pattern": dir.join("*").to_string_lossy()}),
+        };
+
+        let outcome = registry.execute(&call);
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.contains("a.txt"));
+                assert!(preview.contains("b.rs"));
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn unknown_tool_returns_error() {

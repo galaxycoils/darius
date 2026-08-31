@@ -2,18 +2,16 @@
 //!
 //! Migrations live here only (owned by Task 3.5, not a standalone Task 3.6).
 
-use sqlite::{Connection, State};
+use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum EventLogError {
     #[error("sqlite error: {0}")]
-    Sqlite(#[from] sqlite::Error),
+    Sqlite(#[from] rusqlite::Error),
     #[error("integrity check failed: {0}")]
     Integrity(String),
-    #[error("unexpected statement state")]
-    UnexpectedState,
     #[error("path error: {0}")]
     Path(#[from] std::io::Error),
 }
@@ -54,25 +52,27 @@ impl EventLog {
         Ok(log)
     }
 
-    fn enable_wal(&self) -> Result<(), EventLogError> {
-        self.conn.execute("PRAGMA journal_mode=WAL")?;
+    fn enable_wal(&self) -> SqliteResult<()> {
+        self.conn.pragma_update(None, "journal_mode", "wal")?;
         Ok(())
     }
 
-    fn set_synchronous_full(&self) -> Result<(), EventLogError> {
-        self.conn.execute("PRAGMA synchronous=FULL")?;
+    fn set_synchronous_full(&self) -> SqliteResult<()> {
+        self.conn.pragma_update(None, "synchronous", 2)?;
         Ok(())
     }
 
     fn check_integrity(&self) -> Result<(), EventLogError> {
-        let val = self.scalar_string("PRAGMA integrity_check")?;
+        let val: String = self
+            .conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
         if val != "ok" {
             return Err(EventLogError::Integrity(val));
         }
         Ok(())
     }
 
-    fn run_migrations(&self) -> Result<(), EventLogError> {
+    fn run_migrations(&self) -> SqliteResult<()> {
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,34 +81,21 @@ impl EventLog {
                 kind TEXT NOT NULL,
                 payload TEXT NOT NULL
             )",
+            [],
         )?;
-        self.conn
-            .execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")?;
-        self.conn
-            .execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")?;
-        self.conn
-            .execute("INSERT OR IGNORE INTO schema_version (version) VALUES (1)")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
+            [],
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (1)",
+            [],
+        )?;
         Ok(())
-    }
-
-    fn scalar_i64(&self, sql: &str) -> Result<i64, EventLogError> {
-        let mut stmt = self.conn.prepare(sql)?;
-        let state = stmt.next()?;
-        if state != State::Row {
-            return Err(EventLogError::UnexpectedState);
-        }
-        let val: i64 = stmt.read(0)?;
-        Ok(val)
-    }
-
-    fn scalar_string(&self, sql: &str) -> Result<String, EventLogError> {
-        let mut stmt = self.conn.prepare(sql)?;
-        let state = stmt.next()?;
-        if state != State::Row {
-            return Err(EventLogError::UnexpectedState);
-        }
-        let val: String = stmt.read(0)?;
-        Ok(val)
     }
 
     pub fn append(
@@ -118,132 +105,87 @@ impl EventLog {
         payload: &str,
     ) -> Result<i64, EventLogError> {
         let ts = current_timestamp();
-        let mut stmt = self.conn.prepare(
+        self.conn.execute(
             "INSERT INTO events (session_id, ts, kind, payload) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![session_id, ts as i64, kind, payload],
         )?;
-        stmt.bind((1, session_id))?;
-        stmt.bind((2, ts as i64))?;
-        stmt.bind((3, kind))?;
-        stmt.bind((4, payload))?;
-        let state = stmt.next()?;
-        if state != State::Done {
-            return Err(EventLogError::UnexpectedState);
-        }
-        drop(stmt);
-        self.scalar_i64("SELECT last_insert_rowid()")
+        Ok(self.conn.last_insert_rowid())
     }
 
     pub fn append_batch(
         &self,
         events: Vec<(String, String, String)>,
     ) -> Result<Vec<i64>, EventLogError> {
-        self.conn.execute("BEGIN")?;
-        let result: Result<Vec<i64>, EventLogError> = (|| {
-            let mut ids = Vec::new();
-            let mut stmt = self.conn.prepare(
+        let tx = self.conn.unchecked_transaction()?;
+        let mut ids = Vec::new();
+        for (session_id, kind, payload) in events {
+            let ts = current_timestamp();
+            tx.execute(
                 "INSERT INTO events (session_id, ts, kind, payload) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![&session_id, ts as i64, &kind, &payload],
             )?;
-            for (session_id, kind, payload) in events {
-                let ts = current_timestamp();
-                stmt.reset()?;
-                stmt.bind((1, &session_id[..]))?;
-                stmt.bind((2, ts as i64))?;
-                stmt.bind((3, &kind[..]))?;
-                stmt.bind((4, &payload[..]))?;
-                let state = stmt.next()?;
-                if state != State::Done {
-                    return Err(EventLogError::UnexpectedState);
-                }
-                ids.push(self.scalar_i64("SELECT last_insert_rowid()")?);
-            }
-            Ok(ids)
-        })();
-        match result {
-            Ok(ids) => {
-                self.conn.execute("COMMIT")?;
-                Ok(ids)
-            }
-            Err(e) => {
-                self.conn.execute("ROLLBACK")?;
-                Err(e)
-            }
+            ids.push(tx.last_insert_rowid());
         }
+        tx.commit()?;
+        Ok(ids)
     }
 
     pub fn replay(&self, session_id: &str) -> Result<Vec<Event>, EventLogError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, ts, kind, payload FROM events WHERE session_id = ?1 ORDER BY id ASC",
         )?;
-        stmt.bind((1, session_id))?;
-        let mut events = Vec::new();
-        loop {
-            let state = stmt.next()?;
-            if state == State::Done {
-                break;
-            }
-            if state != State::Row {
-                return Err(EventLogError::UnexpectedState);
-            }
-            let id: i64 = stmt.read(0)?;
-            let session_id: String = stmt.read(1)?;
-            let ts: i64 = stmt.read(2)?;
-            let kind: String = stmt.read(3)?;
-            let payload: String = stmt.read(4)?;
-            events.push(Event {
-                id,
-                session_id,
-                ts: ts as u64,
-                kind,
-                payload,
-            });
+        let events = stmt.query_map([session_id], |row| {
+            Ok(Event {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                ts: row.get::<_, i64>(2)? as u64,
+                kind: row.get(3)?,
+                payload: row.get(4)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for event in events {
+            result.push(event?);
         }
-        Ok(events)
+        Ok(result)
     }
 
     pub fn replay_all(&self) -> Result<Vec<Event>, EventLogError> {
         let mut stmt = self
             .conn
             .prepare("SELECT id, session_id, ts, kind, payload FROM events ORDER BY id ASC")?;
-        let mut events = Vec::new();
-        loop {
-            let state = stmt.next()?;
-            if state == State::Done {
-                break;
-            }
-            if state != State::Row {
-                return Err(EventLogError::UnexpectedState);
-            }
-            let id: i64 = stmt.read(0)?;
-            let session_id: String = stmt.read(1)?;
-            let ts: i64 = stmt.read(2)?;
-            let kind: String = stmt.read(3)?;
-            let payload: String = stmt.read(4)?;
-            events.push(Event {
-                id,
-                session_id,
-                ts: ts as u64,
-                kind,
-                payload,
-            });
+        let events = stmt.query_map([], |row| {
+            Ok(Event {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                ts: row.get::<_, i64>(2)? as u64,
+                kind: row.get(3)?,
+                payload: row.get(4)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for event in events {
+            result.push(event?);
         }
-        Ok(events)
+        Ok(result)
     }
 
     pub fn count(&self, session_id: &str) -> Result<i64, EventLogError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT COUNT(*) FROM events WHERE session_id = ?1")?;
-        stmt.bind((1, session_id))?;
-        let state = stmt.next()?;
-        if state != State::Row {
-            return Ok(0);
-        }
-        let count: i64 = stmt.read(0)?;
+        let count = self.conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?;
         Ok(count)
     }
 
     pub fn schema_version(&self) -> Result<i64, EventLogError> {
-        self.scalar_i64("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+        let version = self.conn.query_row(
+            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(version)
     }
 }
 
@@ -259,10 +201,7 @@ mod tests {
     use super::*;
 
     fn scalar_string(conn: &Connection, sql: &str) -> String {
-        let mut stmt = conn.prepare(sql).unwrap();
-        let state = stmt.next().unwrap();
-        assert_eq!(state, State::Row);
-        stmt.read::<String, _>(0).unwrap()
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
     }
 
     fn temp_db_path() -> std::path::PathBuf {
@@ -280,11 +219,13 @@ mod tests {
         let log = EventLog::open(&path).unwrap();
         drop(log);
 
-        let conn = sqlite::Connection::open(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
         let wal = scalar_string(&conn, "PRAGMA journal_mode");
         assert_eq!(wal, "wal");
-        let sync = scalar_string(&conn, "PRAGMA synchronous");
-        assert_eq!(sync, "2");
+        let sync: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(sync, 2);
         std::fs::remove_file(&path).unwrap();
     }
 

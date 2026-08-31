@@ -1,86 +1,117 @@
-# Darius
+# Darius v1.0.0
 
-Darius is an open-source Rust agent harness. The active implementation and default branch is `master`; the historical `main` branch has been removed.
+**Open-source lean agent harness** — durable memory, tool ACI, plan–execute–accept loop. Local-first, provider-optional, zero API keys required to get started.
 
-## Lean cognitive phase status
+## Install
 
-Phase 3 delivers a **lean cognitive harness** on top of the Phase 2 baseline. Three deep crates, minimal dependencies, no embedding/vector DB required:
-
-- **`darius-memory`** — single SQLite file per profile, WAL, FTS-ready, `MemoryPack` capped at 3500 chars, content-hash dedupe, JSONL import/export
-- **`darius-tools`** — `ToolRegistry` with disk spill above 32 KiB preview, weak-model `TOOL {"name":"...","arguments":{...}}` line protocol, built-in `memory_search` / `memory_pack` / `memory_remember` / `task_add` / `task_list` / `task_complete`
-- **`darius-cognitive`** — `CognitiveLoop`: Plan → TaskBoard → ReAct (capped at 12 iters/task) → Accept with `MockModel` tests (zero network)
-
-CLI surface:
+### Option A: Pre-built binary
 
 ```sh
-darius run --goal "..."          # full cognitive loop (mock or live)
-darius memory search <q>         # FTS search
-darius memory pack               # bounded MemoryPack
-darius memory import <file>      # deduped JSONL
-darius memory export <file>      # JSONL export
-darius memory stats              # record count
-darius session-smoke             # daemon + session + handoff
+curl -sSL https://github.com/galaxycoils/darius/releases/latest/download/install.sh | bash
 ```
 
-Resource defaults: preview 32 KiB, pack 3500 chars, TaskBoard 15 tasks, ReAct 12 iters/task, single SQLite connection per engine.
-
-## Remaining work completed
-
-| Area | Status |
-|------|--------|
-| Branch hygiene (`main` removed, `master` default) | ✅ |
-| Integration e2e test (memory + tools + cognitive) | ✅ |
-| Live ModelRouter for `darius run` (env-gated) | ✅ |
-| A2A Agent Card HTTP response | ✅ |
-| Messaging adapter (Telegram/Discord/Slack in `platform_adapters.rs`) | ✅ |
-| Optional Jupyter/ZMQ RLM backend (behind `rlm-ipykernel` feature) | ✅ |
-| Isolation hardening (process kill + gVisor detect) | ✅ |
-| Release binary (2.1 MB arm64) | ✅ |
-
-### Live ModelRouter for `darius run`
-
-Set `DARIUS_LIVE_MODEL=1` to route cognitive loop requests through the `ModelRouter` (provider registry, budget enforcement, failover). Without the env var, `darius run` uses the offline `MockModel`.
+### Option B: From source
 
 ```sh
-DARIUS_LIVE_MODEL=1 darius run --goal "analyze this"
+cargo install --git https://github.com/galaxycoils/darius darius-cli
 ```
 
-### Optional Jupyter/IPython kernel backend
+## Quickstart
 
-The `darius-rlm` crate has an optional `IpKernelConnection` behind the `rlm-ipykernel` feature flag. Default builds never link `zmq`.
+### 1. Run the smoke test (no API key needed)
 
 ```sh
-cargo test -p darius-rlm --features rlm-ipykernel ipykernel
+darius session-smoke
 ```
 
-### Isolation hardening
-
-The sandbox module now includes:
-- `detect_gvisor()` — checks for `runsc` binary in common locations
-- `force_terminate(pid)` — sends SIGKILL (cross-platform)
-- `terminate_with_timeout(pid, timeout_ms)` — graceful SIGTERM then force kill
+### 2. Use memory
 
 ```sh
-cargo test -p darius-daemon sandbox
+# Memory is stored in ~/.darius/profiles/default/memory.db (SQLite with FTS5)
+darius memory stats
 ```
 
-## Phase 2 status
+### 3. Configure a live provider (optional)
 
-Phase 2 hardening provides an integrated local vertical slice:
+```sh
+mkdir -p ~/.darius/profiles/default
+cat > ~/.darius/profiles/default/config.toml << 'EOF'
+[model]
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+api_key_env = "DARIUS_API_KEY"
+EOF
 
-- content-hash anchored PUT/CUT edits with stale-anchor rejection;
-- a required pure-Rust RLM core with compact-safe handles and structured evaluation;
-- SQLite event replay, versioned session handoffs, persistent daemon sessions, and profile isolation;
-- CLI help, version reporting, and an end-to-end `session-smoke` command;
-- skill loading, registry search, pinning, metrics, and non-destructive archival;
-- model-role routing with failover and cache accounting;
-- independent evaluation raters and learned fixtures.
+export DARIUS_API_KEY="sk-your-key-here"
+```
 
-## Deferred
+### 4. Run with a real goal
 
-Live provider HTTP integration (ModelRouter `route()` is stub), production messaging I/O (Telegram adapter is stub), Firecracker fleet, mandatory embeddings, cloud memory sync, training/fine-tuning.
+```sh
+darius run "analyze this codebase and summarize the architecture"
+```
 
-## Build and test
+Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful for testing the loop without network.
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `darius run "goal"` | Cognitive loop (Mock or live if configured) |
+| `darius session-smoke` | Integrated daemon + session + handoff test |
+| `darius memory search <q>` | FTS5 search |
+| `darius memory pack` | Bounded MemoryPack (≤3500 chars) |
+| `darius memory import <file>` | Deduped JSONL import |
+| `darius memory export <file>` | JSONL export |
+| `darius memory stats` | Record count + DB path |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DARIUS_API_KEY` | API key for live provider |
+| `DARIUS_PROFILE` | Profile name (default: `default`) |
+
+## Architecture
+
+```
+darius-memory     → SQLite FTS5, MemoryPack, JSONL
+darius-tools      → ToolRegistry, TOOL line protocol, spill
+darius-cognitive  → Plan → TaskBoard → ReAct → Accept
+darius-daemon     → Session, event log, handoff
+darius-cli        → CLI surface
+```
+
+### Lean resource caps
+
+| Resource | Cap |
+|----------|-----|
+| MemoryPack | 3500 chars |
+| Tool preview | 32 KiB (+ spill to disk) |
+| TaskBoard | 15 tasks |
+| ReAct iters | 12 per task |
+| Body size | 32 KiB per record |
+
+## What's in v1
+
+- ✅ Offline MockModel (no network)
+- ✅ Live provider when configured
+- ✅ Durable SQLite memory with FTS5 search
+- ✅ Plan–execute–accept cognitive loop
+- ✅ CLI with memory operations
+- ✅ Session handoff + event replay
+
+## What's NOT in v1
+
+- Multi-platform messaging (Telegram/Discord)
+- Jupyter/ZMQ backend
+- gVisor/Firecracker isolation
+- Embeddings/vector DB
+- Cloud sync
+- Training/fine-tuning
+
+## Build & Test
 
 ```sh
 cargo fmt --all -- --check
@@ -89,20 +120,6 @@ cargo test --workspace
 cargo build --release -p darius-cli
 ```
 
-Run the integrated smoke path:
+## License
 
-```sh
-cargo run -p darius-cli -- session-smoke
-```
-
-## RLM feature gates
-
-The pure-Rust RLM API is always available and has no Python or ZMQ runtime requirement. Default features are empty. Optional backends are enabled explicitly:
-
-```sh
-cargo test -p darius-rlm
-cargo test -p darius-rlm --features rlm-python
-cargo test -p darius-rlm --features rlm-ipykernel
-```
-
-Optional backends are not required for normal workspace tests or the CLI.
+MIT
