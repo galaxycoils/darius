@@ -137,11 +137,16 @@ impl TaskBoard {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolRisk {
-    Low,
-    Medium,
-    High,
+    ReadOnly,
+    Mutating,
+    Shell,
+}
+
+struct RegisteredTool {
+    risk: ToolRisk,
+    handler: ToolHandler,
 }
 
 /// Type alias for tool handler functions.
@@ -151,7 +156,7 @@ pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError>>;
 pub struct ToolRegistry {
     spill_dir: PathBuf,
     preview_ceiling: usize,
-    handlers: HashMap<String, ToolHandler>,
+    handlers: HashMap<String, RegisteredTool>,
 }
 
 impl ToolRegistry {
@@ -165,16 +170,36 @@ impl ToolRegistry {
         })
     }
 
+    /// Register a tool with explicit risk classification.
+    pub fn register_with_risk<F>(&mut self, name: &str, risk: ToolRisk, handler: F)
+    where
+        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + 'static,
+    {
+        self.handlers.insert(
+            name.into(),
+            RegisteredTool {
+                risk,
+                handler: Box::new(handler),
+            },
+        );
+    }
+
+    /// Register a tool defaulting to ReadOnly risk. Prefer `register_with_risk`.
     pub fn register<F>(&mut self, name: &str, handler: F)
     where
         F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + 'static,
     {
-        self.handlers.insert(name.into(), Box::new(handler));
+        self.register_with_risk(name, ToolRisk::ReadOnly, handler);
+    }
+
+    /// Look up the risk classification for a registered tool.
+    pub fn risk(&self, name: &str) -> Option<ToolRisk> {
+        self.handlers.get(name).map(|t| t.risk)
     }
 
     pub fn execute(&self, call: &ToolCall) -> ToolOutcome {
         match self.handlers.get(&call.name) {
-            Some(handler) => match handler(call) {
+            Some(tool) => match (tool.handler)(call) {
                 Ok(outcome) => outcome,
                 Err(e) => ToolOutcome::Err {
                     message: e.to_string(),
@@ -240,7 +265,7 @@ pub fn extract_tool_calls(text: &str) -> Vec<ToolCall> {
 /// Register memory builtins on a tool registry.
 pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_memory::MemoryEngine) {
     let memory_search = memory.clone();
-    registry.register("memory_search", move |call| {
+    registry.register_with_risk("memory_search", ToolRisk::ReadOnly, move |call| {
         let query = call
             .arguments
             .get("text")
@@ -273,7 +298,7 @@ pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_mem
     });
 
     let memory_pack = memory.clone();
-    registry.register("memory_pack", move |_| {
+    registry.register_with_risk("memory_pack", ToolRisk::ReadOnly, move |_| {
         let pack = memory_pack.build_pack(3500, 12)?;
         Ok(ToolOutcome::Ok {
             preview: pack.plain,
@@ -282,7 +307,7 @@ pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_mem
     });
 
     let memory_remember = memory.clone();
-    registry.register("memory_remember", move |call| {
+    registry.register_with_risk("memory_remember", ToolRisk::Mutating, move |call| {
         let body = call
             .arguments
             .get("body")
@@ -333,7 +358,7 @@ pub fn register_task_builtins(
     board: std::sync::Arc<parking_lot::Mutex<TaskBoard>>,
 ) {
     let board_add = board.clone();
-    registry.register("task_add", move |call| {
+    registry.register_with_risk("task_add", ToolRisk::Mutating, move |call| {
         let title = call
             .arguments
             .get("title")
@@ -352,7 +377,7 @@ pub fn register_task_builtins(
     });
 
     let board_list = board.clone();
-    registry.register("task_list", move |_| {
+    registry.register_with_risk("task_list", ToolRisk::ReadOnly, move |_| {
         let board = board_list.lock();
         let tasks = board.list();
         let mut preview = String::new();
@@ -379,7 +404,7 @@ pub fn register_task_builtins(
     });
 
     let board_complete = board.clone();
-    registry.register("task_complete", move |call| {
+    registry.register_with_risk("task_complete", ToolRisk::Mutating, move |call| {
         let id = call
             .arguments
             .get("id")
@@ -411,7 +436,7 @@ pub fn register_task_builtins(
 
 /// Register coding builtins (shell, read_file, write_file, glob) on a tool registry.
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
-    registry.register("shell", |call| {
+    registry.register_with_risk("shell", ToolRisk::Shell, |call| {
         let command = call
             .arguments
             .get("command")
@@ -441,7 +466,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         })
     });
 
-    registry.register("read_file", |call| {
+    registry.register_with_risk("read_file", ToolRisk::ReadOnly, |call| {
         let path = call
             .arguments
             .get("path")
@@ -458,7 +483,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         })
     });
 
-    registry.register("write_file", |call| {
+    registry.register_with_risk("write_file", ToolRisk::Mutating, |call| {
         let path = call
             .arguments
             .get("path")
@@ -480,7 +505,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         })
     });
 
-    registry.register("glob", |call| {
+    registry.register_with_risk("glob", ToolRisk::ReadOnly, |call| {
         let pattern = call
             .arguments
             .get("pattern")
@@ -845,5 +870,85 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         assert_eq!(task.status, TaskStatus::Completed);
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // ── Tool risk classification tests ─────────────────────────────────
+
+    #[test]
+    fn tool_risk_memory_tools_are_read_only() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_memory_builtins(&mut registry, &memory);
+
+        assert_eq!(registry.risk("memory_search"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("memory_pack"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("memory_remember"), Some(ToolRisk::Mutating));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_risk_task_tools_classification() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let board = std::sync::Arc::new(parking_lot::Mutex::new(TaskBoard::new(15)));
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_task_builtins(&mut registry, board);
+
+        assert_eq!(registry.risk("task_list"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("task_add"), Some(ToolRisk::Mutating));
+        assert_eq!(registry.risk("task_complete"), Some(ToolRisk::Mutating));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_risk_coding_tools_classification() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        assert_eq!(registry.risk("shell"), Some(ToolRisk::Shell));
+        assert_eq!(registry.risk("read_file"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("write_file"), Some(ToolRisk::Mutating));
+        assert_eq!(registry.risk("glob"), Some(ToolRisk::ReadOnly));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_risk_unknown_tool_returns_none() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let registry = ToolRegistry::new(&dir).unwrap();
+
+        assert_eq!(registry.risk("nonexistent"), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_risk_no_registered_tool_lacks_metadata() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
+        let board = std::sync::Arc::new(parking_lot::Mutex::new(TaskBoard::new(15)));
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_memory_builtins(&mut registry, &memory);
+        register_task_builtins(&mut registry, board);
+        register_coding_builtins(&mut registry);
+
+        // Every registered tool must have risk metadata (not None).
+        for name in registry.handlers.keys() {
+            assert!(
+                registry.risk(name).is_some(),
+                "tool {name} lacks risk metadata"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
