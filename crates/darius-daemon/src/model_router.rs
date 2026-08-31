@@ -101,6 +101,8 @@ pub struct Provider {
     pub model: String,
     pub base_url: String,
     pub enabled: bool,
+    /// Environment variable name holding the API key. Never store the key itself.
+    pub api_key_env: String,
 }
 
 /// Provider registry.
@@ -183,12 +185,14 @@ impl ModelRouter {
             model: "gpt-4".into(),
             base_url: "https://api.openai.com/v1".into(),
             enabled: true,
+            api_key_env: "DARIUS_API_KEY".into(),
         });
         registry.register(Provider {
             name: "rater".into(),
             model: "claude-3".into(),
             base_url: "https://api.anthropic.com/v1".into(),
             enabled: true,
+            api_key_env: "DARIUS_API_KEY".into(),
         });
 
         Self {
@@ -347,6 +351,7 @@ mod tests {
             model: "test-model".into(),
             base_url: "http://localhost".into(),
             enabled: true,
+            api_key_env: "DARIUS_API_KEY".into(),
         });
 
         let provider = registry.get("test").unwrap();

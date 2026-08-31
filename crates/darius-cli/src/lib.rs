@@ -5,6 +5,7 @@ use std::process;
 
 mod config;
 mod events;
+pub mod runtime;
 mod safety;
 
 pub use config::ProfileConfig;
@@ -243,6 +244,10 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 model: model_config.model.clone(),
                 base_url: model_config.base_url.clone(),
                 enabled: true,
+                api_key_env: model_config
+                    .api_key_env
+                    .clone()
+                    .unwrap_or_else(|| "DARIUS_API_KEY".into()),
             });
         }
         Box::new(darius_daemon::LiveModel::new(

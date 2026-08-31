@@ -28,4 +28,8 @@ darius-tui = { path = "../darius-tui" }
 darius-web = { path = "../darius-web" }
 toml = "0.8"
 dirs = "5"
+tokio = { workspace = true }
+tokio-util = "0.7"
+thiserror = { workspace = true }
+parking_lot = "0.12"
 
