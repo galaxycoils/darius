@@ -171,9 +171,30 @@ impl TuiWorker {
                     );
                 }
                 Ok(darius_tui::RuntimeCommand::ExecuteSlash(inv)) => {
-                    let _ = self.runtime.event_sender.send(UiEvent::Status {
-                        line: format!("Command: {}", inv.name),
-                    });
+                    match inv.id {
+                        darius_tui::CommandId::Compact => {
+                            let _ = self.runtime.event_sender.send(UiEvent::Status {
+                                line: "Compacting session context (lean-tail)...".into(),
+                            });
+                            if let Ok(pack) = self
+                                .runtime
+                                .memory
+                                .build_pack(self.runtime.policy.memory_max_chars, 12)
+                            {
+                                let _ = self.runtime.event_sender.send(UiEvent::Status {
+                                    line: format!(
+                                        "Context compacted: {} memory records retained",
+                                        pack.record_ids.len()
+                                    ),
+                                });
+                            }
+                        }
+                        _ => {
+                            let _ = self.runtime.event_sender.send(UiEvent::Status {
+                                line: format!("Command: {}", inv.name),
+                            });
+                        }
+                    }
                     let _ = self.runtime.event_sender.send(UiEvent::Done);
                 }
                 Ok(darius_tui::RuntimeCommand::ResolvePermission { id, choice }) => {

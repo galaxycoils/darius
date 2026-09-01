@@ -1,6 +1,9 @@
 //! CognitiveLoop — plan, execute, react, accept.
 
+pub mod compress;
 pub mod skills;
+
+pub use compress::*;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -324,6 +327,7 @@ pub struct LoopPolicy {
     pub tool_preview_ceiling: usize,
     pub require_plan: bool,
     pub require_acceptance: bool,
+    pub compress_opts: CompressOpts,
 }
 
 impl Default for LoopPolicy {
@@ -335,6 +339,7 @@ impl Default for LoopPolicy {
             tool_preview_ceiling: 32768,
             require_plan: true,
             require_acceptance: true,
+            compress_opts: CompressOpts::default(),
         }
     }
 }
