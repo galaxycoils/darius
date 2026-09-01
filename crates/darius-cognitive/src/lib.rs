@@ -236,7 +236,10 @@ impl CognitiveLoop {
                     self.emit(UiEvent::ToolStart {
                         id: call.id.clone(),
                         name: call.name.clone(),
-                        args_preview: format!("{:?}", call.arguments),
+                        args_preview: darius_safety::redact_secrets(&format!(
+                            "{:?}",
+                            call.arguments
+                        )),
                     });
 
                     match &outcome {
@@ -248,7 +251,7 @@ impl CognitiveLoop {
                             self.emit(UiEvent::ToolEnd {
                                 id: call.id.clone(),
                                 ok: true,
-                                preview: preview.clone(),
+                                preview: darius_safety::redact_secrets(preview),
                                 spilled: spilled_path
                                     .as_ref()
                                     .map(|p| p.to_string_lossy().to_string()),
@@ -264,7 +267,7 @@ impl CognitiveLoop {
                             self.emit(UiEvent::ToolEnd {
                                 id: call.id.clone(),
                                 ok: false,
-                                preview: message.clone(),
+                                preview: darius_safety::redact_secrets(message),
                                 spilled: None,
                             });
                         }

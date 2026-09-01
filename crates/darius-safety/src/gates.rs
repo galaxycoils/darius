@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::capabilities::{ApprovalTier, Capability};
 use crate::SafetyError;
+use crate::capabilities::{ApprovalTier, Capability};
 
 pub const DEFAULT_PROTECTED_GLOBS: &[&str] = &[
     "**/AGENTS.md",
@@ -67,7 +67,11 @@ impl InstructionWriteGate {
     /// Check if writing to `path` is allowed.
     /// If protected and unapproved, returns `Err(SafetyError::ApprovalRequired)`.
     /// If approved, consumes the one-time approval and returns `Ok(true)`.
-    pub fn check_write(&self, path: &Path, approval_token: Option<&str>) -> Result<bool, SafetyError> {
+    pub fn check_write(
+        &self,
+        path: &Path,
+        approval_token: Option<&str>,
+    ) -> Result<bool, SafetyError> {
         if !is_protected_path(path) {
             return Ok(true);
         }
@@ -99,7 +103,10 @@ pub enum GateResult {
     /// Operation is denied.
     Denied { reason: String },
     /// Operation requires explicit approval.
-    RequiresApproval { tier: ApprovalTier, capability: Capability },
+    RequiresApproval {
+        tier: ApprovalTier,
+        capability: Capability,
+    },
 }
 
 /// Safety gate that checks capabilities before operation execution.

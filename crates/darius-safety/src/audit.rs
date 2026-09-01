@@ -19,7 +19,9 @@ pub struct AuditLog {
 impl AuditLog {
     /// Create a new empty audit log.
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Append an entry to the log.

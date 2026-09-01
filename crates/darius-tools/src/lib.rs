@@ -558,10 +558,10 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             }
         }
 
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                let _ = std::fs::create_dir_all(parent);
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            let _ = std::fs::create_dir_all(parent);
         }
 
         std::fs::write(path, content)?;
@@ -1205,7 +1205,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             ToolOutcome::Err { message } => {
                 assert!(message.contains("requires approval"));
             }
-            ToolOutcome::Ok { .. } => panic!("expected write to AGENTS.md without approval to fail"),
+            ToolOutcome::Ok { .. } => {
+                panic!("expected write to AGENTS.md without approval to fail")
+            }
         }
 
         // 2. With approved: true -> allowed
@@ -1221,7 +1223,10 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
 
         let outcome = registry.execute(&approved_call);
         assert!(matches!(outcome, ToolOutcome::Ok { .. }));
-        assert_eq!(std::fs::read_to_string(&agents_file).unwrap(), "# Approved Agents");
+        assert_eq!(
+            std::fs::read_to_string(&agents_file).unwrap(),
+            "# Approved Agents"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

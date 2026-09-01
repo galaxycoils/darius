@@ -22,5 +22,6 @@ chrono = { workspace = true }
 darius-core = { path = "../darius-core" }
 darius-memory = { path = "../darius-memory" }
 darius-tools = { path = "../darius-tools" }
+darius-safety = { path = "../darius-safety" }
 
 [dev-dependencies]

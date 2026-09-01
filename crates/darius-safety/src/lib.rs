@@ -1,8 +1,10 @@
 pub mod audit;
 pub mod capabilities;
 pub mod gates;
+pub mod redact;
 
 pub use gates::*;
+pub use redact::*;
 
 use parking_lot::Mutex;
 use std::sync::Arc;
