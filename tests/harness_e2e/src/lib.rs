@@ -1,8 +1,9 @@
 #![allow(dead_code, unused_imports)]
-//! E2E integration harness — MockLlm, TestDaemon, full-session pipeline tests.
+//! E2E integration harness — MockLlm, TestDaemon, full-session pipeline and Hermes ports matrix.
 
 use darius_daemon::Daemon;
 use darius_rlm::{IsolationTier, RlmKernel, RlmOptions, RlmStatus, rlm, rlm_evaluate};
+use std::sync::Arc;
 
 /// Mock LLM for testing.
 pub struct MockLlm {
@@ -26,7 +27,7 @@ impl MockLlm {
     }
 
     pub fn reset(&mut self) {
-        self.next = 0
+        self.next = 0;
     }
 }
 
@@ -131,6 +132,7 @@ pub fn run_e2e() -> Result<E2EReport, E2EError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darius_cognitive::SubagentRuntime;
 
     #[test]
     fn mock_llm_round_trip() {
@@ -249,7 +251,6 @@ mod tests {
             darius_cognitive::Acceptance::Rejected(reason) => panic!("rejected: {reason}"),
         }
 
-        // Cleanup
         let _ = std::fs::remove_dir_all(&profile_dir);
     }
 
@@ -285,7 +286,6 @@ mod tests {
         let outcome = tools.execute(&search_call);
         match outcome {
             darius_tools::ToolOutcome::Ok { preview, .. } => {
-                // Preview should be capped at 1000 chars (from register_memory_builtins)
                 assert!(preview.len() <= 1001, "preview too long: {}", preview.len());
             }
             darius_tools::ToolOutcome::Err { message } => panic!("search failed: {message}"),
@@ -296,5 +296,227 @@ mod tests {
         assert!(spill_dir.exists());
 
         let _ = std::fs::remove_dir_all(&profile_dir);
+    }
+
+    #[test]
+    fn e2e_lean_tail_compress_retention() {
+        let mut messages = Vec::new();
+        messages.push(darius_cognitive::ChatMessage {
+            role: "system".into(),
+            content: "SYSTEM_HEAD: persistent security policy".into(),
+        });
+        for i in 0..50 {
+            messages.push(darius_cognitive::ChatMessage {
+                role: "user".into(),
+                content: format!("MIDDLE_STEP_{i}: verbose build log {}", "a".repeat(500)),
+            });
+        }
+        messages.push(darius_cognitive::ChatMessage {
+            role: "assistant".into(),
+            content: "TAIL_OUTPUT: final verification success".into(),
+        });
+
+        let opts = darius_cognitive::CompressOpts {
+            max_chars: 5_000,
+            head_chars: 1_000,
+            tail_chars: 2_000,
+        };
+
+        let compressed = darius_cognitive::lean_tail_compress(&messages, opts);
+        let total_len: usize = compressed.iter().map(|m| m.content.len()).sum();
+        assert!(total_len <= 5_000);
+        assert!(compressed.first().unwrap().content.contains("SYSTEM_HEAD"));
+        assert!(compressed.last().unwrap().content.contains("TAIL_OUTPUT"));
+    }
+
+    #[test]
+    fn e2e_tool_spill_recall_workflow() {
+        let dir = std::env::temp_dir().join(format!("darius_e2e_spill_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_coding_builtins(&mut registry);
+
+        let large_src = dir.join("large_file.txt");
+        let content = "START_LINE\n".to_string() + &"padding line\n".repeat(3000) + "END_LINE\n";
+        std::fs::write(&large_src, &content).unwrap();
+
+        // 1. read_file spills to tool_results
+        let read_call = darius_tools::ToolCall {
+            id: "call-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": large_src.to_str().unwrap()}),
+        };
+        let outcome = registry.execute(&read_call);
+        let spilled_path = match outcome {
+            darius_tools::ToolOutcome::Ok { spilled_path, .. } => {
+                spilled_path.expect("spilled path expected")
+            }
+            darius_tools::ToolOutcome::Err { message } => panic!("read failed: {message}"),
+        };
+
+        // 2. spill_read recalls from tool_results
+        let recall_call = darius_tools::ToolCall {
+            id: "call-2".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({
+                "path": spilled_path.to_str().unwrap(),
+                "offset": 0,
+                "limit": 100
+            }),
+        };
+        let recall_outcome = registry.execute(&recall_call);
+        match recall_outcome {
+            darius_tools::ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.starts_with("START_LINE"));
+            }
+            darius_tools::ToolOutcome::Err { message } => panic!("recall failed: {message}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn e2e_subagent_steer_and_schema_validation() {
+        let runtime = Arc::new(darius_cognitive::LocalSubagentRuntime::new());
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["report", "confidence"],
+            "properties": {
+                "report": { "type": "string" },
+                "confidence": { "type": "number" }
+            }
+        });
+
+        let id = runtime
+            .spawn(
+                "perform threat analysis",
+                darius_cognitive::SpawnOpts {
+                    max_iters: 10,
+                    output_schema: Some(schema.clone()),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(runtime.list_running().len(), 1);
+        runtime.steer(&id, "narrow down to ssh anomalies").unwrap();
+
+        let valid_json = r#"{"report": "found 1 bruteforce attempt", "confidence": 0.95}"#;
+        assert!(darius_cognitive::validate_json_schema(valid_json, &schema).is_ok());
+
+        let invalid_json = r#"{"report": "missing confidence"}"#;
+        assert!(darius_cognitive::validate_json_schema(invalid_json, &schema).is_err());
+
+        let partial = runtime.stop(&id).unwrap();
+        assert!(partial.terminated);
+        assert!(runtime.list_running().is_empty());
+    }
+
+    #[test]
+    fn e2e_cron_memory_continuity_across_runs() {
+        let scheduler = darius_daemon::CronScheduler::new();
+        let job = darius_daemon::CronJob::new("dep-audit", "0 2 * * *", "cargo audit");
+        scheduler.add_job(job).unwrap();
+
+        // Run 1
+        scheduler
+            .append_notepad(
+                "dep-audit",
+                "Vulnerability found: CVE-2026-001 in old_crate",
+            )
+            .unwrap();
+
+        // Run 2: context loaded with prior notepad
+        let ctx = scheduler.build_job_context("dep-audit", None).unwrap();
+        assert!(ctx.contains("Vulnerability found: CVE-2026-001"));
+    }
+
+    #[test]
+    fn e2e_instruction_write_protection() {
+        let dir = std::env::temp_dir().join(format!("darius_e2e_prot_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+        darius_tools::register_coding_builtins(&mut registry);
+
+        let skill_file = dir.join("SKILL.md");
+
+        // Unapproved write denied
+        let call_unapproved = darius_tools::ToolCall {
+            id: "c1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({
+                "path": skill_file.to_str().unwrap(),
+                "content": "unauthorized instructions"
+            }),
+        };
+        assert!(matches!(
+            registry.execute(&call_unapproved),
+            darius_tools::ToolOutcome::Err { .. }
+        ));
+
+        // Approved write allowed
+        let call_approved = darius_tools::ToolCall {
+            id: "c2".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({
+                "path": skill_file.to_str().unwrap(),
+                "content": "authorized instructions",
+                "approved": true
+            }),
+        };
+        assert!(matches!(
+            registry.execute(&call_approved),
+            darius_tools::ToolOutcome::Ok { .. }
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn e2e_mcp_discovery_and_step_gating() {
+        let dir = std::env::temp_dir().join(format!("darius_e2e_mcp_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+
+        let client = Arc::new(darius_tools::LocalMcpClient::new());
+        client.add_tool(darius_tools::McpToolDef {
+            name: "k8s_scale".into(),
+            description: "Scale Kubernetes deployment".into(),
+            input_schema: serde_json::json!({}),
+            requires_prior_success: true,
+        });
+
+        darius_tools::register_mcp_tools(&mut registry, client.clone()).unwrap();
+
+        let call = darius_tools::ToolCall {
+            id: "mcp-call".into(),
+            name: "k8s_scale".into(),
+            arguments: serde_json::json!({"replicas": 3}),
+        };
+
+        // 1. Prior step failed -> denied
+        client.set_prior_step_succeeded(false);
+        assert!(matches!(
+            registry.execute(&call),
+            darius_tools::ToolOutcome::Err { .. }
+        ));
+
+        // 2. Prior step succeeded -> allowed
+        client.set_prior_step_succeeded(true);
+        assert!(matches!(
+            registry.execute(&call),
+            darius_tools::ToolOutcome::Ok { .. }
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn e2e_peer_a2a_messaging_matrix() {
+        let (state, _) = darius_web::ServerState::new();
+        let _router = darius_web::create_router(state);
+
+        // Verify card has peer_a2a
+        let card = darius_web::agent_card();
+        assert!(card.capabilities.contains(&"peer_a2a".into()));
     }
 }
