@@ -1,4 +1,5 @@
-//! Minimal tool ACI — registry, spill, TOOL line protocol, builtins.
+pub mod mcp;
+pub use mcp::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,6 +18,10 @@ pub enum ToolError {
     Memory(#[from] darius_memory::MemoryError),
     #[error("task error: {0}")]
     Task(String),
+    #[error("mcp error: {0}")]
+    Mcp(#[from] McpError),
+    #[error("execution error: {0}")]
+    Execution(String),
 }
 
 impl From<String> for ToolError {
