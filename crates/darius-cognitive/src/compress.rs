@@ -179,7 +179,10 @@ mod tests {
             msgs.last().map(|m| m.content.as_str())
         );
         // Ensure middle was compressed with marker
-        assert!(out.iter().any(|m| m.content.contains("omitted for context budget")));
+        assert!(
+            out.iter()
+                .any(|m| m.content.contains("omitted for context budget"))
+        );
     }
 
     #[test]

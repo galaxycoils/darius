@@ -13,6 +13,7 @@ pub use app::{
     PermissionChoice, PermissionRequest, PermissionState, TaskDisplay, TaskStatus, ToolView,
     TranscriptItem,
 };
+pub use commands::{COMMANDS, CommandId, CommandInvocation, CommandSpec};
 pub use controller::{RuntimeCommand, TuiController};
 pub use terminal::run_tui;
 

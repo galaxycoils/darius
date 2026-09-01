@@ -2,8 +2,10 @@
 
 pub mod compress;
 pub mod skills;
+pub mod subagent;
 
 pub use compress::*;
+pub use subagent::*;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
