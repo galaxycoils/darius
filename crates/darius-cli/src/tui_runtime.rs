@@ -6,19 +6,21 @@ use std::time::Duration;
 
 use crate::runtime::SessionRuntime;
 
+type PendingPermissions = Arc<
+    Mutex<
+        Vec<(
+            String,
+            std::sync::mpsc::Sender<darius_cognitive::PermissionChoice>,
+        )>,
+    >,
+>;
+
 /// Channel-backed RunControl — emits PermissionRequired and blocks on a
 /// one-shot response from the TUI. Session-scoped approvals are cached so
 /// the user is not prompted twice for the same tool+target in one session.
 pub struct ChannelRunControl {
     sink: Arc<dyn EventSink>,
-    pending: Arc<
-        Mutex<
-            Vec<(
-                String,
-                std::sync::mpsc::Sender<darius_cognitive::PermissionChoice>,
-            )>,
-        >,
-    >,
+    pending: PendingPermissions,
     session_cache: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
     cancellation: tokio_util::sync::CancellationToken,
 }

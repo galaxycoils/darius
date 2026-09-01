@@ -1,10 +1,10 @@
 //! Darius CLI with persistent subcommand support for daemon, status, and session management.
 
+use crate::tui_runtime::TuiWorker;
 use darius_tui::{AppState, TuiController};
 use std::env;
 use std::path::PathBuf;
 use std::process;
-use crate::tui_runtime::TuiWorker;
 
 mod config;
 mod events;
@@ -380,6 +380,16 @@ fn get_cwd(args: &[String]) -> Option<String> {
 }
 
 fn cmd_tui(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args
+        .iter()
+        .any(|a| a == "--help" || a == "-h" || a == "help")
+    {
+        println!("Usage: darius tui [--profile <name>] [--cwd <path>]");
+        println!();
+        println!("Launch the Claude-Code-style terminal user interface.");
+        return Ok(());
+    }
+
     let profile = get_profile(args);
     let cwd = get_cwd(args);
 
@@ -394,15 +404,13 @@ fn cmd_tui(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the worker and event channel.
     let (mut worker, event_rx) = TuiWorker::new(runtime);
-    let control = worker.control();
+    let _control = worker.control();
 
     // Create the controller channels.
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
     // Spawn the worker thread.
-    let worker_handle = std::thread::spawn(move || {
-        worker.run_loop(cmd_rx)
-    });
+    let worker_handle = std::thread::spawn(move || worker.run_loop(cmd_rx));
 
     // Create the TUI controller.
     let state = AppState::default();

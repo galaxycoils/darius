@@ -1,4 +1,4 @@
-use crate::app::{Action, AppState, PermissionState};
+use crate::app::{Action, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Map a keyboard event to a TUI action based on current state.
@@ -51,6 +51,7 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::PermissionState;
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)

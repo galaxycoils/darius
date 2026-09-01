@@ -3,8 +3,8 @@
 pub mod skills;
 
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -298,8 +298,8 @@ impl CognitiveLoop {
     }
 
     fn emit(&self, event: UiEvent) {
-            self.sink.emit(event);
-        }
+        self.sink.emit(event);
+    }
 
     fn emit_task_board(&self, board: &darius_tools::TaskBoard) {
         let snapshots: Vec<TaskSnapshot> = board
@@ -747,8 +747,8 @@ mod tests {
         RunMetadata,
         LoopPolicy,
     ) {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -778,14 +778,25 @@ mod tests {
         let loop_inst = CognitiveLoop::new(sink.clone(), control);
 
         let (_plan, _acceptance) = loop_inst
-            .run(&metadata, &policy, "test goal", &mut model, &mut tools, &memory)
+            .run(
+                &metadata,
+                &policy,
+                "test goal",
+                &mut model,
+                &mut tools,
+                &memory,
+            )
             .unwrap();
 
         let events = sink.events();
         assert!(!events.is_empty());
         assert!(events.iter().any(|e| matches!(e, UiEvent::Header { .. })));
         assert!(events.iter().any(|e| matches!(e, UiEvent::TaskBoard(_))));
-        assert!(events.iter().any(|e| matches!(e, UiEvent::ToolStart { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, UiEvent::ToolStart { .. }))
+        );
         assert!(events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
         assert!(events.iter().any(|e| matches!(e, UiEvent::Accept { .. })));
         assert_eq!(events.last(), Some(&UiEvent::Done));
@@ -829,7 +840,11 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, UiEvent::Status { line } if line == "Interrupted"))
         );
-        assert!(!events.iter().any(|e| matches!(e, UiEvent::ToolStart { .. })));
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, UiEvent::ToolStart { .. }))
+        );
         assert!(!events.iter().any(|e| matches!(e, UiEvent::ToolEnd { .. })));
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -924,9 +939,11 @@ mod tests {
         assert_eq!(events2.last(), Some(&UiEvent::Done));
 
         // Turn 2 events should NOT contain "first goal" header.
-        assert!(!events2
-            .iter()
-            .any(|e| matches!(e, UiEvent::Header { goal, .. } if goal == "first goal")));
+        assert!(
+            !events2
+                .iter()
+                .any(|e| matches!(e, UiEvent::Header { goal, .. } if goal == "first goal"))
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -964,6 +981,7 @@ mod tests {
             Self::new(2)
         }
 
+        #[allow(dead_code)]
         fn set_cancelled(&self) {
             self.cancelled.store(1, Ordering::SeqCst);
         }
@@ -996,8 +1014,8 @@ mod tests {
 
     #[test]
     fn permission_deny_prevents_tool_execution() {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -1061,18 +1079,19 @@ mod tests {
             }
         )));
         // ToolEnd with ok=false should be emitted for the denied tool.
-        assert!(events.iter().any(|e| matches!(
-            e,
-            UiEvent::ToolEnd { ok: false, .. }
-        )));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, UiEvent::ToolEnd { ok: false, .. }))
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn permission_allow_once_executes_tool() {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -1128,8 +1147,8 @@ mod tests {
 
     #[test]
     fn permission_allow_session_caches_for_same_tool() {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -1191,8 +1210,8 @@ TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
 
     #[test]
     fn permission_shell_tool_requires_approval() {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -1243,8 +1262,8 @@ TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
 
     #[test]
     fn permission_read_only_tool_skips_approval() {
-        let dir = std::env::temp_dir()
-            .join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
@@ -1297,9 +1316,11 @@ TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
         assert_eq!(counter.load(Ordering::SeqCst), 1);
         // No PermissionRequired events emitted.
         let events = sink.events();
-        assert!(!events
-            .iter()
-            .any(|e| matches!(e, UiEvent::PermissionRequired { .. })));
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, UiEvent::PermissionRequired { .. }))
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

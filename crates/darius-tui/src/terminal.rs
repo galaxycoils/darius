@@ -1,8 +1,8 @@
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 use std::time::Duration;
 
-use crate::app::{Action, AppState};
+use crate::app::AppState;
 use crate::controller::{RuntimeCommand, TuiController};
 use crate::input::map_key;
 use crate::render::draw;
@@ -143,20 +143,19 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
                             continue;
                         }
                         // 5. Map and reduce.
-                        if let Some(action) = map_key(key, &state) {
-                            if let Some(effect) = state.reduce(action) {
-                                if let Some(cmd) = effect_to_command(&state, effect) {
-                                    // 6. Send command; break on closure.
-                                    if cmd_is_quit(&cmd) {
-                                        break Ok(());
-                                    }
-                                    match controller.commands.send(cmd) {
-                                        Ok(()) => {}
-                                        Err(_) => {
-                                            // Worker dropped — exit gracefully.
-                                            break Ok(());
-                                        }
-                                    }
+                        if let Some(action) = map_key(key, &state)
+                            && let Some(effect) = state.reduce(action)
+                            && let Some(cmd) = effect_to_command(&state, effect)
+                        {
+                            // 6. Send command; break on closure.
+                            if cmd_is_quit(&cmd) {
+                                break Ok(());
+                            }
+                            match controller.commands.send(cmd) {
+                                Ok(()) => {}
+                                Err(_) => {
+                                    // Worker dropped — exit gracefully.
+                                    break Ok(());
                                 }
                             }
                         }
@@ -181,8 +180,9 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::app::Action;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // ── Test backend (records operation counts) ─────────────────────────
 
@@ -286,7 +286,7 @@ mod tests {
         events: Vec<UiEvent>,
         keys: Vec<crossterm::event::KeyEvent>,
     ) -> (AppState, Vec<RuntimeCommand>) {
-        let (mut controller, mut cmd_rx, event_tx) = TuiController::new(64);
+        let (mut controller, cmd_rx, event_tx) = TuiController::new(64);
 
         // Replay the canned events.
         for ev in events {
@@ -296,11 +296,8 @@ mod tests {
         let mut local_state = AppState::default();
 
         // Drain all available events (mirrors the loop's drain step).
-        loop {
-            match controller.events.try_recv() {
-                Ok(ev) => local_state.apply_event(ev),
-                Err(_) => break,
-            }
+        while let Ok(ev) = controller.events.try_recv() {
+            local_state.apply_event(ev);
         }
 
         let mut collected = Vec::new();
@@ -308,14 +305,13 @@ mod tests {
             if matches!(key.kind, crossterm::event::KeyEventKind::Release) {
                 continue;
             }
-            if let Some(action) = map_key(*key, &local_state) {
-                if let Some(effect) = local_state.reduce(action) {
-                    if let Some(cmd) = effect_to_command(&local_state, effect) {
-                        collected.push(cmd.clone());
-                        if controller.commands.send(cmd).is_err() {
-                            break;
-                        }
-                    }
+            if let Some(action) = map_key(*key, &local_state)
+                && let Some(effect) = local_state.reduce(action)
+                && let Some(cmd) = effect_to_command(&local_state, effect)
+            {
+                collected.push(cmd.clone());
+                if controller.commands.send(cmd).is_err() {
+                    break;
                 }
             }
         }
@@ -488,10 +484,7 @@ mod tests {
                     args: String::new(),
                 }),
             ),
-            (
-                crate::app::Effect::Interrupt,
-                RuntimeCommand::Interrupt,
-            ),
+            (crate::app::Effect::Interrupt, RuntimeCommand::Interrupt),
             (
                 crate::app::Effect::ResolvePermission {
                     id: "p".into(),

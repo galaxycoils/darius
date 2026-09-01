@@ -1,5 +1,5 @@
-use darius_cognitive::UiEvent;
 use crate::commands::CommandInvocation;
+use darius_cognitive::UiEvent;
 
 // ── View types for rendering transcript items ──────────────────────────
 
@@ -437,7 +437,10 @@ impl AppState {
                 }
                 Action::Insert(c) => {
                     if self.composer.slash_mode {
-                        let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                        let cursor = self
+                            .composer
+                            .cursor
+                            .min(self.composer.input.chars().count());
                         let mut chars: Vec<char> = self.composer.input.chars().collect();
                         chars.insert(cursor, c);
                         self.composer.input = chars.into_iter().collect();
@@ -447,7 +450,10 @@ impl AppState {
                 }
                 Action::Backspace => {
                     if self.composer.slash_mode && self.composer.cursor > 0 {
-                        let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                        let cursor = self
+                            .composer
+                            .cursor
+                            .min(self.composer.input.chars().count());
                         let mut chars: Vec<char> = self.composer.input.chars().collect();
                         chars.remove(cursor - 1);
                         self.composer.input = chars.into_iter().collect();
@@ -463,7 +469,10 @@ impl AppState {
         match action {
             Action::Insert(c) => {
                 // Insert at UTF-8 character boundary
-                let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                let cursor = self
+                    .composer
+                    .cursor
+                    .min(self.composer.input.chars().count());
                 let mut chars: Vec<char> = self.composer.input.chars().collect();
                 chars.insert(cursor, c);
                 self.composer.input = chars.into_iter().collect();
@@ -478,13 +487,18 @@ impl AppState {
             }
             Action::Backspace => {
                 if self.composer.cursor > 0 {
-                    let cursor = self.composer.cursor.min(self.composer.input.chars().count());
+                    let cursor = self
+                        .composer
+                        .cursor
+                        .min(self.composer.input.chars().count());
                     let mut chars: Vec<char> = self.composer.input.chars().collect();
                     chars.remove(cursor - 1);
                     self.composer.input = chars.into_iter().collect();
                     self.composer.cursor -= 1;
                     // Exit slash mode if input no longer starts with / or -
-                    if !self.composer.input.starts_with('/') && !self.composer.input.starts_with('-') {
+                    if !self.composer.input.starts_with('/')
+                        && !self.composer.input.starts_with('-')
+                    {
                         self.composer.slash_mode = false;
                         self.palette.open = false;
                     }
@@ -540,7 +554,7 @@ impl AppState {
                 None
             }
             Action::Scroll(delta) => {
-                self.scroll = self.scroll.saturating_add_signed(delta as i16);
+                self.scroll = self.scroll.saturating_add_signed(delta);
                 None
             }
             Action::ToggleTool => {
@@ -595,8 +609,7 @@ impl AppState {
                 {
                     existing.push_str(&text);
                 } else {
-                    self.transcript
-                        .push(TranscriptItem::Assistant { text });
+                    self.transcript.push(TranscriptItem::Assistant { text });
                 }
             }
             UiEvent::Thinking {
@@ -626,7 +639,10 @@ impl AppState {
                 }
             }
             UiEvent::Diff {
-                file, summary, lines, ..
+                file,
+                summary,
+                lines,
+                ..
             } => {
                 let diff_lines: Vec<DiffLineView> = lines
                     .into_iter()
@@ -661,8 +677,9 @@ impl AppState {
                         },
                     })
                     .collect();
-                self.transcript
-                    .push(TranscriptItem::Tasks { tasks: self.tasks.clone() });
+                self.transcript.push(TranscriptItem::Tasks {
+                    tasks: self.tasks.clone(),
+                });
             }
             UiEvent::PermissionRequired {
                 id,
@@ -838,9 +855,7 @@ mod tests {
     fn apply_event_delta_after_user_does_not_coalesce() {
         use darius_cognitive::UiEvent;
         let mut state = AppState::default();
-        state.apply_event(UiEvent::UserMessage {
-            text: "hi".into(),
-        });
+        state.apply_event(UiEvent::UserMessage { text: "hi".into() });
         state.apply_event(UiEvent::AssistantDelta {
             text: "reply".into(),
         });
@@ -1074,10 +1089,7 @@ mod tests {
             elapsed_ms: 1234,
         });
         match &state.transcript[0] {
-            TranscriptItem::Thinking {
-                text,
-                elapsed_ms,
-            } => {
+            TranscriptItem::Thinking { text, elapsed_ms } => {
                 assert_eq!(text, "analyzing");
                 assert_eq!(*elapsed_ms, 1234);
             }

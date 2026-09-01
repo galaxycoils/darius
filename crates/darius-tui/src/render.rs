@@ -10,11 +10,11 @@ use ratatui::{
 use std::io;
 
 use crate::app::{
-    AppState, DiffLineKind, DiffLineView, DiffView, PermissionChoice, PermissionState, TaskDisplay,
-    TaskStatus, ToolView, TranscriptItem,
+    AppState, DiffLineKind, DiffView, PermissionChoice, PermissionState, TaskDisplay, TaskStatus,
+    ToolView, TranscriptItem,
 };
 use crate::commands::{COMMANDS, CommandSpec};
-use crate::theme::{ColorMode, Theme};
+use crate::theme::Theme;
 
 // ── Render functions ───────────────────────────────────────────────────
 
@@ -343,6 +343,11 @@ pub fn render_palette(
 
 // ── Snapshot helpers ───────────────────────────────────────────────────
 
+#[cfg(test)]
+use crate::app::DiffLineView;
+#[cfg(test)]
+use crate::theme::ColorMode;
+
 /// Render a transcript to a string for snapshot testing.
 #[cfg(test)]
 fn render_transcript_to_string(width: u16, height: u16, items: &[TranscriptItem]) -> String {
@@ -487,9 +492,8 @@ fn draw_inner<B: ratatui::backend::Backend>(
             .chars()
             .take(state.composer.cursor)
             .collect();
-        let cursor_x = composer_area.x
-            + 2
-            + unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
+        let cursor_x =
+            composer_area.x + 2 + unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
         let cursor_y = composer_area.y + 2; // input line is the 3rd row
         f.set_cursor(cursor_x, cursor_y);
     })?;

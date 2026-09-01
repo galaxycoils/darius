@@ -69,33 +69,15 @@ mod tests {
 
     #[test]
     fn channel_ordering_is_fifo() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
 
-        controller
-            .commands
-            .send(RuntimeCommand::Interrupt)
-            .unwrap();
-        controller
-            .commands
-            .send(RuntimeCommand::Shutdown)
-            .unwrap();
-        controller
-            .commands
-            .send(RuntimeCommand::Interrupt)
-            .unwrap();
+        controller.commands.send(RuntimeCommand::Interrupt).unwrap();
+        controller.commands.send(RuntimeCommand::Shutdown).unwrap();
+        controller.commands.send(RuntimeCommand::Interrupt).unwrap();
 
-        assert!(matches!(
-            cmd_rx.recv().unwrap(),
-            RuntimeCommand::Interrupt
-        ));
-        assert!(matches!(
-            cmd_rx.recv().unwrap(),
-            RuntimeCommand::Shutdown
-        ));
-        assert!(matches!(
-            cmd_rx.recv().unwrap(),
-            RuntimeCommand::Interrupt
-        ));
+        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Interrupt));
+        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Shutdown));
+        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Interrupt));
     }
 
     #[test]
@@ -109,7 +91,10 @@ mod tests {
             })
             .unwrap();
 
-        assert!(matches!(controller.events.try_recv().unwrap(), UiEvent::Done));
+        assert!(matches!(
+            controller.events.try_recv().unwrap(),
+            UiEvent::Done
+        ));
         assert!(
             matches!(controller.events.try_recv().unwrap(), UiEvent::Status { line } if line == "hello")
         );
@@ -117,22 +102,16 @@ mod tests {
 
     #[test]
     fn shutdown_command_drops_cleanly() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
-        controller
-            .commands
-            .send(RuntimeCommand::Shutdown)
-            .unwrap();
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        controller.commands.send(RuntimeCommand::Shutdown).unwrap();
         drop(controller);
-        assert!(matches!(
-            cmd_rx.recv().unwrap(),
-            RuntimeCommand::Shutdown
-        ));
+        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Shutdown));
         assert!(cmd_rx.recv().is_err());
     }
 
     #[test]
     fn submit_goal_carries_text_mode_and_effort() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::SubmitGoal {
@@ -154,7 +133,7 @@ mod tests {
 
     #[test]
     fn execute_slash_uses_canonical_invocation() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ExecuteSlash(dummy_invocation()))
@@ -172,7 +151,7 @@ mod tests {
 
     #[test]
     fn resolve_permission_carries_id_and_choice() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ResolvePermission {
@@ -203,7 +182,7 @@ mod tests {
 
     #[test]
     fn closed_command_channel_signals_runtime_stop() {
-        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
         drop(controller);
         assert!(cmd_rx.recv().is_err());
     }
