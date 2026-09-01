@@ -182,6 +182,7 @@ pub struct ModelRouter {
     #[allow(dead_code)]
     coalesced: Arc<Mutex<HashMap<String, u64>>>, // request hash -> result hash
     http_client: OpenAiCompatibleClient,
+    model_overrides: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl ModelRouter {
@@ -208,7 +209,44 @@ impl ModelRouter {
             cache_coordinator,
             coalesced: Arc::new(Mutex::new(HashMap::new())),
             http_client: OpenAiCompatibleClient::new().unwrap_or_default(),
+            model_overrides: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Builder method to configure a role model override.
+    pub fn with_override(self, role: &str, model: &str) -> Self {
+        self.model_overrides.lock().insert(role.to_string(), model.to_string());
+        self
+    }
+
+    /// Set a dynamic model override for a role.
+    pub fn set_override(&self, role: &str, model: &str) {
+        self.model_overrides.lock().insert(role.to_string(), model.to_string());
+    }
+
+    /// Get effective model name for a role.
+    pub fn get_role_model(&self, role: ModelRole) -> String {
+        let role_key = match role {
+            ModelRole::Default => "default",
+            ModelRole::Smol => "smol",
+            ModelRole::Plan => "planner",
+            ModelRole::Commit => "commit",
+            ModelRole::Advisor => "advisor",
+            ModelRole::Rater => "rater",
+        };
+        if let Some(m) = self.model_overrides.lock().get(role_key) {
+            return m.clone();
+        }
+        let (primary_name, fallback_name) = match role {
+            ModelRole::Rater => ("rater", "default"),
+            _ => ("default", "rater"),
+        };
+        self.provider_registry
+            .get(primary_name)
+            .filter(|p| p.enabled)
+            .or_else(|| self.provider_registry.get(fallback_name).filter(|p| p.enabled))
+            .map(|p| p.model)
+            .unwrap_or_else(|| "gpt-4".into())
     }
 
     /// Route a request to a provider.
@@ -239,6 +277,21 @@ impl ModelRouter {
             })
             .ok_or(RouterError::NoProviders)?;
 
+        let role_key = match role {
+            ModelRole::Default => "default",
+            ModelRole::Smol => "smol",
+            ModelRole::Plan => "planner",
+            ModelRole::Commit => "commit",
+            ModelRole::Advisor => "advisor",
+            ModelRole::Rater => "rater",
+        };
+
+        let effective_model = if let Some(m) = self.model_overrides.lock().get(role_key) {
+            m.clone()
+        } else {
+            provider.model.clone()
+        };
+
         // Record usage.
         self.budget_enforcer.record_usage(scope, estimated_tokens);
 
@@ -260,7 +313,7 @@ impl ModelRouter {
             return self.http_client.chat_completion(
                 &provider.base_url,
                 &provider.api_key_env,
-                &provider.model,
+                &effective_model,
                 &[messages],
             );
         }
@@ -268,7 +321,7 @@ impl ModelRouter {
         // Stub fallback: no API key configured.
         Ok(format!(
             "Response from {} for role {role:?}",
-            provider.model
+            effective_model
         ))
     }
 
@@ -289,7 +342,7 @@ impl ModelRouter {
 
     /// Route a plan request, returning JSON plan text.
     pub fn route_plan(&self, goal: &str, scope: BudgetScope) -> Result<String, RouterError> {
-        let response = self.route(ModelRole::Default, goal, scope)?;
+        let response = self.route(ModelRole::Plan, goal, scope)?;
         // Wrap the router response in a JSON plan
         Ok(format!(r#"{{"tasks":[{{"title":"{response}"}}]}}"#))
     }
@@ -566,5 +619,20 @@ mod tests {
         let response = live.react("context").unwrap();
         assert!(response.contains("Response from gpt-4"));
         assert!(response.contains("DONE"));
+    }
+
+    #[test]
+    fn test_model_router_role_overrides() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache)
+            .with_override("planner", "gpt-4o")
+            .with_override("rater", "claude-3-5-sonnet");
+
+        assert_eq!(router.get_role_model(ModelRole::Plan), "gpt-4o");
+        assert_eq!(router.get_role_model(ModelRole::Rater), "claude-3-5-sonnet");
+        assert_eq!(router.get_role_model(ModelRole::Default), "gpt-4");
+
+        let plan_resp = router.route_plan("build api", BudgetScope::Session).unwrap();
+        assert!(plan_resp.contains("gpt-4o"));
     }
 }
