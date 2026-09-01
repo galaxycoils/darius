@@ -232,6 +232,14 @@ impl ToolRegistry {
     pub fn set_preview_ceiling(&mut self, ceiling: usize) {
         self.preview_ceiling = ceiling;
     }
+
+    pub fn spill_dir(&self) -> &Path {
+        &self.spill_dir
+    }
+
+    pub fn preview_ceiling(&self) -> usize {
+        self.preview_ceiling
+    }
 }
 
 /// Parse a TOOL line from model output.
@@ -265,6 +273,7 @@ pub fn extract_tool_calls(text: &str) -> Vec<ToolCall> {
 /// Register memory builtins on a tool registry.
 pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_memory::MemoryEngine) {
     let memory_search = memory.clone();
+    let spill_dir = registry.spill_dir.clone();
     registry.register_with_risk("memory_search", ToolRisk::ReadOnly, move |call| {
         let query = call
             .arguments
@@ -277,7 +286,7 @@ pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_mem
             limit: 12,
         })?;
 
-        let mut preview = String::new();
+        let mut full_text = String::new();
         for record in &results {
             let line = format!(
                 "- [{}] {}: {}\n",
@@ -285,16 +294,24 @@ pub fn register_memory_builtins(registry: &mut ToolRegistry, memory: &darius_mem
                 record.title.as_deref().unwrap_or("untitled"),
                 record.body
             );
-            if preview.len() + line.len() > 1000 {
-                break;
-            }
-            preview.push_str(&line);
+            full_text.push_str(&line);
         }
 
-        Ok(ToolOutcome::Ok {
-            preview,
-            spilled_path: None,
-        })
+        if full_text.len() > 1000 {
+            let preview = full_text.chars().take(1000).collect::<String>();
+            let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
+            let path = spill_dir.join(&filename);
+            let _ = std::fs::write(&path, &full_text);
+            Ok(ToolOutcome::Ok {
+                preview,
+                spilled_path: Some(path),
+            })
+        } else {
+            Ok(ToolOutcome::Ok {
+                preview: full_text,
+                spilled_path: None,
+            })
+        }
     });
 
     let memory_pack = memory.clone();
@@ -434,9 +451,11 @@ pub fn register_task_builtins(
     });
 }
 
-/// Register coding builtins (shell, read_file, write_file, glob) on a tool registry.
+/// Register coding builtins (shell, read_file, write_file, glob, spill_read) on a tool registry.
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
-    registry.register_with_risk("shell", ToolRisk::Shell, |call| {
+    let spill_dir_shell = registry.spill_dir.clone();
+    let ceiling_shell = registry.preview_ceiling;
+    registry.register_with_risk("shell", ToolRisk::Shell, move |call| {
         let command = call
             .arguments
             .get("command")
@@ -455,18 +474,31 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        let mut preview = stdout;
+        let mut full = stdout;
         if !stderr.is_empty() {
-            preview.push_str(&format!("\n[stderr]\n{stderr}"));
+            full.push_str(&format!("\n[stderr]\n{stderr}"));
         }
 
-        Ok(ToolOutcome::Ok {
-            preview: preview.chars().take(2000).collect(),
-            spilled_path: None,
-        })
+        if full.len() > ceiling_shell {
+            let preview = full.chars().take(ceiling_shell).collect::<String>();
+            let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
+            let path = spill_dir_shell.join(&filename);
+            let _ = std::fs::write(&path, &full);
+            Ok(ToolOutcome::Ok {
+                preview,
+                spilled_path: Some(path),
+            })
+        } else {
+            Ok(ToolOutcome::Ok {
+                preview: full.chars().take(2000).collect(),
+                spilled_path: None,
+            })
+        }
     });
 
-    registry.register_with_risk("read_file", ToolRisk::ReadOnly, |call| {
+    let spill_dir_read = registry.spill_dir.clone();
+    let ceiling_read = registry.preview_ceiling;
+    registry.register_with_risk("read_file", ToolRisk::ReadOnly, move |call| {
         let path = call
             .arguments
             .get("path")
@@ -477,11 +509,24 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         }
 
         let content = std::fs::read_to_string(path)?;
-        Ok(ToolOutcome::Ok {
-            preview: content.chars().take(2000).collect(),
-            spilled_path: None,
-        })
+        if content.len() > ceiling_read {
+            let preview = content.chars().take(ceiling_read).collect::<String>();
+            let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
+            let p = spill_dir_read.join(&filename);
+            let _ = std::fs::write(&p, &content);
+            Ok(ToolOutcome::Ok {
+                preview,
+                spilled_path: Some(p),
+            })
+        } else {
+            Ok(ToolOutcome::Ok {
+                preview: content.chars().take(2000).collect(),
+                spilled_path: None,
+            })
+        }
     });
+
+    register_spill_builtins(registry);
 
     registry.register_with_risk("write_file", ToolRisk::Mutating, |call| {
         let path = call
@@ -539,6 +584,79 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             preview: results.join("\n"),
             spilled_path: None,
         })
+    });
+
+    register_spill_builtins(registry);
+}
+
+/// Register spill inspection tools (spill_read, read_spill).
+pub fn register_spill_builtins(registry: &mut ToolRegistry) {
+    let spill_dir = registry.spill_dir.clone();
+    let handler = move |call: &ToolCall| {
+        let path_str = call
+            .arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if path_str.is_empty() {
+            return Err(ToolError::InvalidArgs("path required".into()));
+        }
+
+        let path = PathBuf::from(path_str);
+        let canonical_spill = spill_dir
+            .canonicalize()
+            .unwrap_or_else(|_| spill_dir.clone());
+        let canonical_target = match path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => {
+                if !path.starts_with(&spill_dir) {
+                    return Err(ToolError::InvalidArgs(
+                        "path must be inside tool_results/".into(),
+                    ));
+                }
+                path.clone()
+            }
+        };
+
+        if !canonical_target.starts_with(&canonical_spill) && !path.starts_with(&spill_dir) {
+            return Err(ToolError::InvalidArgs(
+                "path must be inside tool_results/".into(),
+            ));
+        }
+
+        let content = std::fs::read_to_string(&canonical_target)
+            .or_else(|_| std::fs::read_to_string(&path))
+            .map_err(ToolError::Io)?;
+
+        let offset = call
+            .arguments
+            .get("offset")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        let limit = call
+            .arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(4000) as usize;
+
+        let slice = if offset < content.len() {
+            let remaining = &content[offset..];
+            remaining.chars().take(limit).collect::<String>()
+        } else {
+            String::new()
+        };
+
+        Ok(ToolOutcome::Ok {
+            preview: slice,
+            spilled_path: None,
+        })
+    };
+
+    let handler_arc = std::sync::Arc::new(handler);
+    let h1 = handler_arc.clone();
+    registry.register_with_risk("spill_read", ToolRisk::ReadOnly, move |call| h1(call));
+    registry.register_with_risk("read_spill", ToolRisk::ReadOnly, move |call| {
+        handler_arc(call)
     });
 }
 
@@ -947,6 +1065,96 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 registry.risk(name).is_some(),
                 "tool {name} lacks risk metadata"
             );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_spill_recall_large_output() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_tools_spill_recall_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        registry.set_preview_ceiling(500);
+        register_coding_builtins(&mut registry);
+
+        // Create a large file (> 500 bytes)
+        let large_content = "hello world oversized output ".repeat(50); // ~1450 bytes
+        let file_path = dir.join("large.txt");
+        std::fs::write(&file_path, &large_content).unwrap();
+
+        let read_call = ToolCall {
+            id: "call-read-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": file_path.to_str().unwrap()}),
+        };
+
+        let outcome = registry.execute(&read_call);
+        let spilled_path = match outcome {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert_eq!(preview.len(), 500);
+                assert!(spilled_path.is_some(), "expected spilled_path");
+                spilled_path.unwrap()
+            }
+            ToolOutcome::Err { message } => panic!("read failed: {message}"),
+        };
+
+        // Now recall via spill_read
+        let recall_call = ToolCall {
+            id: "call-recall-1".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({
+                "path": spilled_path.to_str().unwrap(),
+                "offset": 0,
+                "limit": 100
+            }),
+        };
+
+        let recall_outcome = registry.execute(&recall_call);
+        match recall_outcome {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert_eq!(preview.len(), 100);
+                assert!(spilled_path.is_none());
+                assert!(preview.starts_with("hello world"));
+            }
+            ToolOutcome::Err { message } => panic!("recall failed: {message}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_spill_read_gated_to_tool_results() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_tools_spill_sec_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let outside_file = dir.join("secret.txt");
+        std::fs::write(&outside_file, "secret data").unwrap();
+
+        let recall_call = ToolCall {
+            id: "call-recall-unauth".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": outside_file.to_str().unwrap()}),
+        };
+
+        let outcome = registry.execute(&recall_call);
+        match outcome {
+            ToolOutcome::Err { message } => {
+                assert!(message.contains("inside tool_results"));
+            }
+            ToolOutcome::Ok { .. } => panic!("expected spill_read outside tool_results to fail"),
         }
 
         let _ = std::fs::remove_dir_all(&dir);
