@@ -529,7 +529,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
     register_spill_builtins(registry);
 
     registry.register_with_risk("write_file", ToolRisk::Mutating, |call| {
-        let path = call
+        let path_str = call
             .arguments
             .get("path")
             .and_then(|v| v.as_str())
@@ -539,13 +539,34 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             .get("content")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if path.is_empty() {
+        if path_str.is_empty() {
             return Err(ToolError::InvalidArgs("path required".into()));
+        }
+
+        let path = std::path::Path::new(path_str);
+        if darius_safety::is_protected_path(path) {
+            let approved = call
+                .arguments
+                .get("approved")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !approved {
+                return Err(ToolError::InvalidArgs(format!(
+                    "write to protected instruction file '{}' requires approval",
+                    path.display()
+                )));
+            }
+        }
+
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
         }
 
         std::fs::write(path, content)?;
         Ok(ToolOutcome::Ok {
-            preview: format!("wrote {} bytes to {}", content.len(), path),
+            preview: format!("wrote {} bytes to {}", content.len(), path.display()),
             spilled_path: None,
         })
     });
@@ -1156,6 +1177,51 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             }
             ToolOutcome::Ok { .. } => panic!("expected spill_read outside tool_results to fail"),
         }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_write_to_agents_md_requires_approval() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_prot_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        let agents_file = dir.join("AGENTS.md");
+
+        // 1. Without approval -> denied
+        let unapproved_call = ToolCall {
+            id: "call-unapproved".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({
+                "path": agents_file.to_str().unwrap(),
+                "content": "# New Agents"
+            }),
+        };
+
+        let outcome = registry.execute(&unapproved_call);
+        match outcome {
+            ToolOutcome::Err { message } => {
+                assert!(message.contains("requires approval"));
+            }
+            ToolOutcome::Ok { .. } => panic!("expected write to AGENTS.md without approval to fail"),
+        }
+
+        // 2. With approved: true -> allowed
+        let approved_call = ToolCall {
+            id: "call-approved".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({
+                "path": agents_file.to_str().unwrap(),
+                "content": "# Approved Agents",
+                "approved": true
+            }),
+        };
+
+        let outcome = registry.execute(&approved_call);
+        assert!(matches!(outcome, ToolOutcome::Ok { .. }));
+        assert_eq!(std::fs::read_to_string(&agents_file).unwrap(), "# Approved Agents");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

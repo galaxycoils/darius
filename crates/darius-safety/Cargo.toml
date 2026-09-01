@@ -12,4 +12,6 @@ path = "src/lib.rs"
 [dependencies]
 parking_lot = "0.12"
 thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+regex = "1"
 darius-core = { path = "../darius-core" }
