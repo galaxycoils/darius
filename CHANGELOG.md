@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-09-01
+
+### Added
+- **Lean-Tail Context Compression**: `darius-cognitive/src/compress.rs` implements `lean_tail_compress` and `/compact` command to maintain head system context and recent turns while discarding middle bulk under token budgets.
+- **Tool Spill Recall Path**: Large tool outputs (>32 KiB) automatically spill to disk in `tool_results/`; added `spill_read`/`read_spill` tools restricted to spilled results.
+- **Live Subagent Steer / List / Stop & Schema Validation**: `LocalSubagentRuntime` supporting live mid-turn message injection (`subagent_steer`), active task listing (`subagent_list`), graceful cancellation (`subagent_stop`), and JSON Schema output validation.
+- **Cron Memory Continuity & Persistent Notepad**: Scheduled recurring jobs preserve durable memory and notepads across runs, with hash-based change detection to skip model invocations when payloads remain unchanged.
+- **Instruction-File Write Protection**: Safety gate and `InstructionWriteGate` requiring explicit approval before modifying `AGENTS.md`, `SKILL.md`, `skills/`, `memory.db`, or `.darius/`.
+- **Secret Redaction**: Automatic regex-driven scrubbing of `sk-` keys, Bearer tokens, and password/secret fields across all tool outputs, UI events, and traces.
+- **Prompt-Cache Coordinator**: Deterministic prefix hashing (`compute_prefix_cache_key`) and hit/miss token tracking to optimize LLM prompt cache performance.
+- **MCP Thin Client & Registry**: Stdio and SSE Model Context Protocol client with ping health checks, tool discovery, and step-gating enforcement.
+- **Peer A2A Messaging**: Direct agent-to-agent envelope messaging (`POST /a2a/peer`, `GET /a2a/inbox/{handle}`) with sender quota rate-limiting.
+- **Live Status Metrics & Fuzzy Command Palette**: Real-time cache hit ratio, memory char size, and subagent counters in TUI status footer, accompanied by subsequence fuzzy palette filtering.
+- **Worktree Management & Rollback**: Isolated git worktree lifecycle management with session rollback and TTL-based pruning.
+- **Approval Dry-Run CLI**: `darius approval-check <tool> [args]` command to verify permission requirements and risk level without execution.
+- **Dynamic Role Model Overrides**: Profile config support for `[model_overrides]` routing specialized roles (`planner`, `rater`, `smol`, `advisor`).
+- **Comprehensive E2E Integration Suite**: End-to-end integration tests verifying the full matrix of new capabilities.
+
 ## [1.1.2] - 2026-08-31
 
 ### Added
@@ -28,11 +46,6 @@ All notable changes to this project will be documented in this file.
 - Terminal event loop polls crossterm without blocking indefinitely
 - Unified UiEvent/runtime across CLI, TUI, web, and A2A
 - Real OpenAI-compatible provider requests and localhost server startup
-
-### Notes
-- PTY integration tests removed in favor of unit tests (PTY was flaky)
-- 325 tests passing across workspace
-- Brainless was used as visual/interaction inspiration only. No source was copied.
 
 ## [1.1.0] - 2026-08-18
 

@@ -1,4 +1,4 @@
-# Darius v1.1.1
+# Darius v1.2.0
 
 **Open-source lean agent harness** — Claude-Code-style TUI, durable memory, tool ACI, plan–execute–accept loop. Local-first, provider-optional, zero API keys required to get started.
 
@@ -46,6 +46,11 @@ provider = "openai_compatible"
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 api_key_env = "DARIUS_API_KEY"
+
+[model_overrides]
+planner = "gpt-4o"
+rater = "claude-3-5-sonnet"
+smol = "gpt-4o-mini"
 EOF
 
 export DARIUS_API_KEY="sk-your-key-here"
@@ -64,8 +69,8 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 | Key | Action |
 |-----|--------|
 | `❯ text` + Enter | Send a message |
-| `/` | Open command palette |
-| `-` at column zero | Also opens palette |
+| `/` | Open command palette (with fuzzy matching) |
+| `-` at column zero | Also opens command palette |
 | `Shift+Tab` | Cycle mode (auto → manual → accept-edits → plan) |
 | `Esc` | Close palette / interrupt |
 | `q` | Quit |
@@ -76,31 +81,22 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 |---------|-------------|
 | `/help` | Show available commands |
 | `/clear` | Clear transcript |
-| `/compact` | Compact context |
+| `/compact` | Compact session context (lean-tail compression) |
 | `/model` | Show/set model |
 | `/mode` | Cycle interaction mode |
 | `/effort` | Set effort level |
 | `/permissions` | View permission policy |
-| `/memory` | Memory stats |
-| `/pack` | Build MemoryPack |
+| `/memory` | Memory search & stats |
+| `/pack` | Build bounded MemoryPack |
 | `/tasks` | Show task board |
-| `/plan` | Show current plan |
-| `/status` | Session status |
-| `/config` | Show/set config |
+| `/plan` | Enter plan mode |
+| `/status` | Session status & live cache/memory metrics |
+| `/config` | Show effective profile config |
 | `/skills` | List skills |
-| `/a2a` | A2A card info |
+| `/a2a` | A2A card info & peer inbox |
 | `/serve` | Start localhost server |
 | `/stop` | Stop current operation |
 | `/quit` | Exit TUI |
-
-## Modes
-
-| Mode | Indicator | Behavior |
-|------|-----------|----------|
-| Auto | ⏵⏵ auto | Full autonomous execution |
-| Manual | ⏸ manual | Pause after each step |
-| Accept Edits | ⏵⏵ accept edits | Auto-accept file edits |
-| Plan | ⏸ plan | Planning only, no execution |
 
 ## CLI Commands
 
@@ -110,6 +106,8 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 | `darius tui` | Launch Claude-Code-style TUI |
 | `darius serve` | Start web dashboard + A2A server |
 | `darius session-smoke` | Integrated daemon + session + handoff test |
+| `darius cron list\|add\|run\|notepad` | Cron jobs with memory continuity & notepads |
+| `darius approval-check <tool> [args]` | Dry-run check tool execution approval requirements |
 | `darius memory search <q>` | FTS5 search |
 | `darius memory pack` | Bounded MemoryPack (≤3500 chars) |
 | `darius memory import <file>` | Deduped JSONL import |
@@ -118,51 +116,21 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 | `darius config show` | Show profile config |
 | `darius a2a card` | Show A2A agent card |
 
-## Environment Variables
+## What's in v1.2.0
 
-| Variable | Description |
-|----------|-------------|
-| `DARIUS_API_KEY` | API key for live provider |
-| `DARIUS_PROFILE` | Profile name (default: `default`) |
-| `DARIUS_LIVE_MODEL` | Force live model for `darius run` |
-
-## Architecture
-
-```
-darius-memory     → SQLite FTS5, MemoryPack, JSONL
-darius-tools      → ToolRegistry, TOOL line protocol, spill
-darius-cognitive  → Plan → TaskBoard → ReAct → Accept
-darius-daemon     → Session, event log, handoff, model router
-darius-tui        → Claude-Code-style terminal UI (ratatui)
-darius-web        → Axum web dashboard + A2A server
-darius-cli        → CLI surface + session runtime
-```
-
-### Lean resource caps
-
-| Resource | Cap |
-|----------|-----|
-| MemoryPack | 3500 chars |
-| Tool preview | 32 KiB (+ spill to disk) |
-| TaskBoard | 15 tasks |
-| ReAct iters | 12 per task |
-| Body size | 32 KiB per record |
-
-## What's in v1.1.1
-
-- ✅ Claude-Code-style TUI with streaming turns, command palette, modes, effort, todos, diffs, permission chooser
-- ✅ Offline MockModel (no network)
-- ✅ Live OpenAI-compatible provider when configured
-- ✅ Durable SQLite memory with FTS5 search
-- ✅ Plan–execute–accept cognitive loop
-- ✅ CLI with memory operations, TUI, serve, A2A
-- ✅ Session handoff + event replay
-- ✅ Web dashboard + A2A server (SSE)
-- ✅ Unified UiEvent/runtime across CLI, TUI, web, A2A
-
-## Design inspiration
-
-Visual/interaction grammar inspired by [Brainless](https://brainless.swerdlow.dev/). No Brainless source code was copied or translated.
+- ✅ **Lean-Tail Context Compression**: Keeps head and tail pinned while rolling middle context under budget.
+- ✅ **Disk Spill Recall (`spill_read`)**: Large tool payloads (>32 KiB) spill to disk; paginated recall without RAM residency.
+- ✅ **Live Subagent Steer / List / Stop & Schema Validation**: In-process subagent supervision with JSON Schema enforcement.
+- ✅ **Cron Memory Continuity & Notepad**: Scheduled recurring jobs with persistent notepad and change-detection hashing.
+- ✅ **Instruction-File Write Protection**: Gated writes for `AGENTS.md`, `SKILL.md`, `skills/`, `memory.db`, `.darius/`.
+- ✅ **Secret Redaction**: Automatic scrubbing of `sk-` keys, Bearer tokens, and secrets across logs and UI events.
+- ✅ **Prompt-Cache Coordinator**: Deterministic prefix hashing and hit/miss token tracking.
+- ✅ **MCP Thin Registry & Health**: Model Context Protocol stdio/SSE client with ping health checks and step gating.
+- ✅ **Peer A2A Messaging**: Direct agent-to-agent envelope delivery with recipient inbox and rate limit quotas.
+- ✅ **Live Metrics & Fuzzy Palette**: Real-time cache ratio, memory size, and subagent counters in status bar with fuzzy matching.
+- ✅ **Worktree Management & Rollback**: Isolated git worktrees with automatic session rollback and TTL pruning.
+- ✅ **Approval Dry-Run CLI**: `darius approval-check` utility to inspect tool risk without executing.
+- ✅ **Dynamic Role Model Overrides**: Profile config support for `planner`, `rater`, `smol`, and `advisor` roles.
 
 ## Build & Test
 

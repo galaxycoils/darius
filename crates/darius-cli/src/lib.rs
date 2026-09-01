@@ -607,9 +607,13 @@ pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String
         "write_file" | "hashline" => {
             risk_str = "Mutating".to_string();
             let path_str = args_val.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            if !path_str.is_empty() && darius_safety::is_protected_path(std::path::Path::new(path_str)) {
+            if !path_str.is_empty()
+                && darius_safety::is_protected_path(std::path::Path::new(path_str))
+            {
                 requires_approval = true;
-                reason = format!("write to protected instruction file '{path_str}' requires explicit approval");
+                reason = format!(
+                    "write to protected instruction file '{path_str}' requires explicit approval"
+                );
             } else {
                 requires_approval = true;
                 reason = "file mutation requires approval".to_string();
@@ -620,7 +624,8 @@ pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String
             requires_approval = true;
             reason = "external agent spawn or peer send requires approval".to_string();
         }
-        "read_file" | "glob" | "grep" | "memory_search" | "memory_pack" | "spill_read" | "read_spill" => {
+        "read_file" | "glob" | "grep" | "memory_search" | "memory_pack" | "spill_read"
+        | "read_spill" => {
             risk_str = "ReadOnly".to_string();
             requires_approval = false;
             reason = "read-only inspection tool".to_string();

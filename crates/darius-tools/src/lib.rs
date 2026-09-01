@@ -594,7 +594,9 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             .unwrap_or(false);
 
         if recipient.is_empty() || intent.is_empty() {
-            return Err(ToolError::InvalidArgs("recipient and intent required".into()));
+            return Err(ToolError::InvalidArgs(
+                "recipient and intent required".into(),
+            ));
         }
 
         if !authenticated {

@@ -74,7 +74,13 @@ impl WorktreeManager {
 
         if is_git_repo {
             let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(&self.root).arg("worktree").arg("add").arg(&path).arg("-b").arg(branch);
+            cmd.arg("-C")
+                .arg(&self.root)
+                .arg("worktree")
+                .arg("add")
+                .arg(&path)
+                .arg("-b")
+                .arg(branch);
             if let Some(commit) = base_commit {
                 cmd.arg(commit);
             }

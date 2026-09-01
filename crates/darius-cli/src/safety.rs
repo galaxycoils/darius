@@ -79,17 +79,20 @@ mod tests {
     #[test]
     fn test_check_approval_tool_risk() {
         // Read-only inspection -> no approval required
-        let (req1, risk1, _) = crate::check_approval("read_file", &serde_json::json!({"path": "src/main.rs"}));
+        let (req1, risk1, _) =
+            crate::check_approval("read_file", &serde_json::json!({"path": "src/main.rs"}));
         assert!(!req1);
         assert_eq!(risk1, "ReadOnly");
 
         // Shell -> approval required
-        let (req2, risk2, _) = crate::check_approval("shell", &serde_json::json!({"command": "ls"}));
+        let (req2, risk2, _) =
+            crate::check_approval("shell", &serde_json::json!({"command": "ls"}));
         assert!(req2);
         assert_eq!(risk2, "Mutating");
 
         // write_file to AGENTS.md -> approval required for protected path
-        let (req3, risk3, reason3) = crate::check_approval("write_file", &serde_json::json!({"path": "AGENTS.md"}));
+        let (req3, risk3, reason3) =
+            crate::check_approval("write_file", &serde_json::json!({"path": "AGENTS.md"}));
         assert!(req3);
         assert_eq!(risk3, "Mutating");
         assert!(reason3.contains("protected instruction file"));

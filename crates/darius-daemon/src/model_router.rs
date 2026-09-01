@@ -215,13 +215,17 @@ impl ModelRouter {
 
     /// Builder method to configure a role model override.
     pub fn with_override(self, role: &str, model: &str) -> Self {
-        self.model_overrides.lock().insert(role.to_string(), model.to_string());
+        self.model_overrides
+            .lock()
+            .insert(role.to_string(), model.to_string());
         self
     }
 
     /// Set a dynamic model override for a role.
     pub fn set_override(&self, role: &str, model: &str) {
-        self.model_overrides.lock().insert(role.to_string(), model.to_string());
+        self.model_overrides
+            .lock()
+            .insert(role.to_string(), model.to_string());
     }
 
     /// Get effective model name for a role.
@@ -244,7 +248,11 @@ impl ModelRouter {
         self.provider_registry
             .get(primary_name)
             .filter(|p| p.enabled)
-            .or_else(|| self.provider_registry.get(fallback_name).filter(|p| p.enabled))
+            .or_else(|| {
+                self.provider_registry
+                    .get(fallback_name)
+                    .filter(|p| p.enabled)
+            })
             .map(|p| p.model)
             .unwrap_or_else(|| "gpt-4".into())
     }
@@ -632,7 +640,9 @@ mod tests {
         assert_eq!(router.get_role_model(ModelRole::Rater), "claude-3-5-sonnet");
         assert_eq!(router.get_role_model(ModelRole::Default), "gpt-4");
 
-        let plan_resp = router.route_plan("build api", BudgetScope::Session).unwrap();
+        let plan_resp = router
+            .route_plan("build api", BudgetScope::Session)
+            .unwrap();
         assert!(plan_resp.contains("gpt-4o"));
     }
 }

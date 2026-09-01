@@ -181,7 +181,10 @@ pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
     }
 
     let is_slash = q.starts_with('/') || q.starts_with('-');
-    let q_clean = q.trim_start_matches('/').trim_start_matches('-').to_lowercase();
+    let q_clean = q
+        .trim_start_matches('/')
+        .trim_start_matches('-')
+        .to_lowercase();
 
     COMMANDS
         .iter()
