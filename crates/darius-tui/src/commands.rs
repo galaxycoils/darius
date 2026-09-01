@@ -146,12 +146,53 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
 ];
 
-/// Filter commands by query (case-insensitive prefix/substring match).
+/// Check if query matches target via fuzzy subsequence match (case-insensitive).
+pub fn fuzzy_match(query: &str, target: &str) -> bool {
+    let q_clean = query
+        .trim_start_matches('/')
+        .trim_start_matches('-')
+        .to_lowercase();
+    if q_clean.is_empty() {
+        return true;
+    }
+    let t_clean = target.trim_start_matches('/').to_lowercase();
+
+    // 1. Substring match
+    if t_clean.contains(&q_clean) {
+        return true;
+    }
+
+    // 2. Fuzzy subsequence match
+    let mut target_chars = t_clean.chars();
+    for qc in q_clean.chars() {
+        if !target_chars.any(|tc| tc == qc) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Filter commands by query (fuzzy match across name, or description if not slash-prefixed).
 pub fn filter(query: &str) -> Vec<&'static CommandSpec> {
-    let q = query.to_lowercase();
+    let q = query.trim();
+    if q.is_empty() || q == "/" || q == "-" {
+        return COMMANDS.iter().collect();
+    }
+
+    let is_slash = q.starts_with('/') || q.starts_with('-');
+    let q_clean = q.trim_start_matches('/').trim_start_matches('-').to_lowercase();
+
     COMMANDS
         .iter()
-        .filter(|cmd| cmd.name.contains(&q) || cmd.description.to_lowercase().contains(&q))
+        .filter(|cmd| {
+            let name_clean = cmd.name.trim_start_matches('/');
+            if is_slash {
+                fuzzy_match(&q_clean, name_clean)
+            } else {
+                fuzzy_match(&q_clean, name_clean) || fuzzy_match(&q_clean, cmd.description)
+            }
+        })
         .collect()
 }
 
@@ -250,5 +291,20 @@ mod tests {
     fn slash_command_preserves_arguments() {
         assert_eq!(parse_invocation("/mode plan").unwrap().args, "plan");
         assert_eq!(parse_invocation("-memory brakes").unwrap().args, "brakes");
+    }
+
+    #[test]
+    fn fuzzy_subsequence_filter_matches() {
+        // "cpt" should match "/compact"
+        let cpt_results = filter("cpt");
+        assert!(cpt_results.iter().any(|c| c.name == "/compact"));
+
+        // "st" should match "/status"
+        let st_results = filter("st");
+        assert!(st_results.iter().any(|c| c.name == "/status"));
+
+        // "sk" should match "/skills"
+        let sk_results = filter("sk");
+        assert!(sk_results.iter().any(|c| c.name == "/skills"));
     }
 }

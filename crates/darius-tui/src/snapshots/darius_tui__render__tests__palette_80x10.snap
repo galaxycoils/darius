@@ -6,8 +6,8 @@ expression: buffer_to_string(&buffer)
 │Commands                                                                      │
 │❯ /model              Show or select the session model                        │
 │  /mode               Cycle or select auto/manual/accept-edits/plan           │
-│  /status             Show profile/model/context/kernel status                │
-│                                                                              │
+│  /permissions        Show the current permission policy                      │
+│  /memory             Search durable memory                                   │
 │                                                                              │
 │                                                                              │
 │                                                                              │

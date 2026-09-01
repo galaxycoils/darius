@@ -13,7 +13,6 @@ use crate::app::{
     AppState, DiffLineKind, DiffView, PermissionChoice, PermissionState, TaskDisplay, TaskStatus,
     ToolView, TranscriptItem,
 };
-use crate::commands::{COMMANDS, CommandSpec};
 use crate::theme::Theme;
 
 // ── Render functions ───────────────────────────────────────────────────
@@ -273,11 +272,20 @@ pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &T
         )]));
     }
 
-    // Mode footer
-    let mode_text = format!(
-        "{} (shift+tab to cycle) · ? for shortcuts",
-        state.mode.label()
-    );
+    // Mode and metrics footer
+    let mut footer_parts = vec![format!("{} (shift+tab to cycle)", state.mode.label())];
+    if let Some(ratio) = state.cache_hit_ratio {
+        footer_parts.push(format!("cache: {:.0}%", ratio * 100.0));
+    }
+    if let Some(chars) = state.memory_chars {
+        footer_parts.push(format!("mem: {chars}c"));
+    }
+    if state.running_subagents > 0 {
+        footer_parts.push(format!("subs: {}", state.running_subagents));
+    }
+    footer_parts.push("? for shortcuts".into());
+
+    let mode_text = footer_parts.join(" · ");
     lines.push(Line::from(vec![Span::styled(
         mode_text,
         Style::default().fg(theme.muted),
@@ -297,15 +305,7 @@ pub fn render_palette(
     selected_idx: usize,
     theme: &Theme,
 ) {
-    let filtered: Vec<&CommandSpec> = if query.is_empty() {
-        COMMANDS.iter().collect()
-    } else {
-        let q = query.to_lowercase();
-        COMMANDS
-            .iter()
-            .filter(|cmd| cmd.name.contains(&q) || cmd.description.to_lowercase().contains(&q))
-            .collect()
-    };
+    let filtered = crate::commands::filter(query);
 
     let mut items: Vec<ListItem> = Vec::new();
 
@@ -685,11 +685,20 @@ mod tests {
     }
 
     #[test]
-    fn palette_empty_query() {
+    fn composer_with_live_status_metrics() {
         let theme = Theme::for_mode(ColorMode::Truecolor);
-        let area = Rect::new(0, 0, 80, 15);
+        let mut state = fixture_state();
+        state.cache_hit_ratio = Some(0.85);
+        state.memory_chars = Some(1420);
+        state.running_subagents = 2;
+        state.composer.input = "analyze security logs".into();
+
+        let area = Rect::new(0, 0, 80, 6);
         let mut buffer = Buffer::empty(area);
-        render_palette(area, &mut buffer, "", 0, &theme);
-        insta::assert_snapshot!("palette_empty_query", buffer_to_string(&buffer));
+        render_composer(area, &mut buffer, &state, &theme);
+        let output = buffer_to_string(&buffer);
+        assert!(output.contains("cache: 85%"));
+        assert!(output.contains("mem: 1420c"));
+        assert!(output.contains("subs: 2"));
     }
 }

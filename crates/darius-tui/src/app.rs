@@ -249,6 +249,9 @@ pub struct AppState {
     pub interrupt_armed: bool,
     pub status_line: Option<String>,
     pub scroll: u16,
+    pub cache_hit_ratio: Option<f64>,
+    pub memory_chars: Option<usize>,
+    pub running_subagents: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,6 +294,9 @@ impl Default for AppState {
             interrupt_armed: false,
             status_line: None,
             scroll: 0,
+            cache_hit_ratio: None,
+            memory_chars: None,
+            running_subagents: 0,
         }
     }
 }
