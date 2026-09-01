@@ -41,6 +41,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "config" => cmd_config(&args[2..]),
         "a2a" => cmd_a2a(&args[2..]),
         "cron" => cmd_cron(&args[2..]),
+        "approval-check" => cmd_approval_check(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
             Ok(())
@@ -72,6 +73,7 @@ fn print_usage() {
     println!("  learn           Learn from trajectory");
     println!("  memory          Memory operations (search, pack, import, export, stats)");
     println!("  cron            Cron scheduler with memory continuity (list, add, run, notepad)");
+    println!("  approval-check  Dry-run check tool execution approval requirements");
     println!("  run             Run a cognitive loop with a goal");
     println!("  session-smoke   Integrated smoke test (daemon + session + handoff)");
     println!("  help            Show this help");
@@ -585,6 +587,80 @@ fn cmd_cron(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         cmd => eprintln!("Unknown cron subcommand: {cmd}"),
+    }
+
+    Ok(())
+}
+
+/// Evaluates tool risk and approval requirement without execution.
+pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String, String) {
+    let risk_str;
+    let requires_approval;
+    let reason;
+
+    match tool {
+        "shell" | "bash" => {
+            risk_str = "Mutating".to_string();
+            requires_approval = true;
+            reason = "shell execution requires approval".to_string();
+        }
+        "write_file" | "hashline" => {
+            risk_str = "Mutating".to_string();
+            let path_str = args_val.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            if !path_str.is_empty() && darius_safety::is_protected_path(std::path::Path::new(path_str)) {
+                requires_approval = true;
+                reason = format!("write to protected instruction file '{path_str}' requires explicit approval");
+            } else {
+                requires_approval = true;
+                reason = "file mutation requires approval".to_string();
+            }
+        }
+        "subagent_spawn" | "peer_send" => {
+            risk_str = "Mutating".to_string();
+            requires_approval = true;
+            reason = "external agent spawn or peer send requires approval".to_string();
+        }
+        "read_file" | "glob" | "grep" | "memory_search" | "memory_pack" | "spill_read" | "read_spill" => {
+            risk_str = "ReadOnly".to_string();
+            requires_approval = false;
+            reason = "read-only inspection tool".to_string();
+        }
+        _ => {
+            risk_str = "Unknown".to_string();
+            requires_approval = true;
+            reason = format!("unrecognized tool '{tool}' defaults to requiring approval");
+        }
+    }
+
+    (requires_approval, risk_str, reason)
+}
+
+fn cmd_approval_check(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        println!("Usage: darius approval-check <tool> [args_json]");
+        return Ok(());
+    }
+
+    let tool = &args[0];
+    let args_val: serde_json::Value = if args.len() > 1 {
+        serde_json::from_str(&args[1..].join(" ")).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let (requires_approval, risk, reason) = check_approval(tool, &args_val);
+
+    let report = serde_json::json!({
+        "tool": tool,
+        "risk": risk,
+        "requires_approval": requires_approval,
+        "reason": reason,
+    });
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    if requires_approval {
+        std::process::exit(2);
     }
 
     Ok(())
