@@ -31,7 +31,7 @@ pub mod worktrees;
 pub use a2a::{A2aServer, AgentCard};
 pub use a2a_quotas::{AgentQuota, AgentState, QueuePolicy, QuotaError, QuotaManager};
 pub use backup::{BackupError, BackupManager};
-pub use cache::{CacheCoordinator, CacheMetrics};
+pub use cache::{CacheCoordinator, CacheMetrics, compute_prefix_cache_key};
 pub use chaos::{ChaosError, ChaosTester, ManagedProcess};
 pub use compliance::{
     AuditEvent, ComplianceError, ComplianceManager, ProfileExport, RetentionPolicy,
