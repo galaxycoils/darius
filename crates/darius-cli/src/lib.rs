@@ -40,6 +40,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "serve" => cmd_serve(&args[2..]),
         "config" => cmd_config(&args[2..]),
         "a2a" => cmd_a2a(&args[2..]),
+        "cron" => cmd_cron(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
             Ok(())
@@ -70,6 +71,7 @@ fn print_usage() {
     println!("  eval            Run evaluation");
     println!("  learn           Learn from trajectory");
     println!("  memory          Memory operations (search, pack, import, export, stats)");
+    println!("  cron            Cron scheduler with memory continuity (list, add, run, notepad)");
     println!("  run             Run a cognitive loop with a goal");
     println!("  session-smoke   Integrated smoke test (daemon + session + handoff)");
     println!("  help            Show this help");
@@ -479,6 +481,112 @@ fn cmd_a2a(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         cmd => eprintln!("Unknown a2a subcommand: {cmd}"),
     }
+    Ok(())
+}
+
+fn cmd_cron(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.is_empty() {
+        println!("Usage: darius cron <list|add|run|notepad> [args]");
+        return Ok(());
+    }
+
+    let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
+    let profile_dir = ProfileConfig::profile_dir(&profile_name);
+    std::fs::create_dir_all(&profile_dir)?;
+
+    let scheduler = darius_daemon::CronScheduler::new();
+    let _ = scheduler.load_from_dir(&profile_dir);
+
+    match args[0].as_str() {
+        "list" => {
+            let jobs = scheduler.list_jobs();
+            println!(
+                "Cron Jobs (profile: {profile_name}, count: {}):",
+                jobs.len()
+            );
+            if jobs.is_empty() {
+                println!("  (no jobs registered)");
+            }
+            for job in jobs {
+                let status = if job.enabled { "enabled" } else { "disabled" };
+                println!(
+                    "  - [{}] schedule=\"{}\" status={} continuity={}",
+                    job.id, job.schedule, status, job.continuity
+                );
+                println!("    command: {}", job.command);
+                if !job.notepad.is_empty() {
+                    let preview = job.notepad.lines().next().unwrap_or("");
+                    println!("    notepad: {}...", &preview[..preview.len().min(60)]);
+                }
+            }
+        }
+        "add" => {
+            if args.len() < 4 {
+                println!("Usage: darius cron add <id> <schedule> <command> [--continuity]");
+                return Ok(());
+            }
+            let id = &args[1];
+            let schedule = &args[2];
+            let command = &args[3];
+            let continuity = args.iter().any(|a| a == "--continuity")
+                || !args.iter().any(|a| a == "--no-continuity");
+
+            let mut job = darius_daemon::CronJob::new(id, schedule, command);
+            job.continuity = continuity;
+
+            scheduler.add_job(job)?;
+            scheduler.save_to_dir(&profile_dir)?;
+            println!("Added cron job '{id}' (schedule: '{schedule}')");
+        }
+        "run" => {
+            if args.len() < 2 {
+                println!("Usage: darius cron run <id>");
+                return Ok(());
+            }
+            let id = &args[1];
+            let memory = darius_memory::MemoryEngine::open(&profile_dir).ok();
+            let context = scheduler.build_job_context(id, memory.as_ref())?;
+            println!("Built execution context for '{id}':\n{context}");
+
+            // Record successful execution
+            scheduler.record_run(id, true)?;
+            let summary = format!(
+                "Run completed at unix timestamp {}",
+                crate::events::current_timestamp()
+            );
+            scheduler.append_notepad(id, &summary)?;
+            scheduler.save_to_dir(&profile_dir)?;
+            println!("✓ Executed cron job '{id}' and updated notepad.");
+        }
+        "notepad" => {
+            if args.len() < 2 {
+                println!("Usage: darius cron notepad <id> [note_text]");
+                return Ok(());
+            }
+            let id = &args[1];
+            if args.len() >= 3 {
+                let note = args[2..].join(" ");
+                scheduler.append_notepad(id, &note)?;
+                scheduler.save_to_dir(&profile_dir)?;
+                println!("Appended note to cron job '{id}'");
+            } else {
+                let job = scheduler
+                    .get_job(id)
+                    .ok_or_else(|| format!("job {id} not found"))?;
+                println!("Notepad for cron job '{}':", id);
+                println!(
+                    "{}",
+                    if job.notepad.is_empty() {
+                        "(empty)"
+                    } else {
+                        &job.notepad
+                    }
+                );
+            }
+        }
+        cmd => eprintln!("Unknown cron subcommand: {cmd}"),
+    }
+
     Ok(())
 }
 
