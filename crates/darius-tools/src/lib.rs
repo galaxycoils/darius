@@ -576,6 +576,39 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         })
     });
 
+    registry.register_with_risk("peer_send", ToolRisk::Mutating, |call| {
+        let recipient = call
+            .arguments
+            .get("recipient")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let intent = call
+            .arguments
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let authenticated = call
+            .arguments
+            .get("authenticated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if recipient.is_empty() || intent.is_empty() {
+            return Err(ToolError::InvalidArgs("recipient and intent required".into()));
+        }
+
+        if !authenticated {
+            return Err(ToolError::Execution(
+                "peer sending requires explicit peer discovery/auth prior step".into(),
+            ));
+        }
+
+        Ok(ToolOutcome::Ok {
+            preview: format!("sent peer message to {recipient} with intent {intent}"),
+            spilled_path: None,
+        })
+    });
+
     registry.register_with_risk("glob", ToolRisk::ReadOnly, |call| {
         let pattern = call
             .arguments
@@ -1232,6 +1265,46 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             std::fs::read_to_string(&agents_file).unwrap(),
             "# Approved Agents"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_peer_send_step_gated_auth() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_peer_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new(&dir).unwrap();
+        register_coding_builtins(&mut registry);
+
+        // 1. Without authentication -> fails
+        let unauth_call = ToolCall {
+            id: "call-peer-unauth".into(),
+            name: "peer_send".into(),
+            arguments: serde_json::json!({
+                "recipient": "agent-bob",
+                "intent": "sync_status"
+            }),
+        };
+        let outcome = registry.execute(&unauth_call);
+        match outcome {
+            ToolOutcome::Err { message } => {
+                assert!(message.contains("discovery/auth"));
+            }
+            ToolOutcome::Ok { .. } => panic!("expected unauthenticated peer_send to fail"),
+        }
+
+        // 2. With authentication -> succeeds
+        let auth_call = ToolCall {
+            id: "call-peer-auth".into(),
+            name: "peer_send".into(),
+            arguments: serde_json::json!({
+                "recipient": "agent-bob",
+                "intent": "sync_status",
+                "authenticated": true
+            }),
+        };
+        let outcome = registry.execute(&auth_call);
+        assert!(matches!(outcome, ToolOutcome::Ok { .. }));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

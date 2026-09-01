@@ -3,10 +3,12 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
+    http::StatusCode,
     response::sse::{Event, Sse},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -53,8 +55,30 @@ pub fn agent_card() -> AgentCard {
             "memory_search".into(),
             "tool_execution".into(),
             "task_board".into(),
+            "peer_a2a".into(),
         ],
     }
+}
+
+/// Peer message envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PeerMessageEnvelope {
+    pub id: String,
+    pub sender: String,
+    pub recipient_handle: String,
+    pub intent: String,
+    pub payload: serde_json::Value,
+    pub timestamp: u64,
+    pub read: bool,
+}
+
+/// Request to send a peer message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageRequest {
+    pub sender: String,
+    pub recipient_handle: String,
+    pub intent: String,
+    pub payload: serde_json::Value,
 }
 
 /// Shared server state.
@@ -62,6 +86,28 @@ pub fn agent_card() -> AgentCard {
 pub struct ServerState {
     pub event_sender: broadcast::Sender<UiEvent>,
     pub tasks: Arc<std::sync::Mutex<Vec<A2aTask>>>,
+    pub peer_inbox: Arc<std::sync::Mutex<Vec<PeerMessageEnvelope>>>,
+    pub sender_timestamps: Arc<std::sync::Mutex<HashMap<String, Vec<u64>>>>,
+    pub rate_limit_per_min: usize,
+}
+
+impl ServerState {
+    pub fn new() -> (Self, broadcast::Receiver<UiEvent>) {
+        let (tx, rx) = broadcast::channel(100);
+        let state = Self {
+            event_sender: tx,
+            tasks: Arc::new(std::sync::Mutex::new(Vec::new())),
+            peer_inbox: Arc::new(std::sync::Mutex::new(Vec::new())),
+            sender_timestamps: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            rate_limit_per_min: 60,
+        };
+        (state, rx)
+    }
+
+    pub fn with_rate_limit(mut self, limit: usize) -> Self {
+        self.rate_limit_per_min = limit;
+        self
+    }
 }
 
 /// Create the web + A2A router.
@@ -73,6 +119,8 @@ pub fn create_router(state: ServerState) -> Router {
         .route("/a2a/card", get(a2a_card))
         .route("/a2a/tasks", post(a2a_create_task))
         .route("/a2a/tasks/{id}", get(a2a_get_task))
+        .route("/a2a/peer", post(a2a_peer_send))
+        .route("/a2a/inbox/{handle}", get(a2a_peer_inbox))
         .with_state(state)
 }
 
@@ -90,7 +138,7 @@ h1{color:var(--accent);margin:0}
 input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.5rem;width:80%}
 button{background:var(--accent);border:none;padding:0.5rem 1rem;cursor:pointer}
 </style></head><body>
-<header><h1>darius</h1><span style="color:var(--muted)">v1.1.0</span></header>
+<header><h1>darius</h1><span style="color:var(--muted)">v1.2.0</span></header>
 <div class="panel"><h3>Stream</h3><div class="stream" id="stream"></div></div>
 <div class="panel"><h3>Goal</h3>
 <input type="text" id="goal" placeholder="Enter goal..."/>
@@ -178,6 +226,79 @@ async fn a2a_get_task(
     }
 }
 
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// POST /a2a/peer: Peer A2A messaging with quota enforcement.
+async fn a2a_peer_send(
+    State(state): State<ServerState>,
+    Json(req): Json<PeerMessageRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let now = current_timestamp();
+
+    // Check rate limit (quota per minute)
+    {
+        let mut timestamps = state.sender_timestamps.lock().unwrap();
+        let list = timestamps.entry(req.sender.clone()).or_default();
+        // Evict older than 60s
+        list.retain(|&t| now.saturating_sub(t) < 60);
+
+        if list.len() >= state.rate_limit_per_min {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": format!("quota exceeded for sender '{}': max {} messages/min", req.sender, state.rate_limit_per_min)
+                })),
+            );
+        }
+
+        list.push(now);
+    }
+
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let envelope = PeerMessageEnvelope {
+        id: msg_id.clone(),
+        sender: req.sender,
+        recipient_handle: req.recipient_handle,
+        intent: req.intent,
+        payload: req.payload,
+        timestamp: now,
+        read: false,
+    };
+
+    state.peer_inbox.lock().unwrap().push(envelope);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "delivered",
+            "message_id": msg_id
+        })),
+    )
+}
+
+/// GET /a2a/inbox/{handle}: Pull unread messages and mark as read.
+async fn a2a_peer_inbox(
+    State(state): State<ServerState>,
+    Path(handle): Path<String>,
+) -> Json<Vec<PeerMessageEnvelope>> {
+    let mut inbox = state.peer_inbox.lock().unwrap();
+    let mut unread = Vec::new();
+
+    for msg in inbox.iter_mut() {
+        if msg.recipient_handle == handle && !msg.read {
+            msg.read = true;
+            unread.push(msg.clone());
+        }
+    }
+
+    Json(unread)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +308,7 @@ mod tests {
         let card = agent_card();
         assert_eq!(card.name, "darius");
         assert!(card.capabilities.contains(&"cognitive_loop".into()));
+        assert!(card.capabilities.contains(&"peer_a2a".into()));
     }
 
     #[test]
@@ -194,5 +316,58 @@ mod tests {
         let state = TaskState::Pending;
         let json = serde_json::to_string(&state).unwrap();
         assert!(json.contains("Pending"));
+    }
+
+    #[tokio::test]
+    async fn peer_messaging_send_and_pull_inbox() {
+        let (state, _) = ServerState::new();
+
+        let req = PeerMessageRequest {
+            sender: "agent-alice".into(),
+            recipient_handle: "agent-bob".into(),
+            intent: "code_review".into(),
+            payload: serde_json::json!({"pr": 42, "files": ["src/main.rs"]}),
+        };
+
+        // 1. Send peer message
+        let (status, res) = a2a_peer_send(State(state.clone()), Json(req)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(res["status"], "delivered");
+
+        // 2. Pull inbox for recipient (bob)
+        let unread = a2a_peer_inbox(State(state.clone()), Path("agent-bob".into())).await;
+        assert_eq!(unread.0.len(), 1);
+        assert_eq!(unread.0[0].sender, "agent-alice");
+        assert_eq!(unread.0[0].intent, "code_review");
+
+        // 3. Pull inbox again -> now empty because already marked read
+        let unread_again = a2a_peer_inbox(State(state.clone()), Path("agent-bob".into())).await;
+        assert!(unread_again.0.is_empty());
+    }
+
+    #[tokio::test]
+    async fn peer_messaging_quota_enforcement() {
+        let (state, _) = ServerState::new();
+        let state = state.with_rate_limit(2); // limit to 2 per min
+
+        let req = PeerMessageRequest {
+            sender: "spammer".into(),
+            recipient_handle: "target".into(),
+            intent: "ping".into(),
+            payload: serde_json::json!({}),
+        };
+
+        // Message 1: OK
+        let (s1, _) = a2a_peer_send(State(state.clone()), Json(req.clone())).await;
+        assert_eq!(s1, StatusCode::OK);
+
+        // Message 2: OK
+        let (s2, _) = a2a_peer_send(State(state.clone()), Json(req.clone())).await;
+        assert_eq!(s2, StatusCode::OK);
+
+        // Message 3: 429 Too Many Requests
+        let (s3, res3) = a2a_peer_send(State(state.clone()), Json(req.clone())).await;
+        assert_eq!(s3, StatusCode::TOO_MANY_REQUESTS);
+        assert!(res3["error"].as_str().unwrap().contains("quota exceeded"));
     }
 }
