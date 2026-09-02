@@ -8,13 +8,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tempfile::TempDir;
 
 /// Snapshot of ~/.darius state before/after a test to verify no pollution.
 #[derive(Debug, Default)]
 struct DariusHomeSnapshot {
-    path: Option<PathBuf>,
     exists: bool,
     metadata: Option<std::fs::Metadata>,
 }
@@ -27,7 +26,6 @@ impl DariusHomeSnapshot {
             .map(|p| (p.exists(), std::fs::metadata(p).ok()))
             .unwrap_or((false, None));
         Self {
-            path,
             exists,
             metadata,
         }
@@ -52,7 +50,6 @@ impl DariusHomeSnapshot {
 
 /// Helper that spawns `darius` in a PTY with a clean, isolated environment.
 struct PtyTestHarness {
-    pair: PtyPair,
     child: Box<dyn portable_pty::Child + Send>,
     reader: BufReader<Box<dyn std::io::Read + Send>>,
     writer: Box<dyn Write + Send>,
@@ -98,9 +95,9 @@ impl PtyTestHarness {
         let child = pair.slave.spawn_command(cmd)?;
         let reader = BufReader::new(pair.master.try_clone_reader()?);
         let writer = pair.master.take_writer()?;
+        drop(pair.slave);
 
         Ok(Self {
-            pair,
             child,
             reader,
             writer,
