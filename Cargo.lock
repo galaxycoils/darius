@@ -538,6 +538,7 @@ dependencies = [
 name = "darius-cli"
 version = "1.2.0"
 dependencies = [
+ "assert_cmd",
  "clap",
  "darius-cognitive",
  "darius-core",
@@ -550,8 +551,10 @@ dependencies = [
  "dirs",
  "parking_lot",
  "portable-pty",
+ "predicates",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
