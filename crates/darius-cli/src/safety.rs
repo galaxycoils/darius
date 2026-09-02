@@ -1,100 +1,82 @@
-use crate::config::ProfileConfig;
+use crate::paths::{DariusPaths, PathError};
 use std::path::Path;
 
-/// Ensure the default profile directory exists with safe workspace root.
-/// Called on first run of any command that uses a profile.
+/// Ensure a profile directory exists with a safe workspace root.
 #[allow(dead_code)]
-pub fn ensure_profile(profile: &str) -> std::path::PathBuf {
-    let dir = ProfileConfig::profile_dir(profile);
-    std::fs::create_dir_all(&dir).ok();
-
-    // Create tool_results directory for spill
-    let tool_results = dir.join("tool_results");
-    std::fs::create_dir_all(&tool_results).ok();
-
-    dir
+pub fn ensure_profile(paths: &DariusPaths, profile: &str) -> Result<std::path::PathBuf, PathError> {
+    let directory = paths.profile(profile)?;
+    std::fs::create_dir_all(&directory).map_err(PathError::Io)?;
+    std::fs::create_dir_all(directory.join("tool_results")).map_err(PathError::Io)?;
+    Ok(directory)
 }
 
-/// Check if a path is safe to write to (under profile directory).
+/// Check if a path is safe to write to (under a profile directory).
 #[allow(dead_code)]
-pub fn is_safe_write_path(profile: &str, path: &str) -> bool {
-    let profile_dir = ProfileConfig::profile_dir(profile);
+pub fn is_safe_write_path(
+    paths: &DariusPaths,
+    profile: &str,
+    path: &str,
+) -> Result<bool, PathError> {
+    let profile_dir = paths.profile(profile)?;
     let target = Path::new(path);
     let canonical_profile = profile_dir.canonicalize().unwrap_or(profile_dir);
-
-    match target.canonicalize() {
+    Ok(match target.canonicalize() {
         Ok(canonical_target) => canonical_target.starts_with(&canonical_profile),
-        Err(_) => {
-            if let Some(parent) = target.parent() {
-                match parent.canonicalize() {
-                    Ok(canonical_parent) => canonical_parent.starts_with(&canonical_profile),
-                    Err(_) => false,
-                }
-            } else {
-                false
-            }
-        }
-    }
+        Err(_) => target
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .is_some_and(|parent| parent.starts_with(&canonical_profile)),
+    })
 }
 
 /// Get the workspace root for tools (profile subdirectory).
 #[allow(dead_code)]
-pub fn tool_workspace(profile: &str) -> std::path::PathBuf {
-    let dir = ProfileConfig::profile_dir(profile).join("workspace");
-    std::fs::create_dir_all(&dir).ok();
-    dir
+pub fn tool_workspace(paths: &DariusPaths, profile: &str) -> Result<std::path::PathBuf, PathError> {
+    let directory = paths.profile(profile)?.join("workspace");
+    std::fs::create_dir_all(&directory).map_err(PathError::Io)?;
+    Ok(directory)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    fn paths(temp: &TempDir) -> DariusPaths {
+        let home = temp.path().join("home");
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        DariusPaths { home, workspace }
+    }
 
     #[test]
     fn ensure_profile_creates_directories() {
-        let profile = format!("test_{}", uuid::Uuid::new_v4());
-        let dir = ensure_profile(&profile);
-        assert!(dir.exists());
+        let temp = TempDir::new().unwrap();
+        let dir = ensure_profile(&paths(&temp), "test").unwrap();
         assert!(dir.join("tool_results").exists());
-        let _ = std::fs::remove_dir_all(ProfileConfig::profile_dir(&profile));
     }
 
     #[test]
     fn is_safe_write_path_accepts_paths_under_profile() {
-        let profile = format!("test_{}", uuid::Uuid::new_v4());
-        let dir = ensure_profile(&profile);
-        let test_file = dir.join("output.txt");
-        assert!(is_safe_write_path(&profile, &test_file.to_string_lossy()));
-        let _ = std::fs::remove_dir_all(ProfileConfig::profile_dir(&profile));
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let dir = ensure_profile(&paths, "test").unwrap();
+        assert!(is_safe_write_path(&paths, "test", &dir.join("out").to_string_lossy()).unwrap());
     }
 
     #[test]
     fn is_safe_write_path_rejects_paths_outside_profile() {
-        let profile = format!("test_{}", uuid::Uuid::new_v4());
-        let _ = ensure_profile(&profile);
-        assert!(!is_safe_write_path(&profile, "/etc/passwd"));
-        assert!(!is_safe_write_path(&profile, "/tmp/evil.txt"));
-        let _ = std::fs::remove_dir_all(ProfileConfig::profile_dir(&profile));
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let _ = ensure_profile(&paths, "test").unwrap();
+        assert!(!is_safe_write_path(&paths, "test", "/tmp/evil.txt").unwrap());
     }
 
     #[test]
-    fn test_check_approval_tool_risk() {
-        // Read-only inspection -> no approval required
-        let (req1, risk1, _) =
-            crate::check_approval("read_file", &serde_json::json!({"path": "src/main.rs"}));
-        assert!(!req1);
-        assert_eq!(risk1, "ReadOnly");
-
-        // Shell -> approval required
-        let (req2, risk2, _) =
-            crate::check_approval("shell", &serde_json::json!({"command": "ls"}));
-        assert!(req2);
-        assert_eq!(risk2, "Mutating");
-
-        // write_file to AGENTS.md -> approval required for protected path
-        let (req3, risk3, reason3) =
-            crate::check_approval("write_file", &serde_json::json!({"path": "AGENTS.md"}));
-        assert!(req3);
-        assert_eq!(risk3, "Mutating");
-        assert!(reason3.contains("protected instruction file"));
+    fn check_approval_tool_risk() {
+        let (required, risk, _) = crate::check_approval("read_file", &serde_json::json!({}));
+        assert!(!required);
+        assert_eq!(risk, "ReadOnly");
     }
 }

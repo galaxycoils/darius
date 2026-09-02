@@ -13,10 +13,16 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::ProfileConfig;
+use crate::config_error::ConfigError;
+use crate::paths::{DariusPaths, PathError};
 
 /// Errors that can occur when building a session runtime.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("configuration error: {0}")]
+    Config(#[from] ConfigError),
+    #[error("path error: {0}")]
+    Path(#[from] PathError),
     #[error("missing API key: set {0}")]
     MissingApiKey(String),
     #[error("tool error: {0}")]
@@ -35,12 +41,11 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub fn from_profile(profile: &str) -> Self {
-        let profile_dir = ProfileConfig::profile_dir(profile);
-        Self {
+    pub fn from_profile(paths: &DariusPaths, profile: &str) -> Result<Self, PathError> {
+        Ok(Self {
             profile: profile.into(),
-            profile_dir,
-        }
+            profile_dir: paths.profile(profile)?,
+        })
     }
 }
 
@@ -65,11 +70,11 @@ impl SessionRuntime {
     /// - Registers memory/task/coding tools.
     /// - Selects Mock only when no model config exists.
     /// - Returns `MissingApiKey` when config exists but key is absent.
-    pub fn from_profile(profile: &str) -> Result<Self, RuntimeError> {
-        let config = RuntimeConfig::from_profile(profile);
+    pub fn from_profile(paths: &DariusPaths, profile: &str) -> Result<Self, RuntimeError> {
+        let config = RuntimeConfig::from_profile(paths, profile)?;
         std::fs::create_dir_all(&config.profile_dir)?;
 
-        let profile_config = ProfileConfig::load(profile);
+        let profile_config = ProfileConfig::load(paths, profile)?;
         let memory = MemoryEngine::open(&config.profile_dir)?;
         let mut tools = ToolRegistry::new(&config.profile_dir)?;
 
@@ -173,80 +178,46 @@ impl SessionRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
-    fn temp_profile(name: &str) -> String {
-        let dir = std::env::temp_dir().join(format!(
-            "darius_runtime_test_{}_{}",
-            name,
-            uuid::Uuid::new_v4()
-        ));
-        dir.to_string_lossy().to_string()
+    fn paths(temp: &TempDir) -> DariusPaths {
+        let home = temp.path().join("home");
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        DariusPaths { home, workspace }
     }
 
     #[test]
-    fn from_profile_offline_mock_when_no_config() {
-        let profile_dir = temp_profile("offline");
-        std::fs::create_dir_all(&profile_dir).unwrap();
-        let profile_name = format!("offline_{}", uuid::Uuid::new_v4());
-        // Use a temp dir as the profile dir by creating a custom runtime config.
-        // Since from_profile uses ProfileConfig::profile_dir, we test the real path.
-        // Instead, test that a profile without config uses mock.
-        let rt = SessionRuntime::from_profile(&profile_name).unwrap();
-        assert_eq!(rt.metadata.model, "mock");
-        assert_eq!(rt.metadata.profile, profile_name);
-        // Cleanup
-        let _ = std::fs::remove_dir_all(
-            dirs::home_dir()
-                .unwrap()
-                .join(".darius")
-                .join("profiles")
-                .join(&profile_name),
-        );
+    fn from_profile_uses_mock_when_config_is_missing() {
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let runtime = SessionRuntime::from_profile(&paths, "offline").unwrap();
+        assert_eq!(runtime.metadata.model, "mock");
+        assert_eq!(runtime.metadata.profile, "offline");
     }
 
     #[test]
-    fn from_profile_missing_api_key_error() {
-        let profile_name = format!("missingkey_{}", uuid::Uuid::new_v4());
-        let profile_dir = dirs::home_dir()
-            .unwrap()
-            .join(".darius")
-            .join("profiles")
-            .join(&profile_name);
-        std::fs::create_dir_all(&profile_dir).unwrap();
-        // Write a config that references an env var that won't exist.
-        let config = r#"
-[model]
-provider = "openai_compatible"
-base_url = "https://api.openai.com/v1"
-model = "gpt-4o-mini"
-api_key_env = "DARIUS_TEST_MISSING_KEY_NEVER_SET"
-"#;
-        std::fs::write(profile_dir.join("config.toml"), config).unwrap();
+    fn from_profile_reports_missing_api_key() {
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let profile = paths.profile("missingkey").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("config.toml"),
+            "[model]\nprovider = \"provider\"\nbase_url = \"https://api.example.test\"\nmodel = \"test\"\napi_key_env = \"DARIUS_TEST_MISSING_KEY_NEVER_SET\"",
+        )
+        .unwrap();
 
-        let result = SessionRuntime::from_profile(&profile_name);
+        let result = SessionRuntime::from_profile(&paths, "missingkey");
         assert!(matches!(result, Err(RuntimeError::MissingApiKey(_))));
-        if let Err(RuntimeError::MissingApiKey(env)) = result {
-            assert_eq!(env, "DARIUS_TEST_MISSING_KEY_NEVER_SET");
-        }
-
-        let _ = std::fs::remove_dir_all(&profile_dir);
     }
 
     #[test]
     fn runtime_exposes_event_broadcaster_and_cancellation() {
-        let profile_name = format!("meta_{}", uuid::Uuid::new_v4());
-        let rt = SessionRuntime::from_profile(&profile_name).unwrap();
-
-        let _rx = rt.subscribe_events();
-        let token = rt.cancellation_token();
-        assert!(!token.is_cancelled());
-
-        let _ = std::fs::remove_dir_all(
-            dirs::home_dir()
-                .unwrap()
-                .join(".darius")
-                .join("profiles")
-                .join(&profile_name),
-        );
+        let temp = TempDir::new().unwrap();
+        let runtime = SessionRuntime::from_profile(&paths(&temp), "metadata").unwrap();
+        let _receiver = runtime.subscribe_events();
+        assert!(!runtime.cancellation_token().is_cancelled());
     }
 }

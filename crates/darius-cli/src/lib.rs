@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::process;
 
 mod config;
+mod config_error;
+mod config_init;
 mod events;
 pub mod paths;
 pub mod runtime;
@@ -14,6 +16,8 @@ mod safety;
 pub mod tui_runtime;
 
 pub use config::ProfileConfig;
+pub use config_error::ConfigError;
+pub use config_init::{initialize_profile, ProviderMetadata};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -28,9 +32,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::path::Path::new(".darius").exists() || std::env::var_os("DARIUS_HOME").is_some();
     if !has_home && args.len() == 1 {
         println!("darius — agent harness CLI");
-        println!(
-            "No API key configured. Run `darius config`, then start with `darius tui`."
-        );
+        println!("No API key configured. Run `darius config`, then start with `darius tui`.");
         return Ok(());
     }
 
@@ -62,7 +64,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // rest[0] is --profile or --session with no following positional -> bare invoke
     // (the global flag was scanned but there was no command after it).
     println!("darius — agent harness CLI");
-    println!("Run `darius help` to see available commands, or `darius config` to set up a provider.");
+    println!(
+        "Run `darius help` to see available commands, or `darius config` to set up a provider."
+    );
     return Ok(());
 }
 
@@ -89,11 +93,12 @@ fn scan_globals(args: &[String]) -> (Option<String>, Option<String>, Vec<String>
                 }
                 session = Some(args[i].clone());
             }
-            other if other.starts_with('-')
-                && other != "--help"
-                && other != "-h"
-                && other != "--version"
-                && other != "-V" =>
+            other
+                if other.starts_with('-')
+                    && other != "--help"
+                    && other != "-h"
+                    && other != "--version"
+                    && other != "-V" =>
             {
                 eprintln!("Unknown flag: {other}");
                 process::exit(2);
@@ -128,12 +133,9 @@ fn run_inner(
 
     match args[0] {
         "tui" => {
-            let profile = profile_override
-                .clone()
-                .unwrap_or_else(|| {
-                    std::env::var("DARIUS_PROFILE")
-                        .unwrap_or_else(|_| "default".into())
-                });
+            let profile = profile_override.clone().unwrap_or_else(|| {
+                std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into())
+            });
             // Parse --cwd out of remaining args (simple scan, same as before)
             let cwd = args
                 .iter()
@@ -282,7 +284,8 @@ fn cmd_memory(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
-    let profile_dir = get_profile_dir(&profile_name);
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, None)?;
+    let profile_dir = get_profile_dir(&paths, &profile_name)?;
     let engine = darius_memory::MemoryEngine::open(&profile_dir)?;
 
     match args[0].as_str() {
@@ -355,8 +358,9 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("Running cognitive loop with goal: {goal}");
 
     let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
-    let profile_dir = ProfileConfig::profile_dir(&profile_name);
-    let config = ProfileConfig::load(&profile_name);
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, None)?;
+    let profile_dir = get_profile_dir(&paths, &profile_name)?;
+    let config = ProfileConfig::load(&paths, &profile_name)?;
 
     let memory = darius_memory::MemoryEngine::open(&profile_dir)?;
     let mut tools = darius_tools::ToolRegistry::new(&profile_dir)?;
@@ -496,8 +500,8 @@ fn get_profile(args: &[String]) -> String {
     "default".to_string()
 }
 
-fn get_profile_dir(profile: &str) -> PathBuf {
-    ProfileConfig::profile_dir(profile)
+fn get_profile_dir(paths: &paths::DariusPaths, profile: &str) -> Result<PathBuf, paths::PathError> {
+    paths.profile(profile)
 }
 
 fn get_cwd(args: &[String]) -> Option<String> {
@@ -572,7 +576,8 @@ fn cmd_config(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     match args[0].as_str() {
         "show" => {
             let profile = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
-            let config = ProfileConfig::load(&profile);
+            let paths = paths::DariusPaths::resolve(&paths::OsEnv, None)?;
+            let config = ProfileConfig::load(&paths, &profile)?;
             println!("Profile: {profile}");
             println!("Configured: {}", config.is_configured());
             if let Some(model) = config.model {
@@ -619,7 +624,8 @@ fn cmd_cron(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let profile_name = std::env::var("DARIUS_PROFILE").unwrap_or_else(|_| "default".into());
-    let profile_dir = ProfileConfig::profile_dir(&profile_name);
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, None)?;
+    let profile_dir = get_profile_dir(&paths, &profile_name)?;
     std::fs::create_dir_all(&profile_dir)?;
 
     let scheduler = darius_daemon::CronScheduler::new();

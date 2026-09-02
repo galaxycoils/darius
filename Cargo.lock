@@ -561,6 +561,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "wait-timeout",
 ]

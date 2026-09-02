@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::paths::{DariusPaths, OsEnv};
 use crate::runtime::SessionRuntime;
 
 type PendingPermissions = Arc<
@@ -214,7 +215,8 @@ impl TuiWorker {
 
 /// Build a session runtime from a profile name.
 pub fn build_runtime(profile: &str) -> Result<SessionRuntime, crate::runtime::RuntimeError> {
-    SessionRuntime::from_profile(profile)
+    let paths = DariusPaths::resolve(&OsEnv, None)?;
+    SessionRuntime::from_profile(&paths, profile)
 }
 
 /// Build a session runtime with a custom working directory.
@@ -222,7 +224,8 @@ pub fn build_runtime_with_cwd(
     profile: &str,
     cwd: PathBuf,
 ) -> Result<SessionRuntime, crate::runtime::RuntimeError> {
-    let runtime = SessionRuntime::from_profile(profile)?;
+    let paths = DariusPaths::resolve(&OsEnv, Some(&cwd))?;
+    let runtime = SessionRuntime::from_profile(&paths, profile)?;
     std::env::set_current_dir(cwd)?;
     Ok(runtime)
 }
