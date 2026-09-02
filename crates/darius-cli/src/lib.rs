@@ -8,6 +8,7 @@ use std::process;
 
 mod config;
 mod events;
+pub mod paths;
 pub mod runtime;
 mod safety;
 pub mod tui_runtime;
