@@ -20,29 +20,162 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
+    // 1) Bare invoke with no DARIUS_HOME: show a one-line setup hint,
+    //    not the full usage table. The full public-surface help is what
+    //    `darius help` / `darius --help` emits.
+    let has_home =
+        std::path::Path::new(".darius").exists() || std::env::var_os("DARIUS_HOME").is_some();
+    if !has_home && args.len() == 1 {
+        println!("darius — agent harness CLI");
+        println!(
+            "No API key configured. Run `darius config`, then start with `darius tui`."
+        );
+        return Ok(());
+    }
+
+    // 2) Global flags scanned out of the arg list BEFORE subcommand dispatch.
+    //    Missing values for --profile / --session must become exit 2 (not 0).
+    let (profile, session, rest) = scan_globals(&args);
+
+    // Only global flags or truly empty — treat as bare invoke.
+    // Bare invoke (no positional command) always prints the one-line setup hint,
+    // never the full usage table. The full usage table is emitted only by
+    // `darius help` / `darius --help`.
+    if rest.is_empty() {
+        println!("darius — agent harness CLI");
+        if has_home {
+            println!("Run `darius help` to see available commands, or `darius config` to set up a provider.");
+        } else {
+            println!("No API key configured. Run `darius config`, then start with `darius tui`.");
+        }
+        return Ok(());
+    }
+
+    // Global flags present alongside a positional command -> re-dispatch with the
+    // cleaned positional list.
+    if rest[0] != "--profile" && rest[0] != "--session" {
+        let args: Vec<&str> = rest.iter().map(|s| s.as_str()).collect();
+        return run_inner(&args, &profile, &session);
+    }
+
+    // rest[0] is --profile or --session with no following positional -> bare invoke
+    // (the global flag was scanned but there was no command after it).
+    println!("darius — agent harness CLI");
+    println!("Run `darius help` to see available commands, or `darius config` to set up a provider.");
+    return Ok(());
+}
+
+fn scan_globals(args: &[String]) -> (Option<String>, Option<String>, Vec<String>) {
+    let mut profile = None;
+    let mut session = None;
+    let mut rest = Vec::new();
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--profile" => {
+                i += 1;
+                if i >= args.len() || args[i].starts_with('-') {
+                    eprintln!("Error: --profile requires a value");
+                    process::exit(2);
+                }
+                profile = Some(args[i].clone());
+            }
+            "--session" => {
+                i += 1;
+                if i >= args.len() || args[i].starts_with('-') {
+                    eprintln!("Error: --session requires a value");
+                    process::exit(2);
+                }
+                session = Some(args[i].clone());
+            }
+            other if other.starts_with('-')
+                && other != "--help"
+                && other != "-h"
+                && other != "--version"
+                && other != "-V" =>
+            {
+                eprintln!("Unknown flag: {other}");
+                process::exit(2);
+            }
+            _ => rest.push(args[i].clone()),
+        }
+        i += 1;
+    }
+    (profile, session, rest)
+}
+
+fn run_inner(
+    args: &[&str],
+    profile_override: &Option<String>,
+    _session_override: &Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Global help/version flags are intercepted here even when they appear after
+    // a subcommand (e.g. `darius --profile default tui --help`).
+    if args.iter().any(|&a| a == "--help" || a == "-h") {
+        print_usage();
+        return Ok(());
+    }
+    if args.iter().any(|&a| a == "--version" || a == "-V") {
+        println!("darius {VERSION}");
+        return Ok(());
+    }
+
+    if args.is_empty() {
         print_usage();
         return Ok(());
     }
 
-    match args[1].as_str() {
-        "daemon" => cmd_daemon(&args[2..]),
-        "status" => cmd_status(),
-        "start" => cmd_start(&args[2..]),
-        "stop" => cmd_stop(),
-        "attach" => cmd_attach(&args[2..]),
-        "eval" => cmd_eval(&args[2..]),
-        "learn" => cmd_learn(&args[2..]),
-        "memory" => cmd_memory(&args[2..]),
-        "run" => cmd_run(&args[2..]),
-        "session-smoke" => cmd_session_smoke(&args[2..]),
-        "tui" => cmd_tui(&args[2..]),
-        "serve" => cmd_serve(&args[2..]),
-        "config" => cmd_config(&args[2..]),
-        "a2a" => cmd_a2a(&args[2..]),
-        "cron" => cmd_cron(&args[2..]),
-        "approval-check" => cmd_approval_check(&args[2..]),
-        "help" | "--help" | "-h" => {
+    match args[0] {
+        "tui" => {
+            let profile = profile_override
+                .clone()
+                .unwrap_or_else(|| {
+                    std::env::var("DARIUS_PROFILE")
+                        .unwrap_or_else(|_| "default".into())
+                });
+            // Parse --cwd out of remaining args (simple scan, same as before)
+            let cwd = args
+                .iter()
+                .position(|a| *a == "--cwd")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from);
+            let runtime = if let Some(ref c) = cwd {
+                crate::tui_runtime::build_runtime_with_cwd(&profile, c.clone())?
+            } else {
+                crate::tui_runtime::build_runtime(&profile)?
+            };
+            let (mut worker, event_rx) = TuiWorker::new(runtime);
+            let _control = worker.control();
+            let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+            let worker_handle = std::thread::spawn(move || worker.run_loop(cmd_rx));
+            let state = AppState::default();
+            let controller = TuiController {
+                commands: cmd_tx,
+                events: event_rx,
+            };
+            darius_tui::run_tui(state, controller)?;
+            let _ = worker_handle.join();
+            Ok(())
+        }
+        "run" => {
+            let args: Vec<String> = args[1..].iter().map(|&s| s.to_string()).collect();
+            cmd_run(&args)
+        }
+        "config" => {
+            let args: Vec<String> = args[1..].iter().map(|&s| s.to_string()).collect();
+            cmd_config(&args)
+        }
+        "memory" => {
+            let args: Vec<String> = args[1..].iter().map(|&s| s.to_string()).collect();
+            cmd_memory(&args)
+        }
+        _ if args[0] == "help" => {
+            // `help` is a hidden token — must exit 2, never 0.
+            eprintln!("Unknown command: help");
+            print_usage();
+            process::exit(2);
+        }
+        "--help" | "-h" => {
             print_usage();
             Ok(())
         }
@@ -53,7 +186,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         cmd => {
             eprintln!("Unknown command: {cmd}");
             print_usage();
-            Err("unknown command".into())
+            process::exit(2);
         }
     }
 }
@@ -64,24 +197,16 @@ fn print_usage() {
     println!("Usage: darius <command> [options]");
     println!();
     println!("Commands:");
-    println!("  daemon          Start the Darius daemon");
-    println!("  status          Show daemon and session status");
-    println!("  start           Start a new session");
-    println!("  stop            Stop the current session");
-    println!("  attach          Attach to a running session");
-    println!("  eval            Run evaluation");
-    println!("  learn           Learn from trajectory");
-    println!("  memory          Memory operations (search, pack, import, export, stats)");
-    println!("  cron            Cron scheduler with memory continuity (list, add, run, notepad)");
-    println!("  approval-check  Dry-run check tool execution approval requirements");
-    println!("  run             Run a cognitive loop with a goal");
-    println!("  session-smoke   Integrated smoke test (daemon + session + handoff)");
-    println!("  help            Show this help");
-    println!("  --version       Show version");
+    println!("  t tui           Launch the interactive terminal UI");
+    println!("  r run           Run a cognitive loop with a goal");
+    println!("  c config        Configure provider settings");
+    println!("  m memory        Memory operations (search, pack, import, export, stats)");
     println!();
     println!("Options:");
     println!("  --profile <name>  Use specific profile");
     println!("  --session <id>    Target specific session");
+    println!("  -h, --help        Show this message");
+    println!("  -V, --version     Show version");
 }
 
 fn cmd_daemon(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {

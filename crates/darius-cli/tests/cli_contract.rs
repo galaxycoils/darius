@@ -37,7 +37,7 @@ fn public_help_matches_recovery_surface() {
     }
     for hidden in [
         "daemon", "status", "start", "stop", "attach", "eval", "learn",
-        "session-smoke", "serve", "a2a", "cron", "approval-check", "help",
+        "session-smoke", "serve", "a2a", "cron", "approval-check",
     ] {
         assert!(!out.contains(hidden), "help should NOT leak '{hidden}'");
     }
@@ -84,24 +84,32 @@ fn version_flag_short_works() {
 
 #[test]
 fn global_flags_before_subcommand() {
-    // --profile before subcommand
-    let output = run_raw(&["--profile", "default", "tui", "--help"]);
-    assert!(output.status.success(), "--profile before subcommand should work");
-    
-    // --session before subcommand (even if stubbed)
-    let output = run_raw(&["--session", "abc123", "tui", "--help"]);
-    assert!(output.status.success(), "--session before subcommand should work");
+    // --profile and --session before subcommand must be recognized and
+    // the help flag after the subcommand must still work.
+    let out = run_raw(&["--profile", "default", "tui", "--help"]);
+    assert!(out.status.success(), "--profile before subcommand should work");
+    let text = stdout(&out);
+    assert!(text.contains("Usage: darius <command>"), "help should show usage");
+
+    let out = run_raw(&["--session", "abc123", "tui", "--help"]);
+    assert!(out.status.success(), "--session before subcommand should work");
+    let text = stdout(&out);
+    assert!(text.contains("Usage: darius <command>"), "help should show usage");
 }
 
 #[test]
 fn global_flags_after_subcommand() {
-    // --profile after subcommand
-    let output = run_raw(&["tui", "--profile", "default", "--help"]);
-    assert!(output.status.success(), "--profile after subcommand should work");
-    
-    // --session after subcommand
-    let output = run_raw(&["tui", "--session", "abc123", "--help"]);
-    assert!(output.status.success(), "--session after subcommand should work");
+    // --profile and --session after subcommand must still be recognized and
+    // the help flag must work.
+    let out = run_raw(&["tui", "--profile", "default", "--help"]);
+    assert!(out.status.success(), "--profile after subcommand should work");
+    let text = stdout(&out);
+    assert!(text.contains("Usage: darius <command>"), "help should show usage");
+
+    let out = run_raw(&["tui", "--session", "abc123", "--help"]);
+    assert!(out.status.success(), "--session after subcommand should work");
+    let text = stdout(&out);
+    assert!(text.contains("Usage: darius <command>"), "help should show usage");
 }
 
 #[test]
@@ -125,5 +133,6 @@ fn no_arg_non_tty_help() {
     let output = run_raw(&[]);
     assert!(output.status.success(), "no args should show help and exit 0");
     let out = stdout(&output);
-    assert!(out.contains("Usage: darius <command>"), "should show usage");
+    assert!(out.contains("No API key configured"), "bare invoke should show setup hint");
+    assert!(!out.contains("Usage: darius <command>"), "bare invoke should NOT show full usage table");
 }
