@@ -3,8 +3,11 @@
 pub mod agent_compact;
 pub mod agent_events;
 pub mod agent_exec;
+mod agent_finish;
 pub mod agent_loop;
+mod agent_outcome;
 pub mod agent_turn;
+mod agent_validate;
 pub mod compress;
 pub mod context;
 pub mod conversation;

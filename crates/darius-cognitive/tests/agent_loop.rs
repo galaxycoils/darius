@@ -2,7 +2,8 @@
 use darius_cognitive::{
     AgentLoop, AsyncModel, CognitiveError, Conversation, EventSink, LoopPolicy, MockModel,
     ModelOutput, NoopRunControl, PermissionChoice, RunControl, RunMetadata, ToolSpec, TurnContext,
-    UiEvent, coding_system_prompt, compact_tool_results, model_tool_specs, transcript_chars,
+    UiEvent, coding_system_prompt, compact_tool_results, execute_calls, model_tool_specs,
+    transcript_chars,
 };
 use darius_tools::{ToolCall, ToolRegistry};
 use std::sync::{Arc, Mutex};
@@ -504,4 +505,265 @@ fn agent_loop_specs_match_allowlist() {
     expected.sort_unstable();
     assert_eq!(names, expected);
     assert!(specs.iter().all(|s| !s.description.is_empty()));
+}
+
+#[test]
+fn agent_loop_interrupted_tool_appends_one_result_and_one_end() {
+    let (dir, _memory, mut tools, _meta, _policy) = harness(false);
+    tools.register_with_risk("read_file", darius_tools::ToolRisk::ReadOnly, |_| {
+        Ok(darius_tools::ToolOutcome::Interrupted)
+    });
+    let call = ToolCall {
+        id: "interrupt-1".into(),
+        name: "read_file".into(),
+        arguments: serde_json::json!({"path": "ignored"}),
+    };
+    let mut msgs = vec![darius_cognitive::Message::Assistant {
+        content: None,
+        tool_calls: vec![call.clone()],
+    }];
+    let sink = collect();
+    let err = execute_calls(
+        &[call],
+        &tools,
+        &NoopRunControl,
+        sink.as_ref(),
+        &TurnContext::new(),
+        &mut msgs,
+    )
+    .unwrap_err();
+    assert!(matches!(err, CognitiveError::Cancelled));
+    assert_eq!(
+        msgs.iter()
+            .filter(|m| matches!(m, darius_cognitive::Message::Tool { tool_call_id, .. } if tool_call_id == "interrupt-1"))
+            .count(),
+        1
+    );
+    let events = sink.events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, UiEvent::ToolEnd { id, .. } if id == "interrupt-1"))
+            .count(),
+        1
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn agent_loop_shell_observes_turn_cancellation() {
+    let (dir, _memory, mut tools, _meta, _policy) = harness(false);
+    darius_tools::register_coding_builtins(&mut tools);
+    let call = ToolCall {
+        id: "cancel-shell".into(),
+        name: "shell".into(),
+        arguments: serde_json::json!({"command": "sleep 2"}),
+    };
+    let ctx = TurnContext::with_timeout(std::time::Duration::from_secs(5));
+    let token = ctx.token();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(75));
+        token.cancel();
+    });
+    let sink = collect();
+    let mut msgs = Vec::new();
+    let started = std::time::Instant::now();
+    let err = execute_calls(
+        &[call],
+        &tools,
+        &NoopRunControl,
+        sink.as_ref(),
+        &ctx,
+        &mut msgs,
+    )
+    .unwrap_err();
+    assert!(matches!(err, CognitiveError::Cancelled));
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(matches!(
+        msgs.as_slice(),
+        [darius_cognitive::Message::Tool { tool_call_id, .. }] if tool_call_id == "cancel-shell"
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn agent_loop_shell_observes_turn_deadline() {
+    let (dir, _memory, mut tools, _meta, _policy) = harness(false);
+    darius_tools::register_coding_builtins(&mut tools);
+    let call = ToolCall {
+        id: "deadline-shell".into(),
+        name: "shell".into(),
+        arguments: serde_json::json!({"command": "sleep 2"}),
+    };
+    let sink = collect();
+    let mut msgs = Vec::new();
+    let started = std::time::Instant::now();
+    execute_calls(
+        &[call],
+        &tools,
+        &NoopRunControl,
+        sink.as_ref(),
+        &TurnContext::with_timeout(std::time::Duration::from_millis(75)),
+        &mut msgs,
+    )
+    .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(matches!(
+        msgs.as_slice(),
+        [darius_cognitive::Message::Tool { content, .. }] if content == "Timed out"
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn agent_loop_duplicate_id_across_rounds_emits_error_done_without_persisting() {
+    let (dir, memory, tools, meta, policy) = harness(true);
+    let sink = collect();
+    let loopt = AgentLoop::new(sink.clone(), Arc::new(NoopRunControl));
+    let repeated = ToolCall {
+        id: "reused".into(),
+        name: "read_file".into(),
+        arguments: serde_json::json!({"path": "missing"}),
+    };
+    let mut model = MockModel::new(vec![
+        ModelOutput {
+            content: None,
+            tool_calls: vec![repeated.clone()],
+        },
+        ModelOutput {
+            content: None,
+            tool_calls: vec![repeated],
+        },
+    ]);
+    let mut convo = Conversation::from_messages(vec![]).unwrap();
+    let err = loopt
+        .run_turn(
+            &meta,
+            &policy,
+            "reuse",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CognitiveError::InvalidPlan(_)));
+    assert!(convo.messages().is_empty());
+    let events = sink.events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, UiEvent::Error { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(done_count(&events), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn agent_loop_empty_model_output_emits_error_done_without_persisting() {
+    let (dir, memory, tools, meta, policy) = harness(false);
+    let sink = collect();
+    let loopt = AgentLoop::new(sink.clone(), Arc::new(NoopRunControl));
+    let mut model = MockModel::new(vec![ModelOutput {
+        content: None,
+        tool_calls: vec![],
+    }]);
+    let mut convo = Conversation::from_messages(vec![]).unwrap();
+    let err = loopt
+        .run_turn(
+            &meta,
+            &policy,
+            "empty",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CognitiveError::InvalidPlan(_)));
+    assert!(convo.messages().is_empty());
+    let events = sink.events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, UiEvent::Error { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(done_count(&events), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn agent_loop_compacts_many_short_results_to_budget_oldest_first() {
+    let mut msgs: Vec<_> = (0..10)
+        .map(|i| darius_cognitive::Message::Tool {
+            tool_call_id: format!("short-{i}"),
+            name: "read_file".into(),
+            content: char::from(b'A' + i).to_string().repeat(100),
+        })
+        .collect();
+    compact_tool_results(&mut msgs, 350);
+    assert!(transcript_chars(&msgs) <= 350);
+    assert!(
+        matches!(&msgs[0], darius_cognitive::Message::Tool { content, .. } if content.len() < 100)
+    );
+    assert!(
+        matches!(&msgs[9], darius_cognitive::Message::Tool { content, .. } if content.len() == 100)
+    );
+}
+
+#[test]
+fn agent_loop_compaction_is_utf8_safe_at_multibyte_boundary() {
+    let mut msgs = vec![darius_cognitive::Message::Tool {
+        tool_call_id: "utf8".into(),
+        name: "read_file".into(),
+        content: "€".repeat(100),
+    }];
+    compact_tool_results(&mut msgs, 257);
+    assert!(transcript_chars(&msgs) <= 257);
+    assert!(
+        matches!(&msgs[0], darius_cognitive::Message::Tool { content, .. } if content.is_char_boundary(content.len()))
+    );
+}
+
+#[test]
+fn agent_loop_specs_have_exact_required_arguments() {
+    let specs = model_tool_specs();
+    let expected = [
+        ("read_file", &["path"][..]),
+        ("search_files", &[][..]),
+        ("memory_search", &["text"][..]),
+        ("memory_pack", &[][..]),
+        ("task_list", &[][..]),
+        ("spill_read", &["path"][..]),
+        ("write_file", &["path", "content"][..]),
+        ("memory_remember", &["body"][..]),
+        ("task_add", &["title"][..]),
+        ("task_complete", &["id"][..]),
+        ("shell", &["command"][..]),
+    ];
+    for (name, required) in expected {
+        let spec = specs.iter().find(|spec| spec.name == name).unwrap();
+        assert_eq!(spec.parameters["type"], "object", "{name}");
+        assert!(
+            spec.parameters["properties"].as_object().is_some(),
+            "{name}"
+        );
+        let actual: Vec<_> = spec.parameters["required"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name} missing required"))
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        assert_eq!(actual, required, "{name}");
+    }
 }

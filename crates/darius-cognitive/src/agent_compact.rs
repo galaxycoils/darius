@@ -1,43 +1,46 @@
-//! Oldest-first tool-result compaction at a bounded character budget.
+//! Oldest-first, UTF-8-safe tool-result compaction to a byte budget.
 use crate::conversation::Message;
-const KEEP: usize = 256;
+const MARKER: &str = "\n[compacted]";
+
 pub fn transcript_chars(msgs: &[Message]) -> usize {
-    msgs.iter().map(msg_chars).sum()
+    msgs.iter().map(msg_bytes).sum()
 }
-fn msg_chars(msg: &Message) -> usize {
+
+fn msg_bytes(msg: &Message) -> usize {
     match msg {
         Message::System { content } | Message::User { content } => content.len(),
-        Message::Assistant { content, .. } => content.as_ref().map_or(0, |s| s.len()),
+        Message::Assistant { content, .. } => content.as_ref().map_or(0, String::len),
         Message::Tool { content, .. } => content.len(),
     }
 }
-/// Truncate the oldest tool results first until under budget; newest kept.
+
+/// Shrink oldest tool results first until the transcript reaches `budget`.
 pub fn compact_tool_results(msgs: &mut [Message], budget: usize) {
-    let mut pending: Vec<usize> = msgs
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| matches!(m, Message::Tool { .. }))
-        .map(|(i, _)| i)
-        .collect();
-    while transcript_chars(msgs) > budget {
-        let Some(idx) = pending.first().copied() else {
+    let mut excess = transcript_chars(msgs).saturating_sub(budget);
+    for msg in msgs {
+        if excess == 0 {
             break;
-        };
-        pending.remove(0);
-        if let Message::Tool {
-            content,
-            tool_call_id,
-            ..
-        } = &mut msgs[idx]
-        {
-            if content.len() <= KEEP {
-                continue;
-            }
+        }
+        if let Message::Tool { content, .. } = msg {
             let before = content.len();
-            content.truncate(KEEP);
-            content.push_str(&format!(
-                "\n[compacted {before}->{KEEP} chars for {tool_call_id}]"
-            ));
+            shrink(content, before.saturating_sub(excess));
+            excess = excess.saturating_sub(before - content.len());
         }
     }
+}
+
+fn shrink(content: &mut String, target: usize) {
+    if content.len() <= target {
+        return;
+    }
+    if target < MARKER.len() {
+        content.clear();
+        return;
+    }
+    let mut prefix = target - MARKER.len();
+    while !content.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    content.truncate(prefix);
+    content.push_str(MARKER);
 }

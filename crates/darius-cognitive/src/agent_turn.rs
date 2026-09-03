@@ -2,6 +2,7 @@
 use crate::agent_compact::compact_tool_results;
 use crate::agent_exec::execute_calls;
 use crate::agent_loop::{AgentLoop, MAX_ROUNDS};
+use crate::agent_validate::validate_new_calls;
 use crate::conversation::Message;
 use crate::model::AsyncModel;
 use crate::{CognitiveError, LoopPolicy, TurnContext, UiEvent};
@@ -33,6 +34,7 @@ impl AgentLoop {
             view.extend(msgs.iter().cloned());
             let out = model.complete(&view, &specs, &ctx).await?;
             out.validate()?;
+            validate_new_calls(msgs, &out.tool_calls)?;
             if out.tool_calls.is_empty() {
                 let text = out.content.unwrap_or_default();
                 msgs.push(Message::Assistant {

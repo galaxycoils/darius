@@ -1,12 +1,11 @@
-//! Per-call execution policy: allowlist gate, permission, one correlated result.
-use crate::agent_events::{deny_call, emit_end, emit_start, emit_write_diff};
+//! Per-call allowlist, permission, context-aware execution, correlated result.
+use crate::agent_events::{deny_call, emit_start};
+use crate::agent_outcome::record_outcome;
 use crate::context::TurnContext;
 use crate::conversation::Message;
 use crate::{CognitiveError, EventSink, PermissionChoice, RunControl};
-use darius_tools::{ToolCall, ToolOutcome, ToolRegistry, ToolRisk};
+use darius_tools::{ToolCall, ToolRegistry, ToolRisk};
 
-/// Model calls run through the allowlist gate (`execute_model`): unknown
-/// tools are rejected before permission; one correlated result per call.
 pub fn execute_calls(
     calls: &[ToolCall],
     tools: &ToolRegistry,
@@ -29,32 +28,9 @@ pub fn execute_calls(
             continue;
         }
         emit_start(sink, call);
-        match tools.execute_model(call) {
-            ToolOutcome::Ok {
-                preview,
-                spilled_path,
-            } => {
-                emit_write_diff(sink, call, &preview);
-                push_result(msgs, call, &preview);
-                emit_end(sink, &call.id, true, &preview, spilled_path);
-            }
-            ToolOutcome::Err { message } => {
-                push_result(msgs, call, &format!("Error: {message}"));
-                emit_end(sink, &call.id, false, &message, None);
-            }
-            ToolOutcome::Interrupted => return Err(CognitiveError::Cancelled),
-            ToolOutcome::TimedOut => {
-                push_result(msgs, call, "Timed out");
-                emit_end(sink, &call.id, false, "Timed out", None);
-            }
-        }
+        let execution = ctx.execution_context();
+        let outcome = tools.execute_model_with_context(call, &execution);
+        record_outcome(outcome, call, sink, msgs)?;
     }
     Ok(())
-}
-fn push_result(msgs: &mut Vec<Message>, call: &ToolCall, content: &str) {
-    msgs.push(Message::Tool {
-        tool_call_id: call.id.clone(),
-        name: call.name.clone(),
-        content: content.into(),
-    });
 }

@@ -36,6 +36,13 @@ impl TurnContext {
         Instant::now() >= self.deadline
     }
 
+    pub fn execution_context(&self) -> darius_tools::ExecutionContext {
+        darius_tools::ExecutionContext {
+            cancel: self.token(),
+            deadline: self.deadline,
+        }
+    }
+
     pub fn deadline_duration(&self) -> Duration {
         self.deadline.saturating_duration_since(Instant::now())
     }

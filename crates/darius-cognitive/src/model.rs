@@ -20,6 +20,9 @@ pub struct ModelOutput {
 
 impl ModelOutput {
     pub fn validate(&self) -> Result<(), CognitiveError> {
+        if self.tool_calls.is_empty() && self.content.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(CognitiveError::InvalidPlan("empty model response".into()));
+        }
         let mut seen = HashSet::new();
         for call in &self.tool_calls {
             if call.id.is_empty() {

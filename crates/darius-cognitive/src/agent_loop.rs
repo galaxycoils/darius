@@ -35,25 +35,6 @@ impl AgentLoop {
         let outcome = self
             .drive(policy, &mut msgs, model, tools, memory, workspace)
             .await;
-        match outcome {
-            Ok(text) => {
-                *convo = Conversation::from_messages(msgs)?;
-                self.sink.emit(UiEvent::Done);
-                Ok(text)
-            }
-            Err(CognitiveError::Cancelled) => {
-                self.sink.emit(UiEvent::Interrupted {
-                    reason: "turn cancelled".into(),
-                });
-                self.sink.emit(UiEvent::Done);
-                Err(CognitiveError::Cancelled)
-            }
-            Err(other) => {
-                let message = other.to_string();
-                self.sink.emit(UiEvent::Error { message });
-                self.sink.emit(UiEvent::Done);
-                Err(other)
-            }
-        }
+        self.finish(outcome, msgs, convo)
     }
 }

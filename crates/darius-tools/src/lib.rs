@@ -2,10 +2,15 @@ pub mod create_path;
 pub mod ensure_dirs;
 pub mod execution;
 pub mod mcp;
+mod model_dispatch;
+pub mod model_schemas;
 pub mod model_tools;
 pub mod path_policy;
 pub mod process_group;
 pub mod read_file;
+mod schema_builder;
+mod schema_memory;
+mod schema_tasks;
 pub mod search_files;
 pub mod search_filter;
 pub mod search_walk;
@@ -190,10 +195,6 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn new(profile_dir: &Path) -> Result<Self, ToolError> {
-        Self::new_with_roots(profile_dir, &profile_dir.join("tool_results"))
-    }
-
     /// Bind the registry to an explicit workspace root and spill dir.
     pub fn new_with_roots(workspace_root: &Path, spill_dir: &Path) -> Result<Self, ToolError> {
         let policy = PathPolicy::new(workspace_root)?;
@@ -268,6 +269,15 @@ impl ToolRegistry {
             return model_tools::hidden_tool_error(&clean);
         }
         self.execute(&clean)
+    }
+
+    /// Model-facing dispatch using the caller's cancellation and deadline.
+    pub fn execute_model_with_context(
+        &self,
+        call: &ToolCall,
+        ctx: &ExecutionContext,
+    ) -> ToolOutcome {
+        model_dispatch::execute(self, call, ctx)
     }
 
     pub fn spill(&self, content: &str) -> (String, Option<PathBuf>) {
