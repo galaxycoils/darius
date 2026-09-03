@@ -481,6 +481,7 @@ pub fn register_task_builtins(
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
     let spill_dir_shell = registry.spill_dir.clone();
     let ceiling_shell = registry.preview_ceiling;
+    let policy_shell = registry.policy.clone();
     registry.register_with_risk("shell", ToolRisk::Shell, move |call| {
         let command = call
             .arguments
@@ -494,6 +495,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(command)
+            .current_dir(policy_shell.root())
             .output()
             .map_err(ToolError::Io)?;
 
@@ -524,6 +526,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
 
     let spill_dir_read = registry.spill_dir.clone();
     let ceiling_read = registry.preview_ceiling;
+    let policy_read = registry.policy.clone();
     registry.register_with_risk("read_file", ToolRisk::ReadOnly, move |call| {
         let path = call
             .arguments
@@ -534,7 +537,8 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             return Err(ToolError::InvalidArgs("path required".into()));
         }
 
-        let content = std::fs::read_to_string(path)?;
+        let resolved = policy_read.resolve(path, false)?;
+        let content = std::fs::read_to_string(&resolved)?;
         if content.len() > ceiling_read {
             let preview = content.chars().take(ceiling_read).collect::<String>();
             let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
@@ -554,7 +558,8 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
 
     register_spill_builtins(registry);
 
-    registry.register_with_risk("write_file", ToolRisk::Mutating, |call| {
+    let policy_write = registry.policy.clone();
+    registry.register_with_risk("write_file", ToolRisk::Mutating, move |call| {
         let path_str = call
             .arguments
             .get("path")
@@ -569,8 +574,8 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             return Err(ToolError::InvalidArgs("path required".into()));
         }
 
-        let path = std::path::Path::new(path_str);
-        if darius_safety::is_protected_path(path) {
+        let path = policy_write.resolve(path_str, true)?;
+        if darius_safety::is_protected_path(&path) {
             let approved = call
                 .arguments
                 .get("approved")
@@ -590,7 +595,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        std::fs::write(path, content)?;
+        std::fs::write(&path, content)?;
         Ok(ToolOutcome::Ok {
             preview: format!("wrote {} bytes to {}", content.len(), path.display()),
             spilled_path: None,
@@ -632,7 +637,8 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         })
     });
 
-    registry.register_with_risk("glob", ToolRisk::ReadOnly, |call| {
+    let policy_glob = registry.policy.clone();
+    registry.register_with_risk("glob", ToolRisk::ReadOnly, move |call| {
         let pattern = call
             .arguments
             .get("pattern")
@@ -645,10 +651,17 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         // Simple glob: walk directory and match against pattern
         let path = std::path::Path::new(pattern);
         let parent = path.parent().unwrap_or(std::path::Path::new("."));
+        let parent_str = parent.to_str().unwrap_or(".");
+        let parent_str = if parent_str.is_empty() {
+            "."
+        } else {
+            parent_str
+        };
+        let resolved_parent = policy_glob.resolve(parent_str, false)?;
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         let mut results = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(parent) {
+        if let Ok(entries) = std::fs::read_dir(&resolved_parent) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
@@ -1386,15 +1399,181 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
 
     #[test]
     fn path_policy_explicit_cwd_contained() {
-        let dir = std::env::temp_dir().join(format!(
-            "darius_path_policy_cwd_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("darius_path_policy_cwd_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let policy = path_policy::PathPolicy::new(&dir).unwrap();
         assert_eq!(policy.root(), &dir.canonicalize().unwrap());
         let resolved = policy.resolve("a.txt", true).unwrap();
         assert_eq!(resolved, policy.root().join("a.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_policy_new_creates_missing_root() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_newroot_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let nested = dir.join("fresh").join("workspace");
+        assert!(!nested.exists());
+        let policy = path_policy::PathPolicy::new(&nested).unwrap();
+        assert!(nested.exists());
+        assert_eq!(policy.root(), &nested.canonicalize().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_policy_create_through_final_symlink_rejected() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_finalsym_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "darius_path_policy_finalsym_out_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.join("secret.txt"), dir.join("link.txt")).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        #[cfg(unix)]
+        assert!(policy.resolve("link.txt", true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn read_file_rejects_absolute_outside_root() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_tools_policy_read_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        let call = ToolCall {
+            id: "policy-read-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "/etc/passwd"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { message } => assert!(
+                message.contains("escapes workspace")
+                    || message.contains("must not contain")
+                    || message.contains("does not exist"),
+                "unexpected message: {message}"
+            ),
+            ToolOutcome::Ok { .. } => panic!("expected read_file /etc/passwd to fail"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_file_rejects_outside_root() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_tools_policy_write_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let outside = std::env::temp_dir().join(format!(
+            "darius_tools_policy_write_out_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&outside).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        let target = outside.join("evil.txt");
+        let call = ToolCall {
+            id: "policy-write-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": target.to_str().unwrap(), "content": "evil"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { .. } => {}
+            ToolOutcome::Ok { .. } => panic!("expected write_file outside root to fail"),
+        }
+        assert!(!target.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn write_file_rejects_final_symlink_plant() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_tools_policy_symwrite_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "darius_tools_policy_symwrite_out_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.join("secret.txt"), dir.join("link.txt")).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        let call = ToolCall {
+            id: "policy-symwrite-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "link.txt", "content": "pwned"}),
+        };
+        #[cfg(unix)]
+        match registry.execute(&call) {
+            ToolOutcome::Err { .. } => {}
+            ToolOutcome::Ok { .. } => panic!("expected write through final symlink to fail"),
+        }
+        #[cfg(unix)]
+        assert_eq!(
+            std::fs::read_to_string(outside.join("secret.txt")).unwrap(),
+            "secret"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn shell_runs_with_workspace_cwd() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_tools_policy_shell_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        let call = ToolCall {
+            id: "policy-shell-1".into(),
+            name: "shell".into(),
+            arguments: serde_json::json!({"command": "pwd"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { preview, .. } => assert_eq!(
+                preview.trim(),
+                dir.canonicalize().unwrap().to_string_lossy().trim()
+            ),
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn glob_rejects_outside_root() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_tools_policy_glob_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        let call = ToolCall {
+            id: "policy-glob-1".into(),
+            name: "glob".into(),
+            arguments: serde_json::json!({"pattern": "/etc/*"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { .. } => {}
+            ToolOutcome::Ok { .. } => panic!("expected glob outside root to fail"),
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

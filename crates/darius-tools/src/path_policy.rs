@@ -9,9 +9,12 @@ pub struct PathPolicy {
 }
 
 impl PathPolicy {
-    /// Bind to an existing workspace root (canonicalized once).
+    /// Bind to a workspace root, creating it if missing, then canonicalize.
     pub fn new(workspace_root: &Path) -> Result<Self, ToolError> {
-        Ok(Self { root: workspace_root.canonicalize()? })
+        std::fs::create_dir_all(workspace_root)?;
+        Ok(Self {
+            root: workspace_root.canonicalize()?,
+        })
     }
 
     /// Canonical workspace root.
@@ -19,9 +22,11 @@ impl PathPolicy {
         &self.root
     }
 
-    /// Resolve `raw` inside the root. Rejects `..` and absolute or
-    /// symlink escape. A missing final component is allowed only
-    /// when `for_create` is set (its parent must already exist).
+    /// Resolve `raw` inside the root. Rejects `..` and symlink escape.
+    /// Absolute paths are allowed only when they resolve inside the root.
+    /// A missing final component is allowed only when `for_create` is
+    /// set (its parent must already exist). A pre-existing final-component
+    /// symlink is always rejected on the create path.
     pub fn resolve(&self, raw: &str, for_create: bool) -> Result<PathBuf, ToolError> {
         if raw.is_empty() {
             return Err(ToolError::InvalidArgs("path required".into()));
@@ -30,7 +35,11 @@ impl PathPolicy {
         if rel.components().any(|c| matches!(c, Component::ParentDir)) {
             return Err(ToolError::InvalidArgs("path must not contain '..'".into()));
         }
-        let joined = if rel.is_absolute() { rel.to_path_buf() } else { self.root.join(rel) };
+        let joined = if rel.is_absolute() {
+            rel.to_path_buf()
+        } else {
+            self.root.join(rel)
+        };
         if for_create {
             let parent = joined.parent().unwrap_or(&self.root).to_path_buf();
             let canon = parent
@@ -42,7 +51,13 @@ impl PathPolicy {
             let name = joined
                 .file_name()
                 .ok_or_else(|| ToolError::InvalidArgs("path required".into()))?;
-            Ok(canon.join(name))
+            let resolved = canon.join(name);
+            if let Ok(meta) = std::fs::symlink_metadata(&resolved)
+                && meta.file_type().is_symlink()
+            {
+                return Err(ToolError::InvalidArgs("path escapes workspace".into()));
+            }
+            Ok(resolved)
         } else {
             let canon = joined
                 .canonicalize()
