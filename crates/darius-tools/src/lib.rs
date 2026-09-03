@@ -3,6 +3,7 @@ pub mod ensure_dirs;
 pub mod execution;
 pub mod mcp;
 pub mod path_policy;
+pub mod process_group;
 pub mod read_file;
 pub mod search_files;
 pub mod search_filter;
@@ -182,6 +183,8 @@ pub struct ToolRegistry {
     preview_ceiling: usize,
     handlers: HashMap<String, RegisteredTool>,
     policy: PathPolicy,
+    shell_cancel: tokio_util::sync::CancellationToken,
+    shell_timeout: std::time::Duration,
 }
 
 impl ToolRegistry {
@@ -201,7 +204,25 @@ impl ToolRegistry {
             preview_ceiling: spec::SPILL_CEILING,
             handlers: HashMap::new(),
             policy,
+            shell_cancel: tokio_util::sync::CancellationToken::new(),
+            shell_timeout: std::time::Duration::from_secs(300),
         })
+    }
+
+    /// Shared cancellation token observed by registry shell calls.
+    pub fn shell_cancel_token(&self) -> tokio_util::sync::CancellationToken {
+        self.shell_cancel.clone()
+    }
+
+    /// Interrupt in-flight registry shell calls.
+    pub fn cancel_shells(&self) {
+        self.shell_cancel.cancel();
+    }
+
+    /// Default shell deadline for registry shell calls. Snapshotted by
+    /// `register_coding_builtins`, so call this before registering.
+    pub fn set_shell_timeout(&mut self, timeout: std::time::Duration) {
+        self.shell_timeout = timeout;
     }
 
     /// Register a tool with explicit risk classification.
@@ -497,10 +518,12 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         spill_dir: registry.spill_dir.clone(),
         ceiling: registry.preview_ceiling,
     };
+    let shell_cancel = registry.shell_cancel.clone();
+    let shell_timeout = registry.shell_timeout;
     registry.register_with_risk("shell", ToolRisk::Shell, move |call| {
         let ctx = crate::execution::ExecutionContext {
-            cancel: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(24 * 60 * 60),
+            cancel: shell_cancel.clone(),
+            deadline: std::time::Instant::now() + shell_timeout,
         };
         Ok(shell_executor.execute(call, &ctx))
     });
@@ -754,6 +777,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn shell_tool_executes_command() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1571,6 +1595,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_runs_with_workspace_cwd() {
         let dir = std::env::temp_dir().join(format!(
             "darius_tools_policy_shell_{}",
@@ -2029,6 +2054,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_cwd_is_workspace() {
         let dir = shell_tmp("darius_shell_cwd");
         let ex = shell_executor(&dir);
@@ -2043,6 +2069,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_success_captures_output() {
         let dir = shell_tmp("darius_shell_ok");
         let ex = shell_executor(&dir);
@@ -2054,6 +2081,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_nonzero_is_error() {
         let dir = shell_tmp("darius_shell_exit");
         let ex = shell_executor(&dir);
@@ -2067,6 +2095,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_stderr_captured() {
         let dir = shell_tmp("darius_shell_stderr");
         let ex = shell_executor(&dir);
@@ -2080,6 +2109,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_timeout_kills_process() {
         let dir = shell_tmp("darius_shell_timeout");
         let ex = shell_executor(&dir);
@@ -2097,6 +2127,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_cancellation_interrupts_long_command() {
         let dir = shell_tmp("darius_shell_cancel");
         let ex = shell_executor(&dir);
@@ -2123,6 +2154,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_child_group_reaped() {
         let dir = shell_tmp("darius_shell_reap");
         let watch = dir.join(format!("reap-{}.log", uuid::Uuid::new_v4()));
@@ -2166,6 +2198,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_large_output_spills() {
         let dir = shell_tmp("darius_shell_spill");
         let ex = shell_executor(&dir);
@@ -2187,6 +2220,74 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shell_nonzero_output_spills() {
+        let dir = shell_tmp("darius_shell_err_spill");
+        let ex = shell_executor(&dir);
+        let cmd = "awk 'BEGIN{for(i=0;i<50000;i++) print \"line-\" i}'; exit 4";
+        match ex.execute(&shell_call("err-spill-1", cmd), &shell_ctx(30_000)) {
+            ToolOutcome::Err { message } => {
+                assert!(message.contains("shell exit 4"), "missing exit code");
+                assert!(
+                    message.len() <= crate::spec::SPILL_CEILING + 512,
+                    "unbounded error: {} bytes",
+                    message.len()
+                );
+                assert!(message.contains("spilled"), "missing spill note");
+            }
+            other => panic!("nonzero exit must error: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn shell_registry(dir: &std::path::Path) -> ToolRegistry {
+        let mut registry = ToolRegistry::new_with_roots(dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        registry
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shell_registry_cancel_interrupts() {
+        let dir = shell_tmp("darius_shell_reg_cancel");
+        let registry = shell_registry(&dir);
+        registry.shell_cancel_token().cancel();
+        let start = std::time::Instant::now();
+        let outcome = registry.execute(&shell_call("reg-cancel-1", "sleep 5"));
+        assert!(
+            matches!(outcome, ToolOutcome::Interrupted),
+            "expected interrupt: {outcome:?}"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "cancel too slow"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shell_registry_timeout_applies() {
+        let dir = shell_tmp("darius_shell_reg_timeout");
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        // Timeout is snapshotted when builtins register, so set it first.
+        registry.set_shell_timeout(std::time::Duration::from_millis(300));
+        register_coding_builtins(&mut registry);
+        let start = std::time::Instant::now();
+        let outcome = registry.execute(&shell_call("reg-timeout-1", "sleep 10"));
+        assert!(
+            matches!(outcome, ToolOutcome::TimedOut),
+            "expected timeout: {outcome:?}"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "kill too slow"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

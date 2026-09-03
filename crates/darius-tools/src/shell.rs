@@ -22,7 +22,7 @@ impl ToolExecutor for ShellExecutor {
                 message: "command required".into(),
             };
         }
-        match crate::execution::run_process_group(command, &self.workspace, ctx) {
+        match crate::process_group::run_process_group(command, &self.workspace, ctx) {
             Err(message) => ToolOutcome::Err { message },
             Ok(RunEnd::Done(code, stdout, stderr)) => {
                 let mut full = String::from_utf8_lossy(&stdout).into_owned();
@@ -32,8 +32,20 @@ impl ToolExecutor for ShellExecutor {
                 }
                 match code {
                     Some(0) => spec::finalize(full, &self.spill_dir, self.ceiling),
-                    Some(c) => ToolOutcome::Err {
-                        message: format!("shell exit {c}: {full}"),
+                    Some(c) => match spec::finalize(full, &self.spill_dir, self.ceiling) {
+                        ToolOutcome::Ok {
+                            preview,
+                            spilled_path,
+                        } => ToolOutcome::Err {
+                            message: match spilled_path {
+                                Some(path) => format!(
+                                    "shell exit {c}: {preview} [output spilled to {}]",
+                                    path.display()
+                                ),
+                                None => format!("shell exit {c}: {preview}"),
+                            },
+                        },
+                        outcome => outcome,
                     },
                     None => ToolOutcome::Err {
                         message: "shell killed by signal".into(),
