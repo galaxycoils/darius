@@ -1,5 +1,9 @@
 pub mod mcp;
 pub mod path_policy;
+pub mod read_file;
+pub mod search_files;
+pub mod spec;
+pub mod write_file;
 pub use mcp::*;
 pub use path_policy::PathPolicy;
 
@@ -477,7 +481,7 @@ pub fn register_task_builtins(
     });
 }
 
-/// Register coding builtins (shell, read_file, write_file, glob, spill_read) on a tool registry.
+/// Register coding builtins (shell, read_file, search_files, write_file, glob, spill_read) on a tool registry.
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
     let spill_dir_shell = registry.spill_dir.clone();
     let ceiling_shell = registry.preview_ceiling;
@@ -536,24 +540,44 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         if path.is_empty() {
             return Err(ToolError::InvalidArgs("path required".into()));
         }
+        let offset = call
+            .arguments
+            .get("offset")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        let limit = call
+            .arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(read_file::DEFAULT_LIMIT);
 
-        let resolved = policy_read.resolve(path, false)?;
-        let content = std::fs::read_to_string(&resolved)?;
-        if content.len() > ceiling_read {
-            let preview = content.chars().take(ceiling_read).collect::<String>();
-            let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
-            let p = spill_dir_read.join(&filename);
-            let _ = std::fs::write(&p, &content);
-            Ok(ToolOutcome::Ok {
-                preview,
-                spilled_path: Some(p),
-            })
-        } else {
-            Ok(ToolOutcome::Ok {
-                preview: content.chars().take(2000).collect(),
-                spilled_path: None,
-            })
-        }
+        let content = read_file::read_paged(&policy_read, path, offset, limit)?;
+        Ok(spec::finalize(content, &spill_dir_read, ceiling_read))
+    });
+
+    let policy_search = registry.policy.clone();
+    let spill_dir_search = registry.spill_dir.clone();
+    let ceiling_search = registry.preview_ceiling;
+    registry.register_with_risk("search_files", ToolRisk::ReadOnly, move |call| {
+        let dir = call
+            .arguments
+            .get("dir")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".");
+        let name = call.arguments.get("pattern").and_then(|v| v.as_str());
+        let content = call.arguments.get("content").and_then(|v| v.as_str());
+        let limit = call
+            .arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(search_files::MAX_RESULTS as u64) as usize;
+
+        let hits = search_files::search(&policy_search, dir, name, content, limit)?;
+        Ok(spec::finalize(
+            hits.join("\n"),
+            &spill_dir_search,
+            ceiling_search,
+        ))
     });
 
     register_spill_builtins(registry);
@@ -595,9 +619,9 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        std::fs::write(&path, content)?;
+        let bytes = write_file::write_atomic(&policy_write, path_str, content)?;
         Ok(ToolOutcome::Ok {
-            preview: format!("wrote {} bytes to {}", content.len(), path.display()),
+            preview: format!("wrote {bytes} bytes to {}", path.display()),
             spilled_path: None,
         })
     });
@@ -1575,5 +1599,234 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             ToolOutcome::Ok { .. } => panic!("expected glob outside root to fail"),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn coding_file_tmp() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("darius_coding_file_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn coding_file_registry(dir: &std::path::Path) -> ToolRegistry {
+        let mut registry = ToolRegistry::new_with_roots(dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+        registry
+    }
+
+    #[test]
+    fn coding_file_read_pagination() {
+        let dir = coding_file_tmp();
+        let body = (1..=10)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(dir.join("paged.txt"), &body).unwrap();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "paged.txt", "offset": 3, "limit": 4}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert_eq!(preview, "line3\nline4\nline5\nline6");
+                assert!(spilled_path.is_none());
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_read_rejects_binary() {
+        let dir = coding_file_tmp();
+        std::fs::write(dir.join("bin.dat"), b"ab\x00cd").unwrap();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-2".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "bin.dat"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { message } => assert!(message.contains("binary")),
+            ToolOutcome::Ok { .. } => panic!("expected binary read to fail"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_read_containment() {
+        let dir = coding_file_tmp();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-3".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "../escape.txt"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { .. } => {}
+            ToolOutcome::Ok { .. } => panic!("expected traversal read to fail"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_search_recursive_name() {
+        let dir = coding_file_tmp();
+        std::fs::create_dir_all(dir.join("sub").join("deep")).unwrap();
+        std::fs::write(dir.join("sub").join("a.txt"), "alpha").unwrap();
+        std::fs::write(dir.join("sub").join("deep").join("b.txt"), "beta").unwrap();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-4".into(),
+            name: "search_files".into(),
+            arguments: serde_json::json!({"pattern": "b.txt"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.contains("b.txt"), "missing nested hit: {preview}");
+                assert!(!preview.contains("a.txt"), "unexpected hit: {preview}");
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_search_content() {
+        let dir = coding_file_tmp();
+        std::fs::write(dir.join("yes.txt"), "the needle is here").unwrap();
+        std::fs::write(dir.join("no.txt"), "nothing relevant").unwrap();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-5".into(),
+            name: "search_files".into(),
+            arguments: serde_json::json!({"content": "needle"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { preview, .. } => {
+                assert!(
+                    preview.contains("yes.txt"),
+                    "missing content hit: {preview}"
+                );
+                assert!(!preview.contains("no.txt"), "unexpected hit: {preview}");
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_search_caps_results() {
+        let dir = coding_file_tmp();
+        for i in 0..60 {
+            std::fs::write(dir.join(format!("f{i:02}.txt")), "x").unwrap();
+        }
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        let hits = crate::search_files::search(&policy, ".", Some(".txt"), None, 10_000).unwrap();
+        assert_eq!(hits.len(), 50);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_write_atomic() {
+        let dir = coding_file_tmp();
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "cf-7".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "notes/out.txt", "content": "atomic-ok"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { preview, .. } => assert!(preview.contains("out.txt")),
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.join("notes").join("out.txt")).unwrap(),
+            "atomic-ok"
+        );
+        let entries: Vec<_> = std::fs::read_dir(dir.join("notes")).unwrap().collect();
+        assert_eq!(entries.len(), 1, "temp leftovers after atomic write");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_write_containment_and_binary() {
+        let dir = coding_file_tmp();
+        let outside = std::env::temp_dir().join(format!("darius_cf_out_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&outside).unwrap();
+        let registry = coding_file_registry(&dir);
+        let target = outside.join("evil.txt");
+        let call = ToolCall {
+            id: "cf-8".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": target.to_str().unwrap(), "content": "evil"}),
+        };
+        assert!(matches!(registry.execute(&call), ToolOutcome::Err { .. }));
+        assert!(!target.exists());
+        let binary = ToolCall {
+            id: "cf-9".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "bin.txt", "content": "ab\x00cd"}),
+        };
+        match registry.execute(&binary) {
+            ToolOutcome::Err { message } => assert!(message.contains("binary")),
+            ToolOutcome::Ok { .. } => panic!("expected binary write to fail"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn coding_file_spill_finalizer_enforces_32kib() {
+        let dir = coding_file_tmp();
+        let spill_dir = dir.join("tool_results");
+        std::fs::create_dir_all(&spill_dir).unwrap();
+        let big = "y".repeat(crate::spec::SPILL_CEILING + 100);
+        match crate::spec::finalize(big.clone(), &spill_dir, crate::spec::SPILL_CEILING) {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert_eq!(preview.len(), crate::spec::SPILL_CEILING);
+                let spilled = spilled_path.expect("expected spill");
+                assert_eq!(std::fs::read_to_string(&spilled).unwrap(), big);
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        assert_eq!(crate::spec::SPILL_CEILING, 32 * 1024);
+        match crate::spec::finalize("small".into(), &spill_dir, crate::spec::SPILL_CEILING) {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert_eq!(preview, "small");
+                assert!(spilled_path.is_none());
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coding_file_tool_schemas_cover_file_ops() {
+        let schemas = crate::spec::tool_schemas();
+        let names: Vec<_> = schemas
+            .iter()
+            .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+            .collect();
+        for expected in ["read_file", "search_files", "write_file"] {
+            assert!(names.contains(&expected), "missing schema: {expected}");
+        }
+        for schema in &schemas {
+            assert!(
+                schema.get("parameters").is_some(),
+                "schema lacks parameters"
+            );
+        }
     }
 }
