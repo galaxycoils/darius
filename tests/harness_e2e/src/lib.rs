@@ -206,7 +206,11 @@ mod tests {
         assert_eq!(pack.record_ids.len(), 1);
 
         // Step 2: Tool registry + memory_search
-        let mut tools = darius_tools::ToolRegistry::new_with_roots(&profile_dir, &profile_dir.join("tool_results")).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(
+            &profile_dir,
+            &profile_dir.join("tool_results"),
+        )
+        .unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         let search_call = darius_tools::ToolCall {
@@ -225,34 +229,51 @@ mod tests {
             }
         }
 
-        // Step 3: CognitiveLoop with MockModel
+        // Step 3: AgentLoop with scripted AsyncModel
         let policy = darius_cognitive::LoopPolicy::default();
-        let plan_response = r#"{"tasks":[{"title":"answer geography question"}]}"#.to_string();
-        let react_responses = vec![
-            r#"TOOL {"name":"memory_search","arguments":{"text":"France"}}"#.to_string(),
-            "DONE".to_string(),
-        ];
-        let mut model = darius_cognitive::MockModel::new(plan_response, react_responses);
-
-        let (plan, acceptance) = darius_cognitive::run_loop(
-            &darius_cognitive::RunMetadata {
-                profile: "e2e".into(),
-                model: "mock".into(),
-                mode: "auto".into(),
+        let mut model = darius_cognitive::MockModel::new(vec![
+            darius_cognitive::ModelOutput {
+                content: None,
+                tool_calls: vec![darius_tools::ToolCall {
+                    id: "s1".into(),
+                    name: "memory_search".into(),
+                    arguments: serde_json::json!({"text": "France"}),
+                }],
             },
-            &policy,
-            "what is the capital of France?",
-            &mut model,
-            &mut tools,
-            &memory,
-        )
-        .unwrap();
+            darius_cognitive::ModelOutput {
+                content: Some("Paris is the capital of France.".into()),
+                tool_calls: vec![],
+            },
+        ]);
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
+        let control = std::sync::Arc::new(darius_cognitive::NoopRunControl);
+        let loopt = darius_cognitive::AgentLoop::new(sink, control);
+        let mut convo = darius_cognitive::Conversation::from_messages(vec![]).unwrap();
+        let ws = profile_dir.to_string_lossy().to_string();
+        let meta = darius_cognitive::RunMetadata {
+            profile: "e2e".into(),
+            model: "mock".into(),
+            mode: "auto".into(),
+        };
+        let text = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(loopt.run_turn(
+                &meta,
+                &policy,
+                "what is the capital of France?",
+                &mut convo,
+                &mut model,
+                &mut tools,
+                &memory,
+                &ws,
+            ))
+            .unwrap();
 
-        assert_eq!(plan.tasks.len(), 1);
-        match acceptance {
-            darius_cognitive::Acceptance::Accepted => {}
-            darius_cognitive::Acceptance::Rejected(reason) => panic!("rejected: {reason}"),
-        }
+        assert!(text.contains("Paris"));
+        assert_eq!(convo.messages().len(), 4);
 
         let _ = std::fs::remove_dir_all(&profile_dir);
     }
@@ -264,7 +285,11 @@ mod tests {
         std::fs::create_dir_all(&profile_dir).unwrap();
 
         let memory = darius_memory::MemoryEngine::open(&profile_dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new_with_roots(&profile_dir, &profile_dir.join("tool_results")).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(
+            &profile_dir,
+            &profile_dir.join("tool_results"),
+        )
+        .unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         // Insert a record with large body (near 32 KiB)
@@ -339,7 +364,8 @@ mod tests {
     fn e2e_tool_spill_recall_workflow() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_spill_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        let mut registry =
+            darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_coding_builtins(&mut registry);
 
         let large_src = dir.join("large_file.txt");
@@ -446,7 +472,8 @@ mod tests {
     fn e2e_instruction_write_protection() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_prot_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        let mut registry =
+            darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_coding_builtins(&mut registry);
 
         let skill_file = dir.join("SKILL.md");
@@ -488,7 +515,8 @@ mod tests {
     fn e2e_mcp_discovery_and_step_gating() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_mcp_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        let mut registry =
+            darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let client = Arc::new(darius_tools::LocalMcpClient::new());
         client.add_tool(darius_tools::McpToolDef {

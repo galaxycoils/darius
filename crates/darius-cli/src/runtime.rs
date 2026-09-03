@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use darius_cognitive::{LoopPolicy, Model, RunMetadata, UiEvent};
+use darius_cognitive::{AsyncModel, Conversation, LoopPolicy, RunMetadata, UiEvent};
 use darius_memory::MemoryEngine;
 use darius_tools::ToolRegistry;
 use tokio::sync::broadcast;
@@ -98,7 +98,9 @@ pub struct SessionRuntime {
     pub memory: MemoryEngine,
     pub tools: ToolRegistry,
     pub task_board: Arc<parking_lot::Mutex<darius_tools::TaskBoard>>,
-    pub model: Box<dyn Model>,
+    pub model: Box<dyn AsyncModel>,
+    pub conversation: Conversation,
+    pub workspace: PathBuf,
     pub metadata: RunMetadata,
     pub event_sender: broadcast::Sender<UiEvent>,
     pub cancellation: CancellationToken,
@@ -145,6 +147,8 @@ impl SessionRuntime {
             true,
         );
         let (event_sender, _) = broadcast::channel(256);
+        let conversation =
+            Conversation::from_messages(vec![]).map_err(|e| RuntimeError::Model(e.to_string()))?;
         Ok(Self {
             config: resolved.config,
             profile_config: resolved.profile_config,
@@ -152,6 +156,8 @@ impl SessionRuntime {
             tools,
             task_board: board,
             model,
+            conversation,
+            workspace: paths.workspace.clone(),
             metadata,
             event_sender,
             cancellation: CancellationToken::new(),
@@ -185,7 +191,7 @@ impl SessionRuntime {
 
     /// Model-facing dispatch through the verified allowlist. Unknown and
     /// hidden calls are rejected before permission with one correlated error.
-    /// The cognitive loop migrates to this path in Task 3.3.
+    /// The agent loop executes through this path.
     pub fn execute_model_call(&self, call: &darius_tools::ToolCall) -> darius_tools::ToolOutcome {
         self.tools.execute_model(call)
     }
@@ -207,31 +213,37 @@ impl SessionRuntime {
     }
 }
 
-fn model_for(state: &RuntimeState) -> Result<Box<dyn Model>, String> {
+fn model_for(state: &RuntimeState) -> Result<Box<dyn AsyncModel>, String> {
     match state {
         RuntimeState::Live(provider) => {
-            let cache = Arc::new(darius_daemon::CacheCoordinator::new());
-            let router = darius_daemon::ModelRouter::new(cache);
-            // ModelRouter::route resolves roles to the "default" entry, so the
-            // configured provider must overwrite it; a custom-name-only entry
-            // would register but never serve (Task 3.2 replaces this legacy
-            // router with an exact configured adapter).
-            router.register_provider(darius_daemon::Provider {
+            darius_daemon::LiveModel::for_provider(darius_daemon::Provider {
                 name: "default".into(),
                 model: provider.model.clone(),
                 base_url: provider.base_url.clone(),
                 enabled: true,
                 api_key_env: provider.key_env.clone(),
-            });
-            darius_daemon::LiveModel::new(router, darius_daemon::BudgetScope::Session)
-                .map(|m| Box::new(m) as Box<dyn Model>)
-                .map_err(|e| e.to_string())
+            })
+            .map(|m| Box::new(m) as Box<dyn AsyncModel>)
+            .map_err(|e| e.to_string())
         }
-        RuntimeState::OfflineDemo | RuntimeState::Setup => Ok(Box::new(
-            darius_cognitive::MockModel::new("{\"tasks\":[]}".into(), vec!["DONE".into()]),
-        )),
+        RuntimeState::OfflineDemo | RuntimeState::Setup => {
+            Ok(Box::new(darius_cognitive::MockModel::new(vec![])))
+        }
         RuntimeState::MissingKey(_) => unreachable!("missing keys do not build runtimes"),
     }
+}
+
+/// Drive one async agent turn from sync callers on a fresh thread, so this
+/// works with or without an enclosing async runtime.
+pub(crate) fn block_on_turn<F, T>(future: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("local runtime")
+        .block_on(future)
 }
 
 fn model_label(state: &RuntimeState) -> String {

@@ -1,4 +1,4 @@
-use darius_cognitive::{CognitiveLoop, EventSink, RunControl, UiEvent};
+use darius_cognitive::{AgentLoop, EventSink, RunControl, UiEvent};
 use darius_tools::ToolRisk;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -179,15 +179,18 @@ impl TuiWorker {
                     }
                     let sink = Arc::new(BroadcastEventSink(self.runtime.event_sender.clone()));
                     let control = self.control.clone();
-                    let loop_ = CognitiveLoop::new(sink, control);
-                    let _ = loop_.run(
+                    let loopt = AgentLoop::new(sink, control);
+                    let workspace = self.runtime.workspace.to_string_lossy().to_string();
+                    let _ = crate::runtime::block_on_turn(loopt.run_turn(
                         &self.runtime.metadata,
                         &self.runtime.policy,
                         &text,
+                        &mut self.runtime.conversation,
                         self.runtime.model.as_mut(),
-                        &mut self.runtime.tools,
+                        &self.runtime.tools,
                         &self.runtime.memory,
-                    );
+                        &workspace,
+                    ));
                 }
                 Ok(darius_tui::RuntimeCommand::ExecuteSlash(inv)) => match inv.id {
                     darius_tui::CommandId::Status => {

@@ -172,25 +172,24 @@ fn cmd_run(
         println!("No goal was run; no completion was claimed.");
         return Ok(());
     }
-    println!("Running cognitive loop with goal: {goal}");
-    let (plan, acceptance) = darius_cognitive::run_loop(
+    println!("Running agent loop with goal: {goal}");
+    let workspace = runtime.workspace.to_string_lossy().to_string();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
+    let control = std::sync::Arc::new(darius_cognitive::NoopRunControl);
+    let loopt = darius_cognitive::AgentLoop::new(sink, control);
+    let text = crate::runtime::block_on_turn(loopt.run_turn(
         &runtime.metadata,
         &runtime.policy,
         &goal,
+        &mut runtime.conversation,
         runtime.model.as_mut(),
-        &mut runtime.tools,
+        &runtime.tools,
         &runtime.memory,
-    )?;
+        &workspace,
+    ))?;
 
-    println!("Plan: {} tasks", plan.tasks.len());
-    match acceptance {
-        darius_cognitive::Acceptance::Accepted => {
-            println!("✓ Cognitive loop completed successfully!");
-        }
-        darius_cognitive::Acceptance::Rejected(reason) => {
-            println!("✗ Cognitive loop rejected: {reason}");
-        }
-    }
+    println!("{text}");
 
     Ok(())
 }

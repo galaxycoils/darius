@@ -1,5 +1,5 @@
 //! LiveModel owns one validated provider; exact cancellable protocol, no fallback.
-use crate::model_router::{BudgetEnforcer, BudgetScope, wire, wire_decode};
+use crate::model_router::{wire, wire_decode};
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ModelOutput, ToolSpec, TurnContext};
 
 /// Single configured provider; the API key is read per call, never stored.
@@ -8,8 +8,6 @@ pub struct LiveModel {
     pub(crate) base_url: String,
     pub(crate) key_env: String,
     pub(crate) client: reqwest::Client,
-    pub(crate) budget: BudgetEnforcer,
-    pub(crate) scope: BudgetScope,
 }
 
 #[async_trait::async_trait]

@@ -308,18 +308,6 @@ impl ModelRouter {
         self.cache_coordinator.metrics()
     }
 
-    /// Route a plan request, returning JSON plan text.
-    pub fn route_plan(&self, goal: &str, scope: BudgetScope) -> Result<String, RouterError> {
-        let response = self.route(ModelRole::Plan, goal, scope)?;
-        // Wrap the router response in a JSON plan
-        Ok(format!(r#"{{"tasks":[{{"title":"{response}"}}]}}"#))
-    }
-
-    /// Route a react request, returning the tool/response text.
-    pub fn route_react(&self, context: &str, scope: BudgetScope) -> Result<String, RouterError> {
-        self.route(ModelRole::Default, context, scope)
-    }
-
     /// Register a provider.
     pub fn register_provider(&self, provider: Provider) {
         self.provider_registry.register(provider);
@@ -338,8 +326,8 @@ fn role_key(role: ModelRole) -> &'static str {
     }
 }
 
-/// Drive one async model turn from sync legacy callers on a fresh thread, so
-/// this works with or without an enclosing async runtime. Removed in Task 3.3.
+/// Drive one async model turn from a sync caller on a fresh thread, so
+/// this works with or without an enclosing async runtime.
 fn block_on_local<F, T>(future: F) -> T
 where
     F: Send + std::future::Future<Output = T>,
@@ -359,7 +347,7 @@ where
 }
 
 impl LiveModel {
-    /// Validate one provider config; rejects blanks, trims the base URL.
+    /// Exact configured adapter: one validated provider, its own budget.
     pub fn for_provider(p: Provider) -> Result<Self, RouterError> {
         let fields = [&p.name, &p.model, &p.base_url, &p.api_key_env];
         if fields.iter().any(|s| s.trim().is_empty()) {
@@ -374,74 +362,15 @@ impl LiveModel {
             base_url: p.base_url.trim_end_matches('/').to_owned(),
             key_env: p.api_key_env,
             client,
-            budget: BudgetEnforcer::new(),
-            scope: BudgetScope::Session,
         })
-    }
-
-    /// Legacy constructor (removed in Task 3.3): resolve the single reserved
-    /// `default` entry the CLI registers its configured provider under.
-    /// No sibling fallback. Shares the router budget scope.
-    pub fn new(router: ModelRouter, scope: BudgetScope) -> Result<Self, RouterError> {
-        let provider = router
-            .provider_registry
-            .get("default")
-            .filter(|p| p.enabled)
-            .ok_or(RouterError::NoProviders)?;
-        let mut live = Self::for_provider(provider)?;
-        live.budget = router.budget_enforcer.clone();
-        live.scope = scope;
-        Ok(live)
-    }
-
-    /// Charge estimated tokens against the shared scope budget.
-    fn spend(&self, text: &str) -> Result<(), darius_cognitive::CognitiveError> {
-        let est = text.len() as u64 / 4;
-        self.budget
-            .check_budget(self.scope, est)
-            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))?;
-        self.budget.record_usage(self.scope, est);
-        Ok(())
     }
 }
 
 use darius_cognitive::AsyncModel;
 
-impl darius_cognitive::Model for LiveModel {
-    fn plan(&mut self, goal: &str) -> Result<String, darius_cognitive::CognitiveError> {
-        self.spend(goal)?;
-        if std::env::var(&self.key_env).is_err() {
-            return Ok(format!(
-                r#"{{"tasks":[{{"title":"Response from {}"}}]}}"#,
-                self.model
-            ));
-        }
-        let messages = vec![darius_cognitive::Message::User {
-            content: goal.to_owned(),
-        }];
-        let out =
-            block_on_local(self.complete(&messages, &[], &darius_cognitive::TurnContext::new()))?;
-        Ok(serde_json::json!({"tasks": [{"title": out.content.unwrap_or_default()}]}).to_string())
-    }
-
-    fn react(&mut self, context: &str) -> Result<String, darius_cognitive::CognitiveError> {
-        self.spend(context)?;
-        if std::env::var(&self.key_env).is_err() {
-            return Ok(format!("Response from {}\nDONE", self.model));
-        }
-        let messages = vec![darius_cognitive::Message::User {
-            content: context.to_owned(),
-        }];
-        let out =
-            block_on_local(self.complete(&messages, &[], &darius_cognitive::TurnContext::new()))?;
-        Ok(format!("{}\nDONE", out.content.unwrap_or_default()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use darius_cognitive::Model;
 
     fn register_default(router: &ModelRouter) {
         router.register_provider(Provider {
@@ -479,22 +408,13 @@ mod tests {
     }
 
     #[test]
-    fn live_model_new_empty_registry_errors() {
-        let cache = Arc::new(CacheCoordinator::new());
-        let router = ModelRouter::new(cache);
-        assert!(LiveModel::new(router, BudgetScope::Session).is_err());
-    }
-
-    #[test]
-    fn live_model_plan_enforces_budget() {
-        let cache = Arc::new(CacheCoordinator::new());
-        let router = ModelRouter::new(cache);
-        register_default(&router);
-        router
-            .budget_enforcer()
-            .record_usage(BudgetScope::Session, 1_000_000);
-        let mut live = LiveModel::new(router, BudgetScope::Session).unwrap();
-        let err = live.plan("test goal").unwrap_err().to_string();
+    fn live_model_budget_scope_enforced() {
+        let enforcer = BudgetEnforcer::new();
+        enforcer.record_usage(BudgetScope::Session, 1_000_000);
+        let err = enforcer
+            .check_budget(BudgetScope::Session, 100)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("tokens used"), "got: {err}");
     }
 
@@ -613,29 +533,6 @@ mod tests {
     }
 
     #[test]
-    fn live_model_routes_plan() {
-        let cache = Arc::new(CacheCoordinator::new());
-        let router = ModelRouter::new(cache);
-        register_default(&router);
-        let mut live = LiveModel::new(router, BudgetScope::Session).expect("default registered");
-
-        let plan = live.plan("test goal").unwrap();
-        assert!(plan.contains("Response from gpt-4"));
-    }
-
-    #[test]
-    fn live_model_routes_react() {
-        let cache = Arc::new(CacheCoordinator::new());
-        let router = ModelRouter::new(cache);
-        register_default(&router);
-        let mut live = LiveModel::new(router, BudgetScope::Session).expect("default registered");
-
-        let response = live.react("context").unwrap();
-        assert!(response.contains("Response from gpt-4"));
-        assert!(response.contains("DONE"));
-    }
-
-    #[test]
     fn test_model_router_role_overrides() {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
@@ -650,10 +547,5 @@ mod tests {
             "claude-3-5-sonnet"
         );
         assert_eq!(router.get_role_model(ModelRole::Default).unwrap(), "gpt-4");
-
-        let plan_resp = router
-            .route_plan("build api", BudgetScope::Session)
-            .unwrap();
-        assert!(plan_resp.contains("gpt-4o"));
     }
 }

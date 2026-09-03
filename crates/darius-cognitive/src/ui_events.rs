@@ -55,6 +55,12 @@ pub enum UiEvent {
     Status {
         line: String,
     },
+    Error {
+        message: String,
+    },
+    Interrupted {
+        reason: String,
+    },
     A2aTask {
         task_id: String,
         state: String,

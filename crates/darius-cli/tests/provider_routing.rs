@@ -4,6 +4,7 @@
 
 use darius_cli::paths::DariusPaths;
 use darius_cli::runtime::SessionRuntime;
+use darius_cognitive::{Message, TurnContext};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -148,7 +149,17 @@ fn configured_provider_serves_live_requests() {
         let mut runtime =
             SessionRuntime::from_profile(&paths, "routed").map_err(|e| e.to_string())?;
         assert_eq!(runtime.metadata.mode, "live");
-        let reply = runtime.model.react("hi").map_err(|e| e.to_string())?;
+        let ctx = TurnContext::new();
+        let msgs = vec![Message::User {
+            content: "hi".into(),
+        }];
+        let out = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?
+            .block_on(runtime.model.complete(&msgs, &[], &ctx))
+            .map_err(|e| e.to_string())?;
+        let reply = out.content.unwrap_or_default();
         assert!(
             reply.contains("hello-from-local-stub"),
             "model reply should come from local stub, got: {reply}"

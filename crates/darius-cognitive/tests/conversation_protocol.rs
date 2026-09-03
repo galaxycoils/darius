@@ -179,32 +179,21 @@ fn conversation_protocol_rejects_empty_result_id() {
 }
 
 #[tokio::test]
-async fn conversation_protocol_legacy_adapter_delegates() {
-    let mut adapter =
-        darius_cognitive::LegacyModelAdapter::new(Box::new(darius_cognitive::MockModel::new(
-            "{\"tasks\":[{\"title\":\"t\"}]}".into(),
-            vec!["DONE".into()],
-        )));
+async fn conversation_protocol_mock_model_replays_script() {
+    let mut model = darius_cognitive::MockModel::new(vec![ModelOutput {
+        content: Some("hi".into()),
+        tool_calls: vec![],
+    }]);
     let ctx = TurnContext::new();
-    let out = adapter
-        .complete(&valid_flow()[..2], &[], &ctx)
-        .await
-        .unwrap();
-    assert!(out.content.is_some());
+    let out = model.complete(&valid_flow()[..2], &[], &ctx).await.unwrap();
+    assert_eq!(out.content.as_deref(), Some("hi"));
     assert!(out.tool_calls.is_empty());
 }
 
 #[tokio::test]
-async fn conversation_protocol_legacy_adapter_honors_cancel() {
-    let mut adapter = darius_cognitive::LegacyModelAdapter::new(Box::new(
-        darius_cognitive::MockModel::new("p".into(), vec!["r".into()]),
-    ));
+async fn conversation_protocol_mock_model_honors_cancel() {
+    let mut model = darius_cognitive::MockModel::new(vec![]);
     let ctx = TurnContext::new();
     ctx.cancel();
-    assert!(
-        adapter
-            .complete(&valid_flow()[..2], &[], &ctx)
-            .await
-            .is_err()
-    );
+    assert!(model.complete(&valid_flow()[..2], &[], &ctx).await.is_err());
 }
