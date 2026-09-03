@@ -20,7 +20,8 @@ impl AgentLoop {
         let ctx = TurnContext::new();
         let prompt = coding_system_prompt(workspace);
         let specs = model_tool_specs();
-        for _ in 0..MAX_ROUNDS {
+        let rounds = policy.max_react_iters.clamp(1, MAX_ROUNDS);
+        for _ in 0..rounds {
             if self.control.is_cancelled() || ctx.is_cancelled() {
                 return Err(CognitiveError::Cancelled);
             }
@@ -32,6 +33,7 @@ impl AgentLoop {
                 view.push(memory);
             }
             view.extend(msgs.iter().cloned());
+            compact_tool_results(&mut view, policy.compress_opts.max_chars)?;
             let out = model.complete(&view, &specs, &ctx).await?;
             out.validate()?;
             validate_new_calls(msgs, &out.tool_calls)?;
@@ -51,10 +53,9 @@ impl AgentLoop {
             });
             let (control, sink) = (self.control.as_ref(), self.sink.as_ref());
             execute_calls(&out.tool_calls, tools, control, sink, &ctx, msgs)?;
-            compact_tool_results(msgs, policy.compress_opts.max_chars);
         }
-        Err(CognitiveError::Loop(
-            "agent loop reached 12-round cap without terminal text".into(),
-        ))
+        Err(CognitiveError::Loop(format!(
+            "agent loop reached {rounds}-round cap without terminal text"
+        )))
     }
 }

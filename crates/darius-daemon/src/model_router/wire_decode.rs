@@ -1,9 +1,11 @@
 //! Decode provider responses; rejects malformed tool calls, sanitizes errors.
-use super::wire_call::decode_call;
+use super::{usage, usage::ProviderUsage, wire_call::decode_call};
 use darius_cognitive::{CognitiveError, ModelOutput};
 use serde_json::Value;
 
-pub async fn read_response(resp: reqwest::Response) -> Result<ModelOutput, CognitiveError> {
+pub async fn read_response(
+    resp: reqwest::Response,
+) -> Result<(ModelOutput, Option<ProviderUsage>), CognitiveError> {
     if !resp.status().is_success() {
         return Err(match resp.status().as_u16() {
             401 | 403 => CognitiveError::Loop("authentication failed".into()),
@@ -16,7 +18,8 @@ pub async fn read_response(resp: reqwest::Response) -> Result<ModelOutput, Cogni
         Ok(v) => v,
         Err(_) => return Err(CognitiveError::Loop("invalid response".into())),
     };
-    decode_response(&out).map_err(CognitiveError::InvalidPlan)
+    let output = decode_response(&out).map_err(CognitiveError::InvalidPlan)?;
+    Ok((output, usage::parse(&out)))
 }
 
 pub fn decode_response(body: &Value) -> Result<ModelOutput, String> {

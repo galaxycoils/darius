@@ -1,7 +1,7 @@
 //! Task 3.2: exact configured OpenAI-compatible adapter over wiremock.
 
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ToolSpec, TurnContext};
-use darius_daemon::{LiveModel, Provider};
+use darius_daemon::{BudgetEnforcer, BudgetScope, LiveModel, Provider};
 use std::time::Duration;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -70,6 +70,16 @@ fn two_calls_response() -> serde_json::Value {
 fn text_response() -> serde_json::Value {
     serde_json::json!({
         "choices": [{ "message": { "content": "done here", "tool_calls": [] } }],
+    })
+}
+
+fn metered_text_response(prompt_tokens: u64, completion_tokens: u64) -> serde_json::Value {
+    serde_json::json!({
+        "choices": [{ "message": { "content": "done here", "tool_calls": [] } }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        },
     })
 }
 
@@ -294,9 +304,11 @@ async fn openai_second_request_correlates_tool_results() {
     assert_eq!(messages[1]["tool_calls"][1]["id"], "call_2");
     assert_eq!(messages[2]["role"], "tool");
     assert_eq!(messages[2]["tool_call_id"], "call_1");
+    assert_eq!(messages[2]["name"], "read_file");
     assert_eq!(messages[2]["content"], "out-1");
     assert_eq!(messages[3]["role"], "tool");
     assert_eq!(messages[3]["tool_call_id"], "call_2");
+    assert_eq!(messages[3]["name"], "read_file");
     assert_eq!(messages[3]["content"], "out-2");
     clear_key(KEY_ENV);
 }
@@ -624,5 +636,86 @@ async fn openai_errors_never_carry_secrets() {
     assert_eq!(received.len(), 1);
     assert_eq!(received[0].url.path(), "/chat/completions");
     assert!(received[0].url.query().is_none());
+    clear_key(KEY_ENV);
+}
+
+#[tokio::test]
+async fn openai_exhausted_session_budget_blocks_before_network() {
+    const KEY_ENV: &str = "DARIUS_TEST_OPENAI_KEY_EXHAUSTED";
+    set_key(KEY_ENV, "test-secret-exhausted");
+    let server = MockServer::start().await;
+    let budget = BudgetEnforcer::with_limit(BudgetScope::Session, 1);
+    budget.record_usage(BudgetScope::Session, 1);
+    let mut live = LiveModel::for_provider_with_budget(
+        test_provider(&server, KEY_ENV),
+        budget,
+        BudgetScope::Session,
+    )
+    .unwrap();
+
+    let err = live
+        .complete(&user_msg(), &read_spec(), &TurnContext::new())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("budget exceeded"), "got: {err}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+    clear_key(KEY_ENV);
+}
+
+#[tokio::test]
+async fn openai_repeated_rounds_consume_the_shared_session_budget() {
+    const KEY_ENV: &str = "DARIUS_TEST_OPENAI_KEY_SHARED_BUDGET";
+    set_key(KEY_ENV, "test-secret-shared-budget");
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(metered_text_response(4, 3)))
+        .mount(&server)
+        .await;
+    let budget = BudgetEnforcer::with_limit(BudgetScope::Session, 14);
+    let mut live = LiveModel::for_provider_with_budget(
+        test_provider(&server, KEY_ENV),
+        budget.clone(),
+        BudgetScope::Session,
+    )
+    .unwrap();
+
+    for _ in 0..2 {
+        live.complete(&user_msg(), &[], &TurnContext::new())
+            .await
+            .unwrap();
+    }
+    assert_eq!(budget.remaining(BudgetScope::Session), 0);
+    let err = live
+        .complete(&user_msg(), &[], &TurnContext::new())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("budget exceeded"), "got: {err}");
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    clear_key(KEY_ENV);
+}
+
+#[tokio::test]
+async fn openai_missing_usage_charges_a_bounded_estimate() {
+    const KEY_ENV: &str = "DARIUS_TEST_OPENAI_KEY_ESTIMATED_BUDGET";
+    set_key(KEY_ENV, "test-secret-estimated-budget");
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(text_response()))
+        .mount(&server)
+        .await;
+    let budget = BudgetEnforcer::with_limit(BudgetScope::Session, 1_000);
+    let mut live = LiveModel::for_provider_with_budget(
+        test_provider(&server, KEY_ENV),
+        budget.clone(),
+        BudgetScope::Session,
+    )
+    .unwrap();
+
+    live.complete(&user_msg(), &[], &TurnContext::new())
+        .await
+        .unwrap();
+    assert!(budget.remaining(BudgetScope::Session) < 1_000);
     clear_key(KEY_ENV);
 }

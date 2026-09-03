@@ -382,7 +382,8 @@ async fn agent_loop_model_error_emits_single_error() {
 
 #[tokio::test]
 async fn agent_loop_stops_after_twelve_rounds() {
-    let (dir, memory, tools, meta, policy) = harness(true);
+    let (dir, memory, tools, meta, mut policy) = harness(true);
+    policy.max_react_iters = 99;
     let sink = collect();
     let loopt = AgentLoop::new(sink.clone(), Arc::new(NoopRunControl));
     let model_calls = Arc::new(Mutex::new(0usize));
@@ -467,7 +468,7 @@ fn agent_loop_compacts_oldest_tool_results_first() {
             content: "C".repeat(1000),
         },
     ];
-    compact_tool_results(&mut msgs, 2300);
+    compact_tool_results(&mut msgs, 2300).unwrap();
     assert!(transcript_chars(&msgs) <= 2300);
     assert!(matches!(
         &msgs[2],
@@ -711,8 +712,8 @@ fn agent_loop_compacts_many_short_results_to_budget_oldest_first() {
             content: char::from(b'A' + i).to_string().repeat(100),
         })
         .collect();
-    compact_tool_results(&mut msgs, 350);
-    assert!(transcript_chars(&msgs) <= 350);
+    compact_tool_results(&mut msgs, 850).unwrap();
+    assert!(transcript_chars(&msgs) <= 850);
     assert!(
         matches!(&msgs[0], darius_cognitive::Message::Tool { content, .. } if content.len() < 100)
     );
@@ -728,7 +729,7 @@ fn agent_loop_compaction_is_utf8_safe_at_multibyte_boundary() {
         name: "read_file".into(),
         content: "€".repeat(100),
     }];
-    compact_tool_results(&mut msgs, 257);
+    compact_tool_results(&mut msgs, 257).unwrap();
     assert!(transcript_chars(&msgs) <= 257);
     assert!(
         matches!(&msgs[0], darius_cognitive::Message::Tool { content, .. } if content.is_char_boundary(content.len()))
@@ -766,4 +767,179 @@ fn agent_loop_specs_have_exact_required_arguments() {
             .collect();
         assert_eq!(actual, required, "{name}");
     }
+}
+
+#[test]
+fn agent_loop_rejects_irreducible_oversized_user_content() {
+    let mut msgs = vec![darius_cognitive::Message::User {
+        content: "x".repeat(10_000),
+    }];
+    let err = compact_tool_results(&mut msgs, 1_000).unwrap_err();
+    assert!(matches!(
+        err,
+        CognitiveError::ContextBudgetExceeded { budget: 1_000, .. }
+    ));
+}
+
+#[test]
+fn agent_loop_rejects_irreducible_oversized_assistant_content() {
+    let mut msgs = vec![darius_cognitive::Message::Assistant {
+        content: Some("x".repeat(10_000)),
+        tool_calls: vec![],
+    }];
+    let err = compact_tool_results(&mut msgs, 1_000).unwrap_err();
+    assert!(matches!(err, CognitiveError::ContextBudgetExceeded { .. }));
+}
+
+#[test]
+fn agent_loop_rejects_irreducible_oversized_tool_arguments() {
+    let mut msgs = vec![
+        darius_cognitive::Message::Assistant {
+            content: None,
+            tool_calls: vec![ToolCall {
+                id: "large-call".into(),
+                name: "read_file".into(),
+                arguments: serde_json::json!({"path": "x".repeat(10_000)}),
+            }],
+        },
+        darius_cognitive::Message::Tool {
+            tool_call_id: "large-call".into(),
+            name: "read_file".into(),
+            content: "small".into(),
+        },
+    ];
+    let err = compact_tool_results(&mut msgs, 1_000).unwrap_err();
+    assert!(matches!(err, CognitiveError::ContextBudgetExceeded { .. }));
+}
+
+#[test]
+fn transcript_size_includes_tool_ids_names_and_json_arguments() {
+    let args = "z".repeat(400);
+    let msgs = vec![darius_cognitive::Message::Assistant {
+        content: Some("answer".into()),
+        tool_calls: vec![ToolCall {
+            id: "call-id".into(),
+            name: "tool-name".into(),
+            arguments: serde_json::json!({"value": args}),
+        }],
+    }];
+    assert!(transcript_chars(&msgs) > 430);
+}
+
+#[tokio::test]
+async fn agent_loop_compacts_before_the_first_provider_request() {
+    struct BoundedModel {
+        budget: usize,
+        calls: Arc<Mutex<usize>>,
+    }
+    #[async_trait::async_trait]
+    impl AsyncModel for BoundedModel {
+        async fn complete(
+            &mut self,
+            messages: &[darius_cognitive::Message],
+            _tools: &[ToolSpec],
+            _ctx: &TurnContext,
+        ) -> Result<ModelOutput, CognitiveError> {
+            *self.calls.lock().unwrap() += 1;
+            let visible = transcript_chars(messages);
+            if visible > self.budget {
+                return Err(CognitiveError::Loop(format!(
+                    "unbounded request: {visible}"
+                )));
+            }
+            Ok(text_out("bounded"))
+        }
+    }
+
+    let (dir, memory, tools, meta, mut policy) = harness(false);
+    policy.compress_opts.max_chars = 4_000;
+    let call = ToolCall {
+        id: "prior-call".into(),
+        name: "read_file".into(),
+        arguments: serde_json::json!({"path": "old.txt"}),
+    };
+    let mut convo = Conversation::from_messages(vec![
+        darius_cognitive::Message::User {
+            content: "old request".into(),
+        },
+        darius_cognitive::Message::Assistant {
+            content: None,
+            tool_calls: vec![call],
+        },
+        darius_cognitive::Message::Tool {
+            tool_call_id: "prior-call".into(),
+            name: "read_file".into(),
+            content: "€".repeat(8_000),
+        },
+    ])
+    .unwrap();
+    let calls = Arc::new(Mutex::new(0));
+    let mut model = BoundedModel {
+        budget: policy.compress_opts.max_chars,
+        calls: calls.clone(),
+    };
+    let loopt = AgentLoop::new(collect(), Arc::new(NoopRunControl));
+    let out = loopt
+        .run_turn(
+            &meta,
+            &policy,
+            "continue",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out, "bounded");
+    assert_eq!(*calls.lock().unwrap(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn agent_loop_honors_non_default_one_round_policy() {
+    struct OneRoundModel(Arc<Mutex<usize>>);
+    #[async_trait::async_trait]
+    impl AsyncModel for OneRoundModel {
+        async fn complete(
+            &mut self,
+            _messages: &[darius_cognitive::Message],
+            _tools: &[ToolSpec],
+            _ctx: &TurnContext,
+        ) -> Result<ModelOutput, CognitiveError> {
+            let mut calls = self.0.lock().unwrap();
+            *calls += 1;
+            Ok(ModelOutput {
+                content: None,
+                tool_calls: vec![ToolCall {
+                    id: format!("round-{calls}"),
+                    name: "read_file".into(),
+                    arguments: serde_json::json!({"path": "missing"}),
+                }],
+            })
+        }
+    }
+
+    let (dir, memory, tools, meta, mut policy) = harness(true);
+    policy.max_react_iters = 1;
+    let calls = Arc::new(Mutex::new(0));
+    let mut model = OneRoundModel(calls.clone());
+    let mut convo = Conversation::from_messages(vec![]).unwrap();
+    let err = AgentLoop::new(collect(), Arc::new(NoopRunControl))
+        .run_turn(
+            &meta,
+            &policy,
+            "one round",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("1-round"), "got: {err}");
+    assert_eq!(*calls.lock().unwrap(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
 }

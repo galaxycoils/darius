@@ -1,5 +1,5 @@
 //! LiveModel owns one validated provider; exact cancellable protocol, no fallback.
-use crate::model_router::{wire, wire_decode};
+use crate::model_router::{BudgetEnforcer, BudgetScope, usage, wire, wire_decode};
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ModelOutput, ToolSpec, TurnContext};
 
 /// Single configured provider; the API key is read per call, never stored.
@@ -8,6 +8,8 @@ pub struct LiveModel {
     pub(crate) base_url: String,
     pub(crate) key_env: String,
     pub(crate) client: reqwest::Client,
+    pub(crate) budget: BudgetEnforcer,
+    pub(crate) scope: BudgetScope,
 }
 
 #[async_trait::async_trait]
@@ -18,6 +20,10 @@ impl AsyncModel for LiveModel {
         tools: &[ToolSpec],
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
+        let input_estimate = usage::estimate_input(messages).max(1);
+        self.budget
+            .check_budget(self.scope, input_estimate)
+            .map_err(|error| CognitiveError::Loop(error.to_string()))?;
         let key = std::env::var(&self.key_env)
             .map_err(|_| CognitiveError::Loop("authentication failed".into()))?;
         let url = format!("{}/chat/completions", self.base_url);
@@ -37,11 +43,17 @@ impl AsyncModel for LiveModel {
         };
         let cancel = ctx.token();
         let sleep = tokio::time::sleep(ctx.deadline_duration());
-        tokio::select! {
+        let (output, provider_usage) = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(CognitiveError::Cancelled),
             out = fetch => out,
             _ = sleep => Err(CognitiveError::Loop("deadline exceeded".into())),
-        }
+        }?;
+        let charged = provider_usage.map_or_else(
+            || input_estimate.saturating_add(usage::estimate_output(&output)),
+            |reported| reported.total_tokens,
+        );
+        self.budget.record_usage(self.scope, charged.max(1));
+        Ok(output)
     }
 }

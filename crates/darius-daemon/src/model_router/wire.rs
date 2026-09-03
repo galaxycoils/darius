@@ -24,8 +24,10 @@ fn encode_message(m: &Message) -> Value {
         }
         Message::Tool {
             tool_call_id,
+            name,
             content,
-            ..
-        } => json!({"role": "tool", "tool_call_id": tool_call_id, "content": content}),
+        } => {
+            json!({"role": "tool", "tool_call_id": tool_call_id, "name": name, "content": content})
+        }
     }
 }

@@ -8,6 +8,7 @@ pub mod agent_loop;
 mod agent_outcome;
 pub mod agent_turn;
 mod agent_validate;
+mod agent_visible;
 pub mod compress;
 pub mod context;
 pub mod conversation;
@@ -47,6 +48,8 @@ pub enum CognitiveError {
     Board(String),
     #[error("cancelled")]
     Cancelled,
+    #[error("model-visible context requires {required} bytes, budget is {budget}")]
+    ContextBudgetExceeded { required: usize, budget: usize },
 }
 
 impl From<String> for CognitiveError {
@@ -97,24 +100,16 @@ pub struct RunMetadata {
 /// Loop policy configuration.
 #[derive(Debug, Clone)]
 pub struct LoopPolicy {
-    pub max_tasks: usize,
     pub max_react_iters: usize,
     pub memory_max_chars: usize,
-    pub tool_preview_ceiling: usize,
-    pub require_plan: bool,
-    pub require_acceptance: bool,
     pub compress_opts: CompressOpts,
 }
 
 impl Default for LoopPolicy {
     fn default() -> Self {
         Self {
-            max_tasks: 15,
             max_react_iters: 12,
             memory_max_chars: 3500,
-            tool_preview_ceiling: 32768,
-            require_plan: true,
-            require_acceptance: true,
             compress_opts: CompressOpts::default(),
         }
     }

@@ -1,10 +1,14 @@
 //! ModelRouter — single authority for all model calls (optimizer, planner, rater, etc.).
 
+pub mod budget;
+mod live_factory;
 pub mod openai;
+mod usage;
 pub mod wire;
 pub mod wire_call;
 pub mod wire_decode;
 
+pub use budget::{BudgetEnforcer, BudgetScope};
 pub use openai::LiveModel;
 
 use crate::cache::{CacheCoordinator, CacheMetrics};
@@ -39,73 +43,6 @@ pub struct TokenAccounting {
     pub actual_input: u64,
     pub actual_output: u64,
     pub cached_input: u64,
-}
-
-/// Budget scope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BudgetScope {
-    Session,
-    Subagent,
-    Global,
-    Eval,
-}
-
-/// Budget enforcer — tracks and limits token usage (clone shares state).
-#[derive(Clone)]
-pub struct BudgetEnforcer {
-    budgets: Arc<Mutex<HashMap<BudgetScope, (u64, u64)>>>, // (used, limit)
-}
-
-impl BudgetEnforcer {
-    pub fn new() -> Self {
-        let mut budgets = HashMap::new();
-        budgets.insert(BudgetScope::Session, (0, 100_000));
-        budgets.insert(BudgetScope::Subagent, (0, 50_000));
-        budgets.insert(BudgetScope::Global, (0, 1_000_000));
-        budgets.insert(BudgetScope::Eval, (0, 10_000));
-        Self {
-            budgets: Arc::new(Mutex::new(budgets)),
-        }
-    }
-
-    /// Check if a request is within budget.
-    pub fn check_budget(
-        &self,
-        scope: BudgetScope,
-        estimated_tokens: u64,
-    ) -> Result<(), RouterError> {
-        let budgets = self.budgets.lock();
-        let (used, limit) = budgets.get(&scope).copied().unwrap_or((0, 0));
-        if used + estimated_tokens > limit {
-            return Err(RouterError::BudgetExceeded(format!(
-                "scope {scope:?}: {used}/{limit} tokens used, estimated {estimated_tokens}"
-            )));
-        }
-        Ok(())
-    }
-
-    /// Record token usage.
-    pub fn record_usage(&self, scope: BudgetScope, tokens: u64) {
-        let mut budgets = self.budgets.lock();
-        if let Some((used, _)) = budgets.get_mut(&scope) {
-            *used += tokens;
-        }
-    }
-
-    /// Get remaining budget for a scope.
-    pub fn remaining(&self, scope: BudgetScope) -> u64 {
-        let budgets = self.budgets.lock();
-        budgets
-            .get(&scope)
-            .map(|(used, limit)| limit.saturating_sub(*used))
-            .unwrap_or(0)
-    }
-}
-
-impl Default for BudgetEnforcer {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// Model provider.
@@ -249,10 +186,6 @@ impl ModelRouter {
         prompt: &str,
         scope: BudgetScope,
     ) -> Result<String, RouterError> {
-        // Check budget.
-        let estimated_tokens = prompt.len() as u64 / 4; // rough estimate
-        self.budget_enforcer.check_budget(scope, estimated_tokens)?;
-
         let provider = self.single_provider(role)?;
         let effective_model = self
             .model_overrides
@@ -260,9 +193,6 @@ impl ModelRouter {
             .get(role_key(role))
             .cloned()
             .unwrap_or_else(|| provider.model.clone());
-
-        // Record usage.
-        self.budget_enforcer.record_usage(scope, estimated_tokens);
 
         // Record cache stats.
         self.cache_coordinator
@@ -276,6 +206,9 @@ impl ModelRouter {
 
         // Stub fallback: no API key configured.
         if std::env::var(&provider.api_key_env).is_err() {
+            let estimated_tokens = (prompt.len() as u64).div_ceil(4);
+            self.budget_enforcer.check_budget(scope, estimated_tokens)?;
+            self.budget_enforcer.record_usage(scope, estimated_tokens);
             return Ok(format!("Response from {effective_model} for role {role:?}"));
         }
 
@@ -283,7 +216,8 @@ impl ModelRouter {
             model: effective_model,
             ..provider
         };
-        let mut live = LiveModel::for_provider(provider)?;
+        let mut live =
+            LiveModel::for_provider_with_budget(provider, self.budget_enforcer.clone(), scope)?;
         let messages = vec![darius_cognitive::Message::User {
             content: prompt.to_owned(),
         }];
@@ -344,26 +278,6 @@ where
         .join()
         .expect("model turn thread")
     })
-}
-
-impl LiveModel {
-    /// Exact configured adapter: one validated provider, its own budget.
-    pub fn for_provider(p: Provider) -> Result<Self, RouterError> {
-        let fields = [&p.name, &p.model, &p.base_url, &p.api_key_env];
-        if fields.iter().any(|s| s.trim().is_empty()) {
-            return Err(RouterError::Provider("provider config incomplete".into()));
-        }
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|_| RouterError::Provider("http client init failed".into()))?;
-        Ok(Self {
-            model: p.model,
-            base_url: p.base_url.trim_end_matches('/').to_owned(),
-            key_env: p.api_key_env,
-            client,
-        })
-    }
 }
 
 use darius_cognitive::AsyncModel;
