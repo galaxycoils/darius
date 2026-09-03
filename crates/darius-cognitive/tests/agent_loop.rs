@@ -827,7 +827,7 @@ fn transcript_size_includes_tool_ids_names_and_json_arguments() {
 }
 
 #[tokio::test]
-async fn agent_loop_compacts_before_the_first_provider_request() {
+async fn agent_loop_bounds_messages_and_tool_schemas_before_provider_request() {
     struct BoundedModel {
         budget: usize,
         calls: Arc<Mutex<usize>>,
@@ -837,11 +837,27 @@ async fn agent_loop_compacts_before_the_first_provider_request() {
         async fn complete(
             &mut self,
             messages: &[darius_cognitive::Message],
-            _tools: &[ToolSpec],
+            tools: &[ToolSpec],
             _ctx: &TurnContext,
         ) -> Result<ModelOutput, CognitiveError> {
             *self.calls.lock().unwrap() += 1;
-            let visible = transcript_chars(messages);
+            let tool_chars = serde_json::to_string(
+                &tools
+                    .iter()
+                    .map(|tool| {
+                        serde_json::json!({
+                            "type": "function", "function": {
+                                "name": tool.name, "description": tool.description,
+                                "parameters": tool.parameters
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap()
+            .chars()
+            .count();
+            let visible = transcript_chars(messages).saturating_add(tool_chars);
             if visible > self.budget {
                 return Err(CognitiveError::Loop(format!(
                     "unbounded request: {visible}"

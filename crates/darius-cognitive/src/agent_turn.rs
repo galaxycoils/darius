@@ -1,5 +1,4 @@
-//! One turn: stable prompt + bounded memory + specs, rounds, compaction, cap.
-use crate::agent_compact::compact_tool_results;
+use crate::agent_compact::compact_model_request;
 use crate::agent_exec::execute_calls;
 use crate::agent_loop::{AgentLoop, MAX_ROUNDS};
 use crate::agent_validate::validate_new_calls;
@@ -33,7 +32,7 @@ impl AgentLoop {
                 view.push(memory);
             }
             view.extend(msgs.iter().cloned());
-            compact_tool_results(&mut view, policy.compress_opts.max_chars)?;
+            compact_model_request(&mut view, &specs, policy.compress_opts.max_chars)?;
             let out = model.complete(&view, &specs, &ctx).await?;
             out.validate()?;
             validate_new_calls(msgs, &out.tool_calls)?;

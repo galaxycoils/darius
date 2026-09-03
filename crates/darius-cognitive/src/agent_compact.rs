@@ -1,13 +1,34 @@
-//! Oldest-first, UTF-8-safe tool-result compaction.
-pub use crate::agent_visible::transcript_chars;
-use crate::{CognitiveError, Message};
-const MARKER: &str = "\n[compacted]";
+//! Oldest-first tool-result compaction for serialized context bounds.
+mod shrink;
+pub use crate::agent_visible::{model_request_chars, transcript_chars, wire_messages, wire_tools};
+use crate::{CognitiveError, Message, ToolSpec};
+use shrink::shrink;
 
-/// Shrink oldest tool results first and reject irreducible over-budget input.
+/// Shrink messages to a serialized JSON character budget.
 pub fn compact_tool_results(msgs: &mut [Message], budget: usize) -> Result<(), CognitiveError> {
+    compact_to(msgs, budget, transcript_chars)
+}
+
+/// Bound the complete model-visible messages + tool schemas payload.
+pub fn compact_model_request(
+    msgs: &mut [Message],
+    tools: &[ToolSpec],
+    budget: usize,
+) -> Result<(), CognitiveError> {
+    compact_to(msgs, budget, |view| model_request_chars(view, tools))
+}
+
+fn compact_to(
+    msgs: &mut [Message],
+    budget: usize,
+    size: impl Fn(&[Message]) -> usize,
+) -> Result<(), CognitiveError> {
     for index in 0..msgs.len() {
-        while transcript_chars(msgs) > budget {
-            let excess = transcript_chars(msgs) - budget;
+        loop {
+            let required = size(msgs);
+            if required <= budget {
+                return Ok(());
+            }
             let Message::Tool { content, .. } = &mut msgs[index] else {
                 break;
             };
@@ -15,31 +36,14 @@ pub fn compact_tool_results(msgs: &mut [Message], budget: usize) -> Result<(), C
                 break;
             }
             let before = content.len();
-            shrink(content, before.saturating_sub(excess));
+            shrink(content, before.saturating_sub(required - budget));
             if content.len() == before {
                 content.clear();
             }
         }
     }
-    let required = transcript_chars(msgs);
-    if required > budget {
-        return Err(CognitiveError::ContextBudgetExceeded { required, budget });
-    }
-    Ok(())
-}
-
-fn shrink(content: &mut String, target: usize) {
-    if content.len() <= target {
-        return;
-    }
-    if target < MARKER.len() {
-        content.clear();
-        return;
-    }
-    let mut end = target - MARKER.len();
-    while !content.is_char_boundary(end) {
-        end -= 1;
-    }
-    content.truncate(end);
-    content.push_str(MARKER);
+    let required = size(msgs);
+    (required <= budget)
+        .then_some(())
+        .ok_or(CognitiveError::ContextBudgetExceeded { required, budget })
 }

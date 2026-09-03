@@ -1,4 +1,7 @@
-use darius_tools::{model_schemas::model_schemas, read_file, search_files};
+use darius_tools::{
+    ToolCall, ToolOutcome, ToolRegistry, model_schemas::model_schemas, read_file,
+    register_spill_read, search_files,
+};
 
 fn schema<'a>(schemas: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
     schemas
@@ -85,4 +88,29 @@ fn memory_kind_schema_matches_executor_values() {
         schema(&schemas, "memory_remember")["parameters"]["properties"]["kind"]["enum"],
         serde_json::json!(["fact", "decision", "preference", "episode", "note"])
     );
+}
+
+#[test]
+fn spill_read_clamps_runtime_limit_to_schema_maximum() {
+    let dir = std::env::temp_dir().join(format!("darius_spill_limit_{}", uuid::Uuid::new_v4()));
+    let spill = dir.join("tool_results");
+    std::fs::create_dir_all(&spill).unwrap();
+    let path = spill.join("large.txt");
+    std::fs::write(&path, "x".repeat(darius_tools::PREVIEW_CEILING + 100)).unwrap();
+    let mut registry = ToolRegistry::new_with_roots(&dir, &spill).unwrap();
+    register_spill_read(&mut registry);
+    let call = ToolCall {
+        id: "bounded-spill".into(),
+        name: "spill_read".into(),
+        arguments: serde_json::json!({
+            "path": path,
+            "limit": darius_tools::PREVIEW_CEILING * 2,
+        }),
+    };
+
+    let ToolOutcome::Ok { preview, .. } = registry.execute(&call) else {
+        panic!("spill_read failed");
+    };
+    assert_eq!(preview.chars().count(), darius_tools::PREVIEW_CEILING);
+    std::fs::remove_dir_all(dir).unwrap();
 }

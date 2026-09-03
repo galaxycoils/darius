@@ -207,8 +207,7 @@ impl ModelRouter {
         // Stub fallback: no API key configured.
         if std::env::var(&provider.api_key_env).is_err() {
             let estimated_tokens = (prompt.len() as u64).div_ceil(4);
-            self.budget_enforcer.check_budget(scope, estimated_tokens)?;
-            self.budget_enforcer.record_usage(scope, estimated_tokens);
+            self.budget_enforcer.charge(scope, estimated_tokens)?;
             return Ok(format!("Response from {effective_model} for role {role:?}"));
         }
 
@@ -324,9 +323,9 @@ mod tests {
     #[test]
     fn live_model_budget_scope_enforced() {
         let enforcer = BudgetEnforcer::new();
-        enforcer.record_usage(BudgetScope::Session, 1_000_000);
+        enforcer.charge(BudgetScope::Session, 100_000).unwrap();
         let err = enforcer
-            .check_budget(BudgetScope::Session, 100)
+            .charge(BudgetScope::Session, 100)
             .unwrap_err()
             .to_string();
         assert!(err.contains("tokens used"), "got: {err}");
@@ -357,24 +356,20 @@ mod tests {
     #[test]
     fn budget_enforcer_within_limit() {
         let enforcer = BudgetEnforcer::new();
-        assert!(enforcer.check_budget(BudgetScope::Session, 1000).is_ok());
+        assert!(enforcer.charge(BudgetScope::Session, 1000).is_ok());
     }
 
     #[test]
     fn budget_enforcer_exceeds_limit() {
         let enforcer = BudgetEnforcer::new();
         // Global limit is 1,000,000.
-        assert!(
-            enforcer
-                .check_budget(BudgetScope::Global, 2_000_000)
-                .is_err()
-        );
+        assert!(enforcer.charge(BudgetScope::Global, 2_000_000).is_err());
     }
 
     #[test]
     fn budget_enforcer_records_usage() {
         let enforcer = BudgetEnforcer::new();
-        enforcer.record_usage(BudgetScope::Session, 5000);
+        enforcer.charge(BudgetScope::Session, 5000).unwrap();
         assert_eq!(enforcer.remaining(BudgetScope::Session), 95_000);
     }
 

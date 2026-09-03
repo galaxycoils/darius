@@ -679,7 +679,8 @@ pub fn register_spill_read(registry: &mut ToolRegistry) {
             .arguments
             .get("limit")
             .and_then(|v| v.as_u64())
-            .unwrap_or(4000) as usize;
+            .unwrap_or(4000)
+            .clamp(1, PREVIEW_CEILING as u64) as usize;
 
         let slice = match content.get(offset..) {
             Some(remaining) => remaining.chars().take(limit).collect::<String>(),

@@ -48,7 +48,7 @@ pub enum CognitiveError {
     Board(String),
     #[error("cancelled")]
     Cancelled,
-    #[error("model-visible context requires {required} bytes, budget is {budget}")]
+    #[error("model-visible context requires {required} JSON characters, budget is {budget}")]
     ContextBudgetExceeded { required: usize, budget: usize },
 }
 
