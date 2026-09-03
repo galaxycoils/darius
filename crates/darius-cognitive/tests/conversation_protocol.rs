@@ -148,6 +148,36 @@ fn conversation_protocol_output_rejects_duplicate_tool_id() {
     assert!(out.validate().is_err());
 }
 
+#[test]
+fn conversation_protocol_rejects_result_before_call() {
+    let mut msgs = valid_flow();
+    msgs.swap(2, 3);
+    assert!(Conversation::from_messages(msgs).is_err());
+}
+
+#[test]
+fn conversation_protocol_rejects_duplicate_tool_result() {
+    let mut msgs = valid_flow();
+    msgs.push(Message::Tool {
+        tool_call_id: "c1".into(),
+        name: "read_file".into(),
+        content: "again".into(),
+    });
+    assert!(Conversation::from_messages(msgs).is_err());
+}
+
+#[test]
+fn conversation_protocol_rejects_empty_result_id() {
+    let mut msgs = valid_flow();
+    msgs[3] = Message::Tool {
+        tool_call_id: "".into(),
+        name: "read_file".into(),
+        content: "r".into(),
+    };
+    let err = Conversation::from_messages(msgs).unwrap_err().to_string();
+    assert!(err.contains("empty tool id"), "got: {err}");
+}
+
 #[tokio::test]
 async fn conversation_protocol_legacy_adapter_delegates() {
     let mut adapter =
