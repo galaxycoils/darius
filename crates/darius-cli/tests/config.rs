@@ -1,5 +1,5 @@
 use darius_cli::paths::DariusPaths;
-use darius_cli::{initialize_profile, ConfigError, ProfileConfig, ProviderMetadata};
+use darius_cli::{ConfigError, ProfileConfig, ProviderMetadata, initialize_profile};
 use std::fs;
 use tempfile::TempDir;
 

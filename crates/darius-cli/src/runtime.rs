@@ -199,8 +199,12 @@ fn model_for(state: &RuntimeState) -> Box<dyn Model> {
         RuntimeState::Live(provider) => {
             let cache = Arc::new(darius_daemon::CacheCoordinator::new());
             let router = darius_daemon::ModelRouter::new(cache);
+            // ModelRouter::route resolves roles to the "default" entry, so the
+            // configured provider must overwrite it; a custom-name-only entry
+            // would register but never serve (Task 3.2 replaces this legacy
+            // router with an exact configured adapter).
             router.register_provider(darius_daemon::Provider {
-                name: provider.provider.clone(),
+                name: "default".into(),
                 model: provider.model.clone(),
                 base_url: provider.base_url.clone(),
                 enabled: true,
