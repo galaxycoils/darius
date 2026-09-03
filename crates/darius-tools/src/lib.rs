@@ -606,7 +606,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         let path = policy_write.resolve(path_str, true)?;
         if darius_safety::is_protected_path(&path) {
             return Err(ToolError::InvalidArgs(format!(
-                "write to protected instruction file '{}' requires approval",
+                "write to protected instruction file '{}' is not permitted via tools",
                 path.display()
             )));
         }
@@ -671,11 +671,9 @@ pub fn register_spill_read(registry: &mut ToolRegistry) {
             .and_then(|v| v.as_u64())
             .unwrap_or(4000) as usize;
 
-        let slice = if offset < content.len() {
-            let remaining = &content[offset..];
-            remaining.chars().take(limit).collect::<String>()
-        } else {
-            String::new()
+        let slice = match content.get(offset..) {
+            Some(remaining) => remaining.chars().take(limit).collect::<String>(),
+            None => String::new(),
         };
 
         Ok(ToolOutcome::Ok {
@@ -1158,6 +1156,31 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     }
 
     #[test]
+    fn spill_read_non_boundary_offset_does_not_panic() {
+        let dir = std::env::temp_dir().join(format!("darius_spill_{}", uuid::Uuid::new_v4()));
+        let spill = dir.join("tool_results");
+        std::fs::create_dir_all(&spill).unwrap();
+        std::fs::write(spill.join("emoji.txt"), "héllo wörld").unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &spill).unwrap();
+        register_spill_read(&mut registry);
+        let path = spill.join("emoji.txt").to_string_lossy().to_string();
+        // Offset 2 lands mid-'é' (2 bytes); must not panic.
+        let call = ToolCall {
+            id: "spill-emoji".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": path, "offset": 2, "limit": 4}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { .. } => {}
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected ok, got terminal outcome")
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_spill_read_gated_to_tool_results() {
         let dir =
             std::env::temp_dir().join(format!("darius_tools_spill_sec_{}", uuid::Uuid::new_v4()));
@@ -1210,7 +1233,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let outcome = registry.execute(&unapproved_call);
         match outcome {
             ToolOutcome::Err { message } => {
-                assert!(message.contains("requires approval"));
+                assert!(message.contains("not permitted via tools"));
             }
             ToolOutcome::Ok { .. } => {
                 panic!("expected write to AGENTS.md without approval to fail")
@@ -1235,7 +1258,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let outcome = registry.execute(&approved_call);
         match outcome {
             ToolOutcome::Err { message } => {
-                assert!(message.contains("requires approval"));
+                assert!(message.contains("not permitted via tools"));
             }
             ToolOutcome::Ok { .. } => {
                 panic!("model-supplied approved:true must not bypass protected paths")

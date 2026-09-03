@@ -101,9 +101,8 @@ The session runtime registers memory, task, and coding tools in source ([`runtim
 | --- | --- | --- |
 | `memory_search`, `memory_pack`, `memory_remember` | Memory-tool registrations | **Unavailable** |
 | `task_add`, `task_list`, `task_complete` | Task-tool registrations | **Unavailable** |
-| `shell`, `read_file`, `write_file`, `glob` | Coding-tool registrations | **Unavailable** |
-| `spill_read`, `read_spill` | Spill-inspection registrations | **Unavailable** |
-| `peer_send` | Coding-tool registration | **Unavailable** — peer A2A is explicitly unavailable. |
+| `shell`, `read_file`, `search_files`, `write_file`, `spill_read` | Coding-tool registrations (`glob`, legacy `read_spill`, and `peer_send` removed; see Task 2.4) | **Unavailable** |
+| `peer_send` | Registration removed (Task 2.4) | **Unavailable** — peer A2A is explicitly unavailable. |
 | `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop` | Source-only registration helper; not registered by the public runtime | **Unavailable** — subagents are explicitly unavailable. |
 | MCP stdio/SSE server registry and dynamically discovered MCP tools | Source module only ([`mcp.rs`](../crates/darius-tools/src/mcp.rs#L25-L163)); no public runtime registration | **Unavailable** — MCP is explicitly unavailable. |
 | Browser tool/integration | No public tool registration | **Unavailable**. |

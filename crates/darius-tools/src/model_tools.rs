@@ -161,7 +161,7 @@ mod tests {
         assert!(clean.arguments.get("approved").is_none());
         assert!(clean.arguments.get("authenticated").is_none());
         match registry.execute_model(&c) {
-            ToolOutcome::Err { message } => assert!(message.contains("requires approval")),
+            ToolOutcome::Err { message } => assert!(message.contains("not permitted via tools")),
             other => panic!("protected write must fail: {other:?}"),
         }
         assert_eq!(
