@@ -1,5 +1,11 @@
 //! ModelRouter — single authority for all model calls (optimizer, planner, rater, etc.).
 
+pub mod openai;
+pub mod wire;
+pub mod wire_decode;
+
+pub use openai::LiveModel;
+
 use crate::cache::{CacheCoordinator, CacheMetrics};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -181,34 +187,18 @@ pub struct ModelRouter {
     cache_coordinator: Arc<CacheCoordinator>,
     #[allow(dead_code)]
     coalesced: Arc<Mutex<HashMap<String, u64>>>, // request hash -> result hash
-    http_client: OpenAiCompatibleClient,
     model_overrides: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl ModelRouter {
+    /// Empty registry; callers register their configured provider explicitly.
+    /// No hard-coded providers, no fallbacks.
     pub fn new(cache_coordinator: Arc<CacheCoordinator>) -> Self {
-        let registry = ProviderRegistry::new();
-        registry.register(Provider {
-            name: "default".into(),
-            model: "gpt-4".into(),
-            base_url: "https://api.openai.com/v1".into(),
-            enabled: true,
-            api_key_env: "DARIUS_API_KEY".into(),
-        });
-        registry.register(Provider {
-            name: "rater".into(),
-            model: "claude-3".into(),
-            base_url: "https://api.anthropic.com/v1".into(),
-            enabled: true,
-            api_key_env: "DARIUS_API_KEY".into(),
-        });
-
         Self {
-            provider_registry: registry,
+            provider_registry: ProviderRegistry::new(),
             budget_enforcer: BudgetEnforcer::new(),
             cache_coordinator,
             coalesced: Arc::new(Mutex::new(HashMap::new())),
-            http_client: OpenAiCompatibleClient::new().unwrap_or_default(),
             model_overrides: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -228,36 +218,29 @@ impl ModelRouter {
             .insert(role.to_string(), model.to_string());
     }
 
-    /// Get effective model name for a role.
-    pub fn get_role_model(&self, role: ModelRole) -> String {
-        let role_key = match role {
-            ModelRole::Default => "default",
-            ModelRole::Smol => "smol",
-            ModelRole::Plan => "planner",
-            ModelRole::Commit => "commit",
-            ModelRole::Advisor => "advisor",
-            ModelRole::Rater => "rater",
-        };
-        if let Some(m) = self.model_overrides.lock().get(role_key) {
-            return m.clone();
+    /// Get effective model name for a role: explicit override, else the role's
+    /// single reserved provider. No sibling fallback, no hard-coded default.
+    pub fn get_role_model(&self, role: ModelRole) -> Result<String, RouterError> {
+        if let Some(m) = self.model_overrides.lock().get(role_key(role)) {
+            return Ok(m.clone());
         }
-        let (primary_name, fallback_name) = match role {
-            ModelRole::Rater => ("rater", "default"),
-            _ => ("default", "rater"),
-        };
-        self.provider_registry
-            .get(primary_name)
-            .filter(|p| p.enabled)
-            .or_else(|| {
-                self.provider_registry
-                    .get(fallback_name)
-                    .filter(|p| p.enabled)
-            })
-            .map(|p| p.model)
-            .unwrap_or_else(|| "gpt-4".into())
+        Ok(self.single_provider(role)?.model)
     }
 
-    /// Route a request to a provider.
+    /// Look up the role's single reserved provider (`rater` for Rater, else
+    /// `default` — the name the CLI registers its configured provider under).
+    fn single_provider(&self, role: ModelRole) -> Result<Provider, RouterError> {
+        let name = match role {
+            ModelRole::Rater => "rater",
+            _ => "default",
+        };
+        self.provider_registry
+            .get(name)
+            .filter(|p| p.enabled)
+            .ok_or(RouterError::NoProviders)
+    }
+
+    /// Route a request to the role's single provider over the exact protocol.
     pub fn route(
         &self,
         role: ModelRole,
@@ -268,37 +251,13 @@ impl ModelRouter {
         let estimated_tokens = prompt.len() as u64 / 4; // rough estimate
         self.budget_enforcer.check_budget(scope, estimated_tokens)?;
 
-        // Select the primary provider for the role, then fail over to the sibling.
-        let (primary_name, fallback_name) = match role {
-            ModelRole::Rater => ("rater", "default"),
-            _ => ("default", "rater"),
-        };
-
-        let provider = self
-            .provider_registry
-            .get(primary_name)
-            .filter(|provider| provider.enabled)
-            .or_else(|| {
-                self.provider_registry
-                    .get(fallback_name)
-                    .filter(|provider| provider.enabled)
-            })
-            .ok_or(RouterError::NoProviders)?;
-
-        let role_key = match role {
-            ModelRole::Default => "default",
-            ModelRole::Smol => "smol",
-            ModelRole::Plan => "planner",
-            ModelRole::Commit => "commit",
-            ModelRole::Advisor => "advisor",
-            ModelRole::Rater => "rater",
-        };
-
-        let effective_model = if let Some(m) = self.model_overrides.lock().get(role_key) {
-            m.clone()
-        } else {
-            provider.model.clone()
-        };
+        let provider = self.single_provider(role)?;
+        let effective_model = self
+            .model_overrides
+            .lock()
+            .get(role_key(role))
+            .cloned()
+            .unwrap_or_else(|| provider.model.clone());
 
         // Record usage.
         self.budget_enforcer.record_usage(scope, estimated_tokens);
@@ -313,24 +272,23 @@ impl ModelRouter {
                 miss_cost_tokens: 0,
             });
 
-        // If the API key env var is set, call the provider via HTTP.
-        if std::env::var(&provider.api_key_env).is_ok() {
-            let messages = serde_json::json!([
-                {"role": "user", "content": prompt}
-            ]);
-            return self.http_client.chat_completion(
-                &provider.base_url,
-                &provider.api_key_env,
-                &effective_model,
-                &[messages],
-            );
+        // Stub fallback: no API key configured.
+        if std::env::var(&provider.api_key_env).is_err() {
+            return Ok(format!("Response from {effective_model} for role {role:?}"));
         }
 
-        // Stub fallback: no API key configured.
-        Ok(format!(
-            "Response from {} for role {role:?}",
-            effective_model
-        ))
+        let provider = Provider {
+            model: effective_model,
+            ..provider
+        };
+        let mut live = LiveModel::for_provider(provider)?;
+        let messages = vec![darius_cognitive::Message::User {
+            content: prompt.to_owned(),
+        }];
+        let ctx = darius_cognitive::TurnContext::new();
+        let out = block_on_local(live.complete(&messages, &[], &ctx))
+            .map_err(|e| RouterError::Provider(e.to_string()))?;
+        Ok(out.content.unwrap_or_default())
     }
 
     /// Get the budget enforcer.
@@ -366,113 +324,82 @@ impl ModelRouter {
     }
 }
 
-/// A model that uses the ModelRouter for live provider routing.
-/// Falls back to stub responses when no providers are configured.
-pub struct LiveModel {
-    router: ModelRouter,
-    scope: BudgetScope,
+/// Role display key for model overrides.
+fn role_key(role: ModelRole) -> &'static str {
+    match role {
+        ModelRole::Default => "default",
+        ModelRole::Smol => "smol",
+        ModelRole::Plan => "planner",
+        ModelRole::Commit => "commit",
+        ModelRole::Advisor => "advisor",
+        ModelRole::Rater => "rater",
+    }
+}
+
+/// Drive one async model turn from sync legacy callers on a fresh thread, so
+/// this works with or without an enclosing async runtime. Removed in Task 3.3.
+fn block_on_local<F, T>(future: F) -> T
+where
+    F: Send + std::future::Future<Output = T>,
+    T: Send,
+{
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("local runtime")
+                .block_on(future)
+        })
+        .join()
+        .expect("model turn thread")
+    })
 }
 
 impl LiveModel {
+    /// Legacy constructor (removed in Task 3.3): resolve the single reserved
+    /// `default` entry the CLI registers its configured provider under.
+    /// No sibling fallback.
     pub fn new(router: ModelRouter, scope: BudgetScope) -> Self {
-        Self { router, scope }
+        let _ = scope;
+        let provider = router
+            .provider_registry
+            .get("default")
+            .filter(|p| p.enabled)
+            .expect("configured provider 'default' must be registered")
+            .clone();
+        Self::for_provider(provider).expect("configured provider must validate")
     }
 }
+
+use darius_cognitive::AsyncModel;
 
 impl darius_cognitive::Model for LiveModel {
     fn plan(&mut self, goal: &str) -> Result<String, darius_cognitive::CognitiveError> {
-        self.router
-            .route_plan(goal, self.scope)
-            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))
+        if std::env::var(&self.key_env).is_err() {
+            return Ok(format!(
+                r#"{{"tasks":[{{"title":"Response from {}"}}]}}"#,
+                self.model
+            ));
+        }
+        let messages = vec![darius_cognitive::Message::User {
+            content: goal.to_owned(),
+        }];
+        let out =
+            block_on_local(self.complete(&messages, &[], &darius_cognitive::TurnContext::new()))?;
+        Ok(serde_json::json!({"tasks": [{"title": out.content.unwrap_or_default()}]}).to_string())
     }
 
     fn react(&mut self, context: &str) -> Result<String, darius_cognitive::CognitiveError> {
-        let response = self
-            .router
-            .route_react(context, self.scope)
-            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))?;
-        // Wrap in DONE to signal completion
-        Ok(format!("{response}\nDONE"))
-    }
-}
-
-/// OpenAI-compatible HTTP client.
-///
-/// Reads the API key from the environment at call time (never stores it),
-/// POSTs to `{base_url}/chat/completions`, and parses `choices[0].message.content`.
-pub struct OpenAiCompatibleClient {
-    inner: reqwest::blocking::Client,
-}
-
-impl OpenAiCompatibleClient {
-    /// Create a new client with a default timeout.
-    pub fn new() -> Result<Self, RouterError> {
-        let inner = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| RouterError::Provider(format!("http client init failed: {e}")))?;
-        Ok(Self { inner })
-    }
-
-    /// Call `/chat/completions` on an OpenAI-compatible provider.
-    ///
-    /// `api_key_env` names the environment variable holding the key; the key
-    /// is read at call time and never stored or logged.
-    pub fn chat_completion(
-        &self,
-        base_url: &str,
-        api_key_env: &str,
-        model: &str,
-        messages: &[serde_json::Value],
-    ) -> Result<String, RouterError> {
-        let api_key = std::env::var(api_key_env).map_err(|_| RouterError::Unauthorized)?;
-
-        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": model,
-            "messages": messages,
-            "temperature": 0.7,
-        });
-
-        let response = self
-            .inner
-            .post(&url)
-            .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
-            .json(&body)
-            .send()
-            .map_err(|e| RouterError::Provider(format!("request failed: {e}")))?;
-
-        let status = response.status();
-        if status.is_success() {
-            let json: serde_json::Value = response
-                .json()
-                .map_err(|e| RouterError::Provider(format!("invalid response json: {e}")))?;
-            let content = json
-                .get("choices")
-                .and_then(|c| c.get(0))
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|c| c.as_str())
-                .ok_or_else(|| {
-                    RouterError::Provider("response missing choices[0].message.content".into())
-                })?;
-            Ok(content.to_string())
-        } else {
-            match status.as_u16() {
-                401 | 403 => Err(RouterError::Unauthorized),
-                429 => Err(RouterError::RateLimited),
-                500..=599 => Err(RouterError::ServerError(format!(
-                    "provider returned {status}"
-                ))),
-                _ => Err(RouterError::Provider(format!("provider returned {status}"))),
-            }
+        if std::env::var(&self.key_env).is_err() {
+            return Ok(format!("Response from {}\nDONE", self.model));
         }
-    }
-}
-
-impl Default for OpenAiCompatibleClient {
-    fn default() -> Self {
-        Self::new().expect("failed to build HTTP client")
+        let messages = vec![darius_cognitive::Message::User {
+            content: context.to_owned(),
+        }];
+        let out =
+            block_on_local(self.complete(&messages, &[], &darius_cognitive::TurnContext::new()))?;
+        Ok(format!("{}\nDONE", out.content.unwrap_or_default()))
     }
 }
 
@@ -481,53 +408,39 @@ mod tests {
     use super::*;
     use darius_cognitive::Model;
 
-    #[test]
-    fn openai_client_missing_key_returns_unauthorized() {
-        let client = OpenAiCompatibleClient::new().unwrap();
-        let result = client.chat_completion(
-            "http://localhost:1",
-            "DARIUS_TEST_KEY_NEVER_SET",
-            "gpt-4o",
-            &[serde_json::json!({"role":"user","content":"hi"})],
-        );
-        assert!(matches!(result, Err(RouterError::Unauthorized)));
+    fn register_default(router: &ModelRouter) {
+        router.register_provider(Provider {
+            name: "default".into(),
+            model: "gpt-4".into(),
+            base_url: "http://localhost:1".into(),
+            enabled: true,
+            api_key_env: "DARIUS_TEST_KEY_NEVER_SET".into(),
+        });
     }
 
     #[test]
-    fn openai_client_connection_failure_maps_to_provider_error() {
-        let client = OpenAiCompatibleClient::new().unwrap();
-        let result = client.chat_completion(
-            "http://localhost:1", // Nothing listening here
-            "DARIUS_TEST_KEY_NEVER_SET",
-            "gpt-4o",
-            &[serde_json::json!({"role":"user","content":"hi"})],
-        );
-        // Missing key is checked first, so this returns Unauthorized
-        assert!(matches!(result, Err(RouterError::Unauthorized)));
+    fn openai_for_provider_rejects_blank_config() {
+        let bad = Provider {
+            name: "custom".into(),
+            model: String::new(),
+            base_url: "http://localhost:1".into(),
+            enabled: true,
+            api_key_env: "DARIUS_TEST_KEY_NEVER_SET".into(),
+        };
+        assert!(LiveModel::for_provider(bad).is_err());
     }
 
     #[test]
-    fn router_error_does_not_leak_api_key() {
-        let err = RouterError::Provider("some error".into());
-        let display = format!("{err}");
-        assert!(!display.contains("sk-"));
-        assert!(!display.contains("key"));
-    }
-
-    #[test]
-    fn openai_client_secret_never_in_error_text() {
-        let client = OpenAiCompatibleClient::new().unwrap();
-        let result = client.chat_completion(
-            "http://localhost:1",
-            "DARIUS_TEST_KEY_NEVER_SET",
-            "gpt-4o",
-            &[serde_json::json!({"role":"user","content":"hi"})],
-        );
-        if let Err(ref e) = result {
-            let display = format!("{e}");
-            assert!(!display.contains("test-key"));
-            assert!(!display.contains("DARIUS_TEST_KEY"));
-        }
+    fn openai_for_provider_trims_base_url() {
+        let live = LiveModel::for_provider(Provider {
+            name: "custom".into(),
+            model: "custom-model".into(),
+            base_url: "http://localhost:1/v1///".into(),
+            enabled: true,
+            api_key_env: "DARIUS_TEST_KEY_NEVER_SET".into(),
+        })
+        .unwrap();
+        assert_eq!(live.base_url, "http://localhost:1/v1");
     }
 
     #[test]
@@ -570,9 +483,25 @@ mod tests {
     }
 
     #[test]
+    fn router_error_does_not_leak_api_key() {
+        let err = RouterError::Provider("some error".into());
+        let display = format!("{err}");
+        assert!(!display.contains("sk-"));
+        assert!(!display.contains("key"));
+    }
+
+    #[test]
     fn model_router_routes_by_role() {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
+        register_default(&router);
+        router.register_provider(Provider {
+            name: "rater".into(),
+            model: "claude-3".into(),
+            base_url: "http://localhost:1".into(),
+            enabled: true,
+            api_key_env: "DARIUS_TEST_KEY_NEVER_SET".into(),
+        });
 
         let response = router
             .route(ModelRole::Default, "hello", BudgetScope::Session)
@@ -586,16 +515,14 @@ mod tests {
     }
 
     #[test]
-    fn model_router_fails_over_when_primary_is_disabled() {
+    fn model_router_no_fallback_when_primary_is_disabled() {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
+        register_default(&router);
         assert!(router.provider_registry.set_enabled("default", false));
 
-        let response = router
-            .route(ModelRole::Default, "hello", BudgetScope::Session)
-            .unwrap();
-        assert!(response.contains("claude-3"));
-        assert_eq!(router.cache_metrics().hits, 1);
+        let result = router.route(ModelRole::Default, "hello", BudgetScope::Session);
+        assert!(matches!(result, Err(RouterError::NoProviders)));
     }
 
     #[test]
@@ -612,6 +539,7 @@ mod tests {
     fn live_model_routes_plan() {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
+        register_default(&router);
         let mut live = LiveModel::new(router, BudgetScope::Session);
 
         let plan = live.plan("test goal").unwrap();
@@ -622,6 +550,7 @@ mod tests {
     fn live_model_routes_react() {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
+        register_default(&router);
         let mut live = LiveModel::new(router, BudgetScope::Session);
 
         let response = live.react("context").unwrap();
@@ -632,13 +561,18 @@ mod tests {
     #[test]
     fn test_model_router_role_overrides() {
         let cache = Arc::new(CacheCoordinator::new());
-        let router = ModelRouter::new(cache)
+        let router = ModelRouter::new(cache);
+        register_default(&router);
+        let router = router
             .with_override("planner", "gpt-4o")
             .with_override("rater", "claude-3-5-sonnet");
 
-        assert_eq!(router.get_role_model(ModelRole::Plan), "gpt-4o");
-        assert_eq!(router.get_role_model(ModelRole::Rater), "claude-3-5-sonnet");
-        assert_eq!(router.get_role_model(ModelRole::Default), "gpt-4");
+        assert_eq!(router.get_role_model(ModelRole::Plan).unwrap(), "gpt-4o");
+        assert_eq!(
+            router.get_role_model(ModelRole::Rater).unwrap(),
+            "claude-3-5-sonnet"
+        );
+        assert_eq!(router.get_role_model(ModelRole::Default).unwrap(), "gpt-4");
 
         let plan_resp = router
             .route_plan("build api", BudgetScope::Session)
