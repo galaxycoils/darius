@@ -2,8 +2,9 @@
 
 use crate::args::{Cli, Command, ConfigCommand, MemoryCommand};
 use crate::tui_runtime::TuiWorker;
-use clap::CommandFactory;
+use clap::{CommandFactory, Parser};
 use darius_tui::{AppState, TuiController};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub mod args;
@@ -34,6 +35,17 @@ impl IoCaps {
             stdout_is_terminal,
         }
     }
+}
+
+/// Parse process arguments and run the CLI using the current terminal capabilities.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    run_with(
+        Cli::parse(),
+        IoCaps::new(
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+        ),
+    )
 }
 
 pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> {

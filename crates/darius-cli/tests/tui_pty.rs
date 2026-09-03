@@ -49,7 +49,9 @@ impl DariusHomeSnapshot {
 struct PtyTestHarness {
     child: Box<dyn portable_pty::Child + Send>,
     output: mpsc::Receiver<Result<Vec<u8>, String>>,
-    writer: Box<dyn Write + Send>,
+    reader_completed: mpsc::Receiver<()>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
+    writer: Option<Box<dyn Write + Send>>,
     _darius_home: TempDir,
     _workspace: TempDir,
     _snapshot: DariusHomeSnapshot,
@@ -96,7 +98,8 @@ impl PtyTestHarness {
         let child = pair.slave.spawn_command(cmd)?;
         let mut reader = pair.master.try_clone_reader()?;
         let (output_tx, output) = mpsc::channel();
-        std::thread::spawn(move || {
+        let (reader_completed_tx, reader_completed) = mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
             let mut chunk = [0_u8; 4096];
             loop {
                 match reader.read(&mut chunk) {
@@ -112,6 +115,7 @@ impl PtyTestHarness {
                     }
                 }
             }
+            let _ = reader_completed_tx.send(());
         });
         let writer = pair.master.take_writer()?;
         drop(pair.slave);
@@ -119,7 +123,9 @@ impl PtyTestHarness {
         Ok(Self {
             child,
             output,
-            writer,
+            reader_completed,
+            reader_thread: Some(reader_thread),
+            writer: Some(writer),
             _darius_home: darius_home,
             _workspace: workspace,
             _snapshot: snapshot,
@@ -161,8 +167,22 @@ impl PtyTestHarness {
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        self.writer.write_all(bytes)?;
-        self.writer.flush()?;
+        let writer = self.writer.as_mut().ok_or("PTY writer is closed")?;
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn wait_for_reader(&mut self, timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
+        drop(self.writer.take());
+        self.reader_completed
+            .recv_timeout(timeout)
+            .map_err(|error| format!("PTY reader did not terminate: {error}"))?;
+        if let Some(reader_thread) = self.reader_thread.take() {
+            reader_thread
+                .join()
+                .map_err(|_| "PTY reader thread panicked")?;
+        }
         Ok(())
     }
 
@@ -263,5 +283,8 @@ fn clean_home_bare_launch() {
         "bare invocation should exit 0, got {}",
         exit_code
     );
+    harness
+        .wait_for_reader(Duration::from_secs(1))
+        .expect("PTY reader should terminate after child exit");
     harness.assert_home_unchanged("clean_home_bare_launch");
 }

@@ -1,7 +1,7 @@
 use assert_cmd::Command as AssertCommand;
 use clap::{Parser, error::ErrorKind};
 use darius_cli::args::{Cli, Command, ConfigCommand, MemoryCommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 
 fn binary(args: &[&str]) -> Output {
@@ -15,6 +15,23 @@ fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+#[test]
+fn public_run_entrypoint_retains_compatibility_signature() {
+    let run: fn() -> Result<(), Box<dyn std::error::Error>> = darius_cli::run;
+    let _ = run;
+}
+
+#[test]
+fn version_flags_print_the_current_package_version() {
+    let expected = format!("darius {}\n", env!("CARGO_PKG_VERSION"));
+
+    for flag in ["--version", "-V"] {
+        let output = binary(&[flag]);
+        assert!(output.status.success(), "flag: {flag}");
+        assert_eq!(stdout(&output), expected, "flag: {flag}");
+    }
 }
 
 #[test]
@@ -128,13 +145,13 @@ fn memory_arguments_are_explicit_and_required() {
         parse(&["memory", "import", "records.jsonl"]).unwrap().command,
         Some(Command::Memory {
             command: MemoryCommand::Import { file }
-        }) if file == PathBuf::from("records.jsonl")
+        }) if file == Path::new("records.jsonl")
     ));
     assert!(matches!(
         parse(&["memory", "export", "records.jsonl"]).unwrap().command,
         Some(Command::Memory {
             command: MemoryCommand::Export { file }
-        }) if file == PathBuf::from("records.jsonl")
+        }) if file == Path::new("records.jsonl")
     ));
 }
 
