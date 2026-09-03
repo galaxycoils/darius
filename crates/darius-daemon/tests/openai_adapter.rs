@@ -1,5 +1,4 @@
-//! Task 3.2 RED: exact configured OpenAI-compatible adapter over wiremock.
-//! `LiveModel::for_provider` + `AsyncModel` do not exist yet — this must fail.
+//! Task 3.2: exact configured OpenAI-compatible adapter over wiremock.
 
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ToolSpec, TurnContext};
 use darius_daemon::{LiveModel, Provider};
@@ -72,6 +71,52 @@ fn text_response() -> serde_json::Value {
     serde_json::json!({
         "choices": [{ "message": { "content": "done here", "tool_calls": [] } }],
     })
+}
+
+/// Slow-body stall: headers arrive fast, the body stalls. The turn
+/// deadline must fire during the body read, not after it.
+#[tokio::test]
+async fn openai_slow_body_honors_deadline() {
+    const KEY_ENV: &str = "DARIUS_TEST_OPENAI_KEY_SLOWBODY";
+    set_key(KEY_ENV, "slowbody-key");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 8192];
+        let _ = stream.read(&mut buf);
+        let body = r#"{"choices":[{"message":{"content":"late","tool_calls":[]}}]}"#;
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        std::thread::sleep(Duration::from_secs(5));
+        let _ = stream.write_all(body.as_bytes());
+    });
+    let mut live = LiveModel::for_provider(Provider {
+        name: "slow".into(),
+        model: MODEL.into(),
+        base_url: format!("http://{addr}/"),
+        enabled: true,
+        api_key_env: KEY_ENV.into(),
+    })
+    .unwrap();
+    let ctx = TurnContext::with_timeout(Duration::from_millis(300));
+    let start = std::time::Instant::now();
+    let err = live
+        .complete(&user_msg(), &[], &ctx)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "hung past deadline"
+    );
+    assert!(err.contains("deadline exceeded"), "got: {err}");
+    clear_key(KEY_ENV);
 }
 
 #[tokio::test]

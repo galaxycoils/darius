@@ -26,6 +26,8 @@ pub enum RuntimeError {
     MissingApiKey(String),
     #[error("tool error: {0}")]
     Tool(#[from] darius_tools::ToolError),
+    #[error("model error: {0}")]
+    Model(String),
     #[error("memory error: {0}")]
     Memory(#[from] darius_memory::MemoryError),
     #[error("io error: {0}")]
@@ -128,7 +130,7 @@ impl SessionRuntime {
         darius_tools::register_task_builtins(&mut tools, board.clone());
         darius_tools::register_coding_builtins(&mut tools);
         darius_tools::register_spill_read(&mut tools);
-        let model = model_for(&resolved.state);
+        let model = model_for(&resolved.state).map_err(RuntimeError::Model)?;
         let metadata = RunMetadata {
             profile: profile.into(),
             model: model_label(&resolved.state),
@@ -205,7 +207,7 @@ impl SessionRuntime {
     }
 }
 
-fn model_for(state: &RuntimeState) -> Box<dyn Model> {
+fn model_for(state: &RuntimeState) -> Result<Box<dyn Model>, String> {
     match state {
         RuntimeState::Live(provider) => {
             let cache = Arc::new(darius_daemon::CacheCoordinator::new());
@@ -221,14 +223,13 @@ fn model_for(state: &RuntimeState) -> Box<dyn Model> {
                 enabled: true,
                 api_key_env: provider.key_env.clone(),
             });
-            Box::new(darius_daemon::LiveModel::new(
-                router,
-                darius_daemon::BudgetScope::Session,
-            ))
+            darius_daemon::LiveModel::new(router, darius_daemon::BudgetScope::Session)
+                .map(|m| Box::new(m) as Box<dyn Model>)
+                .map_err(|e| e.to_string())
         }
-        RuntimeState::OfflineDemo | RuntimeState::Setup => Box::new(
+        RuntimeState::OfflineDemo | RuntimeState::Setup => Ok(Box::new(
             darius_cognitive::MockModel::new("{\"tasks\":[]}".into(), vec!["DONE".into()]),
-        ),
+        )),
         RuntimeState::MissingKey(_) => unreachable!("missing keys do not build runtimes"),
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod openai;
 pub mod wire;
+pub mod wire_call;
 pub mod wire_decode;
 
 pub use openai::LiveModel;
@@ -49,7 +50,8 @@ pub enum BudgetScope {
     Eval,
 }
 
-/// Budget enforcer — tracks and limits token usage.
+/// Budget enforcer — tracks and limits token usage (clone shares state).
+#[derive(Clone)]
 pub struct BudgetEnforcer {
     budgets: Arc<Mutex<HashMap<BudgetScope, (u64, u64)>>>, // (used, limit)
 }
@@ -357,18 +359,49 @@ where
 }
 
 impl LiveModel {
+    /// Validate one provider config; rejects blanks, trims the base URL.
+    pub fn for_provider(p: Provider) -> Result<Self, RouterError> {
+        let fields = [&p.name, &p.model, &p.base_url, &p.api_key_env];
+        if fields.iter().any(|s| s.trim().is_empty()) {
+            return Err(RouterError::Provider("provider config incomplete".into()));
+        }
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|_| RouterError::Provider("http client init failed".into()))?;
+        Ok(Self {
+            model: p.model,
+            base_url: p.base_url.trim_end_matches('/').to_owned(),
+            key_env: p.api_key_env,
+            client,
+            budget: BudgetEnforcer::new(),
+            scope: BudgetScope::Session,
+        })
+    }
+
     /// Legacy constructor (removed in Task 3.3): resolve the single reserved
     /// `default` entry the CLI registers its configured provider under.
-    /// No sibling fallback.
-    pub fn new(router: ModelRouter, scope: BudgetScope) -> Self {
-        let _ = scope;
+    /// No sibling fallback. Shares the router budget scope.
+    pub fn new(router: ModelRouter, scope: BudgetScope) -> Result<Self, RouterError> {
         let provider = router
             .provider_registry
             .get("default")
             .filter(|p| p.enabled)
-            .expect("configured provider 'default' must be registered")
-            .clone();
-        Self::for_provider(provider).expect("configured provider must validate")
+            .ok_or(RouterError::NoProviders)?;
+        let mut live = Self::for_provider(provider)?;
+        live.budget = router.budget_enforcer.clone();
+        live.scope = scope;
+        Ok(live)
+    }
+
+    /// Charge estimated tokens against the shared scope budget.
+    fn spend(&self, text: &str) -> Result<(), darius_cognitive::CognitiveError> {
+        let est = text.len() as u64 / 4;
+        self.budget
+            .check_budget(self.scope, est)
+            .map_err(|e| darius_cognitive::CognitiveError::Loop(e.to_string()))?;
+        self.budget.record_usage(self.scope, est);
+        Ok(())
     }
 }
 
@@ -376,6 +409,7 @@ use darius_cognitive::AsyncModel;
 
 impl darius_cognitive::Model for LiveModel {
     fn plan(&mut self, goal: &str) -> Result<String, darius_cognitive::CognitiveError> {
+        self.spend(goal)?;
         if std::env::var(&self.key_env).is_err() {
             return Ok(format!(
                 r#"{{"tasks":[{{"title":"Response from {}"}}]}}"#,
@@ -391,6 +425,7 @@ impl darius_cognitive::Model for LiveModel {
     }
 
     fn react(&mut self, context: &str) -> Result<String, darius_cognitive::CognitiveError> {
+        self.spend(context)?;
         if std::env::var(&self.key_env).is_err() {
             return Ok(format!("Response from {}\nDONE", self.model));
         }
@@ -441,6 +476,48 @@ mod tests {
         })
         .unwrap();
         assert_eq!(live.base_url, "http://localhost:1/v1");
+    }
+
+    #[test]
+    fn live_model_new_empty_registry_errors() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache);
+        assert!(LiveModel::new(router, BudgetScope::Session).is_err());
+    }
+
+    #[test]
+    fn live_model_plan_enforces_budget() {
+        let cache = Arc::new(CacheCoordinator::new());
+        let router = ModelRouter::new(cache);
+        register_default(&router);
+        router
+            .budget_enforcer()
+            .record_usage(BudgetScope::Session, 1_000_000);
+        let mut live = LiveModel::new(router, BudgetScope::Session).unwrap();
+        let err = live.plan("test goal").unwrap_err().to_string();
+        assert!(err.contains("tokens used"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_rejects_null_message() {
+        let body = serde_json::json!({"choices": [{"message": null}]});
+        assert!(wire_decode::decode_response(&body).is_err());
+    }
+
+    #[test]
+    fn decode_rejects_empty_response() {
+        let body = serde_json::json!({"choices": [{"message": {}}]});
+        assert!(wire_decode::decode_response(&body).is_err());
+    }
+
+    #[test]
+    fn decode_rejects_empty_tool_name() {
+        let body = serde_json::json!({"choices": [{"message": {
+            "content": null,
+            "tool_calls": [{"id": "c1", "type": "function",
+                "function": {"name": "", "arguments": "{}"}}],
+        }}]});
+        assert!(wire_decode::decode_response(&body).is_err());
     }
 
     #[test]
@@ -540,7 +617,7 @@ mod tests {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
         register_default(&router);
-        let mut live = LiveModel::new(router, BudgetScope::Session);
+        let mut live = LiveModel::new(router, BudgetScope::Session).expect("default registered");
 
         let plan = live.plan("test goal").unwrap();
         assert!(plan.contains("Response from gpt-4"));
@@ -551,7 +628,7 @@ mod tests {
         let cache = Arc::new(CacheCoordinator::new());
         let router = ModelRouter::new(cache);
         register_default(&router);
-        let mut live = LiveModel::new(router, BudgetScope::Session);
+        let mut live = LiveModel::new(router, BudgetScope::Session).expect("default registered");
 
         let response = live.react("context").unwrap();
         assert!(response.contains("Response from gpt-4"));
