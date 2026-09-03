@@ -465,11 +465,9 @@ mod tests {
         let temp_dir =
             std::env::temp_dir().join(format!("darius_sub_tool_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new_with_roots(
-            &temp_dir,
-            &temp_dir.join("tool_results"),
-        )
-        .unwrap();
+        let mut registry =
+            darius_tools::ToolRegistry::new_with_roots(&temp_dir, &temp_dir.join("tool_results"))
+                .unwrap();
         let runtime = Arc::new(LocalSubagentRuntime::new());
         register_subagent_builtins(&mut registry, runtime);
 
