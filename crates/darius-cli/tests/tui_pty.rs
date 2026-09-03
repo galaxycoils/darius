@@ -2,13 +2,13 @@
 //!
 //! These tests use portable-pty to spawn the real `darius` binary in a
 //! pseudo-terminal, exercising the full TUI lifecycle (setup, input, exit).
-//! They are RED by design — they document expected behavior before implementation.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tempfile::TempDir;
 
 /// Snapshot of ~/.darius state before/after a test to verify no pollution.
@@ -25,10 +25,7 @@ impl DariusHomeSnapshot {
             .as_ref()
             .map(|p| (p.exists(), std::fs::metadata(p).ok()))
             .unwrap_or((false, None));
-        Self {
-            exists,
-            metadata,
-        }
+        Self { exists, metadata }
     }
 
     fn assert_unchanged(&self, label: &str) {
@@ -51,7 +48,7 @@ impl DariusHomeSnapshot {
 /// Helper that spawns `darius` in a PTY with a clean, isolated environment.
 struct PtyTestHarness {
     child: Box<dyn portable_pty::Child + Send>,
-    reader: BufReader<Box<dyn std::io::Read + Send>>,
+    output: mpsc::Receiver<Result<Vec<u8>, String>>,
     writer: Box<dyn Write + Send>,
     _darius_home: TempDir,
     _workspace: TempDir,
@@ -65,7 +62,11 @@ impl PtyTestHarness {
         let bin = std::env::var_os("CARGO_BIN_EXE_darius")
             .ok_or("CARGO_BIN_EXE_darius not set — run via `cargo test`")?;
         let bin_path = PathBuf::from(bin);
-        assert!(bin_path.exists(), "darius binary not found at {:?}", bin_path);
+        assert!(
+            bin_path.exists(),
+            "darius binary not found at {:?}",
+            bin_path
+        );
 
         // Snapshot real ~/.darius before test
         let snapshot = DariusHomeSnapshot::capture();
@@ -93,13 +94,31 @@ impl PtyTestHarness {
         cmd.env_remove("DARIUS_PROFILE"); // No profile preset
 
         let child = pair.slave.spawn_command(cmd)?;
-        let reader = BufReader::new(pair.master.try_clone_reader()?);
+        let mut reader = pair.master.try_clone_reader()?;
+        let (output_tx, output) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut chunk = [0_u8; 4096];
+            loop {
+                match reader.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(count) => {
+                        if output_tx.send(Ok(chunk[..count].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = output_tx.send(Err(error.to_string()));
+                        break;
+                    }
+                }
+            }
+        });
         let writer = pair.master.take_writer()?;
         drop(pair.slave);
 
         Ok(Self {
             child,
-            reader,
+            output,
             writer,
             _darius_home: darius_home,
             _workspace: workspace,
@@ -115,33 +134,34 @@ impl PtyTestHarness {
         timeout: Duration,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let deadline = std::time::Instant::now() + timeout;
-        let mut buf = String::new();
-        let mut line = String::new();
+        let mut bytes = Vec::new();
 
         while std::time::Instant::now() < deadline {
-            line.clear();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => break, // EOF
-                Ok(_) => {
-                    buf.push_str(&line);
-                    if buf.contains(needle) {
-                        return Ok(buf);
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            match self.output.recv_timeout(remaining) {
+                Ok(Ok(chunk)) => {
+                    bytes.extend_from_slice(&chunk);
+                    let output = String::from_utf8_lossy(&bytes);
+                    if output.contains(needle) {
+                        return Ok(output.into_owned());
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
+                Ok(Err(error)) => return Err(error.into()),
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
 
-        Err(format!("timeout waiting for {:?}; got: {}", needle, buf).into())
+        Err(format!(
+            "timeout waiting for {:?}; got: {}",
+            needle,
+            String::from_utf8_lossy(&bytes)
+        )
+        .into())
     }
 
-    /// Write a line to the PTY (with newline).
-    fn write_line(&mut self, line: &str) -> Result<(), Box<dyn std::error::Error>> {
-        writeln!(self.writer, "{}", line)?;
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        self.writer.write_all(bytes)?;
         self.writer.flush()?;
         Ok(())
     }
@@ -158,9 +178,15 @@ impl PtyTestHarness {
                 None => std::thread::sleep(Duration::from_millis(50)),
             }
         }
-        // Timeout: kill child
+        // Timeout: kill the child, then make one bounded attempt to reap it.
         let _ = self.child.kill();
-        let _ = self.child.wait()?;
+        let reap_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while std::time::Instant::now() < reap_deadline {
+            if self.child.try_wait()?.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         Ok(None)
     }
 
@@ -192,60 +218,50 @@ impl PtyTestHarness {
 
 impl Drop for PtyTestHarness {
     fn drop(&mut self) {
-        // Best-effort cleanup: kill child if still alive
+        // Best-effort bounded cleanup: kill and reap the child if still alive.
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while std::time::Instant::now() < deadline {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
-/// RED TEST: bare `darius` launch with empty temp home and no API key.
-///
-/// Expected behavior (not yet implemented):
-/// - Prints a one-line setup hint (does NOT open interactive TUI)
-/// - Exits 0 cleanly
-/// - Restores cursor/shell within 5s (no hanging PTY)
-///
-/// Current behavior (broken):
-/// - Opens TUI immediately or hangs
-/// - Does not show setup guidance
 #[test]
 fn clean_home_bare_launch() {
-    // Spawn bare `darius` (no subcommand) with clean temp home
     let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
 
-    // Expect the setup hint to appear (not the TUI, not the full usage table).
-    // With DARIUS_HOME set but no API key configured, the hint points at
-    // `darius help` and `darius config`.
     let output = harness
-        .read_until("Run `darius help`", Duration::from_secs(5))
-        .expect("should print setup hint for bare invocation");
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("bare PTY invocation should render the TUI");
 
-    // Strip ANSI only for assertions
     let clean = PtyTestHarness::strip_ansi(&output);
-
-    // Verify it printed the setup hint, not the full usage table
     assert!(
-        clean.contains("Run `darius help`"),
-        "bare invocation should print setup hint, got: {}",
+        clean.contains("Welcome back"),
+        "bare PTY invocation should render the welcome card, got: {}",
         clean
     );
     assert!(
-        !clean.contains("Usage: darius <command>"),
-        "bare invocation should NOT print the full usage table, got: {}",
+        !clean.contains("Run `darius help`"),
+        "bare PTY invocation should not print a pre-TUI hint, got: {}",
         clean
     );
 
-    // Send /quit (should be no-op if already exited, but harmless)
-    let _ = harness.write_line("/quit");
+    // Ctrl-C is the TUI's idle-state quit key and works in raw terminal mode.
+    harness.write_bytes(&[0x03]).expect("send Ctrl-C");
 
-    // Verify clean exit within 5s
     let exit_code = harness
         .wait_with_timeout(Duration::from_secs(5))
         .expect("wait failed")
         .expect("process should exit within 5s");
 
-    assert_eq!(exit_code, 0, "bare invocation should exit 0, got {}", exit_code);
-
-    // Verify ~/.darius untouched
+    assert_eq!(
+        exit_code, 0,
+        "bare invocation should exit 0, got {}",
+        exit_code
+    );
     harness.assert_home_unchanged("clean_home_bare_launch");
 }
