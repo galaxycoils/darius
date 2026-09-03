@@ -127,6 +127,7 @@ impl SessionRuntime {
         let board = Arc::new(parking_lot::Mutex::new(darius_tools::TaskBoard::new(15)));
         darius_tools::register_task_builtins(&mut tools, board.clone());
         darius_tools::register_coding_builtins(&mut tools);
+        darius_tools::register_spill_read(&mut tools);
         let model = model_for(&resolved.state);
         let metadata = RunMetadata {
             profile: profile.into(),
@@ -178,6 +179,13 @@ impl SessionRuntime {
 
     pub fn is_setup(&self) -> bool {
         matches!(self.state, RuntimeState::Setup)
+    }
+
+    /// Model-facing dispatch through the verified allowlist. Unknown and
+    /// hidden calls are rejected before permission with one correlated error.
+    /// The cognitive loop migrates to this path in Task 3.3.
+    pub fn execute_model_call(&self, call: &darius_tools::ToolCall) -> darius_tools::ToolOutcome {
+        self.tools.execute_model(call)
     }
 
     pub fn is_offline_demo(&self) -> bool {

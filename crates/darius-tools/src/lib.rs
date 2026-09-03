@@ -2,12 +2,14 @@ pub mod create_path;
 pub mod ensure_dirs;
 pub mod execution;
 pub mod mcp;
+pub mod model_tools;
 pub mod path_policy;
 pub mod process_group;
 pub mod read_file;
 pub mod search_files;
 pub mod search_filter;
 pub mod search_walk;
+pub mod session_keys;
 pub mod shell;
 pub mod spec;
 pub mod write_file;
@@ -239,14 +241,6 @@ impl ToolRegistry {
         );
     }
 
-    /// Register a tool defaulting to ReadOnly risk. Prefer `register_with_risk`.
-    pub fn register<F>(&mut self, name: &str, handler: F)
-    where
-        F: Fn(&ToolCall) -> Result<ToolOutcome, ToolError> + Send + 'static,
-    {
-        self.register_with_risk(name, ToolRisk::ReadOnly, handler);
-    }
-
     /// Look up the risk classification for a registered tool.
     pub fn risk(&self, name: &str) -> Option<ToolRisk> {
         self.handlers.get(name).map(|t| t.risk)
@@ -264,6 +258,16 @@ impl ToolRegistry {
                 message: format!("unknown tool: {}", call.name),
             },
         }
+    }
+
+    /// Model-facing dispatch: allowlist gate plus arg sanitize, then execute.
+    /// Unknown/hidden calls are rejected before any handler runs.
+    pub fn execute_model(&self, call: &ToolCall) -> ToolOutcome {
+        let clean = model_tools::sanitize_call(call);
+        if !model_tools::is_model_tool(&clean.name) {
+            return model_tools::hidden_tool_error(&clean);
+        }
+        self.execute(&clean)
     }
 
     pub fn spill(&self, content: &str) -> (String, Option<PathBuf>) {
@@ -511,7 +515,7 @@ pub fn register_task_builtins(
     });
 }
 
-/// Register coding builtins (shell, read_file, search_files, write_file, glob, spill_read) on a tool registry.
+/// Register model coding builtins (shell, read_file, search_files, write_file, spill_read).
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
     let shell_executor = crate::shell::ShellExecutor {
         workspace: registry.policy.root().to_path_buf(),
@@ -580,7 +584,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         ))
     });
 
-    register_spill_builtins(registry);
+    register_spill_read(registry);
 
     let policy_write = registry.policy.clone();
     registry.register_with_risk("write_file", ToolRisk::Mutating, move |call| {
@@ -601,17 +605,10 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         crate::ensure_dirs::ensure_parent_dirs(policy_write.root(), path_str)?;
         let path = policy_write.resolve(path_str, true)?;
         if darius_safety::is_protected_path(&path) {
-            let approved = call
-                .arguments
-                .get("approved")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if !approved {
-                return Err(ToolError::InvalidArgs(format!(
-                    "write to protected instruction file '{}' requires approval",
-                    path.display()
-                )));
-            }
+            return Err(ToolError::InvalidArgs(format!(
+                "write to protected instruction file '{}' requires approval",
+                path.display()
+            )));
         }
 
         let bytes = write_file::write_atomic(&policy_write, path_str, content)?;
@@ -620,91 +617,14 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             spilled_path: None,
         })
     });
-
-    registry.register_with_risk("peer_send", ToolRisk::Mutating, |call| {
-        let recipient = call
-            .arguments
-            .get("recipient")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let intent = call
-            .arguments
-            .get("intent")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let authenticated = call
-            .arguments
-            .get("authenticated")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        if recipient.is_empty() || intent.is_empty() {
-            return Err(ToolError::InvalidArgs(
-                "recipient and intent required".into(),
-            ));
-        }
-
-        if !authenticated {
-            return Err(ToolError::Execution(
-                "peer sending requires explicit peer discovery/auth prior step".into(),
-            ));
-        }
-
-        Ok(ToolOutcome::Ok {
-            preview: format!("sent peer message to {recipient} with intent {intent}"),
-            spilled_path: None,
-        })
-    });
-
-    let policy_glob = registry.policy.clone();
-    registry.register_with_risk("glob", ToolRisk::ReadOnly, move |call| {
-        let pattern = call
-            .arguments
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if pattern.is_empty() {
-            return Err(ToolError::InvalidArgs("pattern required".into()));
-        }
-
-        // Simple glob: walk directory and match against pattern
-        let path = std::path::Path::new(pattern);
-        let parent = path.parent().unwrap_or(std::path::Path::new("."));
-        let parent_str = parent.to_str().unwrap_or(".");
-        let parent_str = if parent_str.is_empty() {
-            "."
-        } else {
-            parent_str
-        };
-        let resolved_parent = policy_glob.resolve(parent_str, false)?;
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-        let mut results = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&resolved_parent) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                // Simple wildcard match: * matches everything
-                if name_str.contains(&file_name.replace('*', "")) || file_name == "*" {
-                    results.push(entry.path().display().to_string());
-                    if results.len() >= 50 {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(ToolOutcome::Ok {
-            preview: results.join("\n"),
-            spilled_path: None,
-        })
-    });
 }
 
-/// Register spill inspection tools (spill_read, read_spill).
-pub fn register_spill_builtins(registry: &mut ToolRegistry) {
+/// Register the contained spill-recall tool (`spill_read` only).
+/// The legacy `read_spill` alias is intentionally not registered: model
+/// calls must use the single canonical `spill_read` name.
+pub fn register_spill_read(registry: &mut ToolRegistry) {
     let spill_dir = registry.spill_dir.clone();
-    let handler = move |call: &ToolCall| {
+    registry.register_with_risk("spill_read", ToolRisk::ReadOnly, move |call| {
         let path_str = call
             .arguments
             .get("path")
@@ -762,13 +682,6 @@ pub fn register_spill_builtins(registry: &mut ToolRegistry) {
             preview: slice,
             spilled_path: None,
         })
-    };
-
-    let handler_arc = std::sync::Arc::new(handler);
-    let h1 = handler_arc.clone();
-    registry.register_with_risk("spill_read", ToolRisk::ReadOnly, move |call| h1(call));
-    registry.register_with_risk("read_spill", ToolRisk::ReadOnly, move |call| {
-        handler_arc(call)
     });
 }
 
@@ -854,36 +767,6 @@ mod tests {
 
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "hello from write_file");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn glob_tool_finds_files() {
-        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.txt"), "").unwrap();
-        std::fs::write(dir.join("b.rs"), "").unwrap();
-
-        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
-        register_coding_builtins(&mut registry);
-
-        let call = ToolCall {
-            id: "test-4".into(),
-            name: "glob".into(),
-            arguments: serde_json::json!({"pattern": dir.join("*").to_string_lossy()}),
-        };
-
-        let outcome = registry.execute(&call);
-        match outcome {
-            ToolOutcome::Ok { preview, .. } => {
-                assert!(preview.contains("a.txt"));
-                assert!(preview.contains("b.rs"));
-            }
-            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
-            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
-                panic!("unexpected terminal outcome")
-            }
-        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1163,7 +1046,12 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         assert_eq!(registry.risk("shell"), Some(ToolRisk::Shell));
         assert_eq!(registry.risk("read_file"), Some(ToolRisk::ReadOnly));
         assert_eq!(registry.risk("write_file"), Some(ToolRisk::Mutating));
-        assert_eq!(registry.risk("glob"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("search_files"), Some(ToolRisk::ReadOnly));
+        assert_eq!(registry.risk("spill_read"), Some(ToolRisk::ReadOnly));
+        // Removed legacy tools stay unregistered: no metadata, no default risk.
+        assert_eq!(registry.risk("glob"), None);
+        assert_eq!(registry.risk("peer_send"), None);
+        assert_eq!(registry.risk("read_spill"), None);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1332,7 +1220,8 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             }
         }
 
-        // 2. With approved: true -> allowed
+        // 2. approved:true is model-controlled and no longer honored:
+        // protected writes are hard-denied; approval flows via RunControl.
         let approved_call = ToolCall {
             id: "call-approved".into(),
             name: "write_file".into(),
@@ -1344,54 +1233,17 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         };
 
         let outcome = registry.execute(&approved_call);
-        assert!(matches!(outcome, ToolOutcome::Ok { .. }));
-        assert_eq!(
-            std::fs::read_to_string(&agents_file).unwrap(),
-            "# Approved Agents"
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_peer_send_step_gated_auth() {
-        let dir = std::env::temp_dir().join(format!("darius_tools_peer_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
-        register_coding_builtins(&mut registry);
-
-        // 1. Without authentication -> fails
-        let unauth_call = ToolCall {
-            id: "call-peer-unauth".into(),
-            name: "peer_send".into(),
-            arguments: serde_json::json!({
-                "recipient": "agent-bob",
-                "intent": "sync_status"
-            }),
-        };
-        let outcome = registry.execute(&unauth_call);
         match outcome {
             ToolOutcome::Err { message } => {
-                assert!(message.contains("discovery/auth"));
+                assert!(message.contains("requires approval"));
             }
-            ToolOutcome::Ok { .. } => panic!("expected unauthenticated peer_send to fail"),
+            ToolOutcome::Ok { .. } => {
+                panic!("model-supplied approved:true must not bypass protected paths")
+            }
             ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
                 panic!("expected error, got terminal outcome")
             }
         }
-
-        // 2. With authentication -> succeeds
-        let auth_call = ToolCall {
-            id: "call-peer-auth".into(),
-            name: "peer_send".into(),
-            arguments: serde_json::json!({
-                "recipient": "agent-bob",
-                "intent": "sync_status",
-                "authenticated": true
-            }),
-        };
-        let outcome = registry.execute(&auth_call);
-        assert!(matches!(outcome, ToolOutcome::Ok { .. }));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1617,28 +1469,6 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
             ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
                 panic!("unexpected terminal outcome")
-            }
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn glob_rejects_outside_root() {
-        let dir =
-            std::env::temp_dir().join(format!("darius_tools_policy_glob_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
-        register_coding_builtins(&mut registry);
-        let call = ToolCall {
-            id: "policy-glob-1".into(),
-            name: "glob".into(),
-            arguments: serde_json::json!({"pattern": "/etc/*"}),
-        };
-        match registry.execute(&call) {
-            ToolOutcome::Err { .. } => {}
-            ToolOutcome::Ok { .. } => panic!("expected glob outside root to fail"),
-            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
-                panic!("expected error, got terminal outcome")
             }
         }
         let _ = std::fs::remove_dir_all(&dir);

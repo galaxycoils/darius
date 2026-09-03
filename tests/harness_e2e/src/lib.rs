@@ -465,7 +465,8 @@ mod tests {
             darius_tools::ToolOutcome::Err { .. }
         ));
 
-        // Approved write allowed
+        // Model-supplied approved:true no longer bypasses protection (2.4):
+        // protected writes are hard-denied; approval flows via RunControl.
         let call_approved = darius_tools::ToolCall {
             id: "c2".into(),
             name: "write_file".into(),
@@ -477,7 +478,7 @@ mod tests {
         };
         assert!(matches!(
             registry.execute(&call_approved),
-            darius_tools::ToolOutcome::Ok { .. }
+            darius_tools::ToolOutcome::Err { .. }
         ));
 
         let _ = std::fs::remove_dir_all(&dir);
