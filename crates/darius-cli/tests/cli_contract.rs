@@ -1,12 +1,96 @@
 use assert_cmd::Command as AssertCommand;
 use clap::{Parser, error::ErrorKind};
 use darius_cli::args::{Cli, Command, ConfigCommand, MemoryCommand};
+use darius_cli::paths::DariusPaths;
+use darius_cli::runtime::{RuntimeError, SessionRuntime};
+use darius_cli::tui_runtime::TuiWorker;
+use darius_cognitive::UiEvent;
+use darius_tui::{CommandId, CommandInvocation, Effort, Mode, RuntimeCommand};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::{Mutex, MutexGuard};
+use tempfile::TempDir;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+struct ScopedEnv {
+    _lock: MutexGuard<'static, ()>,
+    saved: Vec<(&'static str, Option<OsString>)>,
+}
+
+impl ScopedEnv {
+    fn new(values: &[(&'static str, Option<&str>)]) -> Self {
+        let lock = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let saved = values
+            .iter()
+            .map(|(name, _)| (*name, std::env::var_os(name)))
+            .collect();
+        for (name, value) in values {
+            // SAFETY: runtime-selection tests serialize all process environment mutations.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+        Self { _lock: lock, saved }
+    }
+}
+
+impl Drop for ScopedEnv {
+    fn drop(&mut self) {
+        for (name, value) in self.saved.drain(..) {
+            // SAFETY: the environment lock is held until restoration is complete.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+}
+
+fn runtime_paths(temp: &TempDir) -> DariusPaths {
+    let home = temp.path().join("home");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&workspace).unwrap();
+    DariusPaths { home, workspace }
+}
+
+fn write_model_config(paths: &DariusPaths, profile: &str, key_env: &str) {
+    let profile_dir = paths.profile(profile).unwrap();
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        format!(
+            "[model]\nprovider = \"configured-provider\"\nbase_url = \"https://provider.example/v1\"\nmodel = \"configured-model\"\napi_key_env = \"{key_env}\"\n"
+        ),
+    )
+    .unwrap();
+}
 
 fn binary(args: &[&str]) -> Output {
     let mut command = AssertCommand::cargo_bin("darius").expect("darius binary not found");
     command.args(args).output().expect("spawn failed")
+}
+
+fn isolated_binary(temp: &TempDir, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let paths = runtime_paths(temp);
+    let mut command = AssertCommand::cargo_bin("darius").expect("darius binary not found");
+    command
+        .env_remove("DARIUS_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env("DARIUS_HOME", &paths.home)
+        .args(["--cwd", paths.workspace.to_str().unwrap()])
+        .args(args);
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.output().expect("spawn failed")
 }
 
 fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
@@ -228,4 +312,262 @@ fn explicit_memory_and_config_variants_parse() {
             "variant: {name}"
         );
     }
+}
+
+#[test]
+fn runtime_selection_offline_is_explicit_and_never_claims_analysis_or_completion() {
+    let temp = TempDir::new().unwrap();
+    let output = isolated_binary(
+        &temp,
+        &["--offline", "run", "analyze", "private.rs"],
+        &[("DARIUS_API_KEY", "secret-value")],
+    );
+    let text = stdout(&output);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(text.contains("Runtime state: offline-demo"), "{text}");
+    assert!(text.contains("no real file analysis"), "{text}");
+    assert!(!text.contains("completed"), "{text}");
+    assert!(!text.contains("✓"), "{text}");
+}
+
+#[test]
+fn runtime_selection_configured_key_uses_exact_provider() {
+    const KEY: &str = "DARIUS_RUNTIME_SELECTION_CONFIGURED_KEY";
+    let _env = ScopedEnv::new(&[(KEY, Some("present"))]);
+    let temp = TempDir::new().unwrap();
+    let paths = runtime_paths(&temp);
+    write_model_config(&paths, "configured", KEY);
+
+    let runtime = SessionRuntime::from_profile(&paths, "configured").unwrap();
+    assert_eq!(runtime.metadata.mode, "live");
+    assert_eq!(
+        runtime.metadata.model,
+        "configured-provider/configured-model"
+    );
+}
+
+#[test]
+fn runtime_selection_configured_missing_key_names_only_the_variable() {
+    const KEY: &str = "DARIUS_RUNTIME_SELECTION_MISSING_KEY_8F31";
+    let _env = ScopedEnv::new(&[(KEY, None)]);
+    let temp = TempDir::new().unwrap();
+    let paths = runtime_paths(&temp);
+    write_model_config(&paths, "missing", KEY);
+
+    let error = SessionRuntime::from_profile(&paths, "missing")
+        .err()
+        .unwrap();
+    assert!(matches!(&error, RuntimeError::MissingApiKey(name) if name == KEY));
+    assert_eq!(error.to_string(), format!("missing API key: set {KEY}"));
+}
+
+#[test]
+fn runtime_selection_configured_empty_and_whitespace_keys_are_missing() {
+    const KEY: &str = "DARIUS_RUNTIME_SELECTION_BLANK_KEY";
+    for value in ["", " \t\n "] {
+        let _env = ScopedEnv::new(&[(KEY, Some(value))]);
+        let temp = TempDir::new().unwrap();
+        let paths = runtime_paths(&temp);
+        write_model_config(&paths, "blank", KEY);
+        assert!(matches!(
+            SessionRuntime::from_profile(&paths, "blank"),
+            Err(RuntimeError::MissingApiKey(name)) if name == KEY
+        ));
+    }
+}
+
+#[test]
+fn runtime_selection_no_config_uses_implicit_openai_defaults() {
+    let _env = ScopedEnv::new(&[
+        ("DARIUS_API_KEY", None),
+        ("OPENAI_API_KEY", Some("openai-secret")),
+    ]);
+    let temp = TempDir::new().unwrap();
+    let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "implicit").unwrap();
+
+    let model = runtime.profile_config.model.as_ref().unwrap();
+    assert_eq!(runtime.metadata.mode, "live");
+    assert_eq!(runtime.metadata.model, "openai_compatible/gpt-4o-mini");
+    assert_eq!(model.provider, "openai_compatible");
+    assert_eq!(model.base_url, "https://api.openai.com/v1");
+    assert_eq!(model.model, "gpt-4o-mini");
+    assert_eq!(model.api_key_env.as_deref(), Some("OPENAI_API_KEY"));
+}
+
+#[test]
+fn runtime_selection_darius_key_precedes_openai_without_config() {
+    let _env = ScopedEnv::new(&[
+        ("DARIUS_API_KEY", Some("darius-secret")),
+        ("OPENAI_API_KEY", Some("openai-secret")),
+    ]);
+    let temp = TempDir::new().unwrap();
+    let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "precedence").unwrap();
+    assert_eq!(
+        runtime
+            .profile_config
+            .model
+            .as_ref()
+            .unwrap()
+            .api_key_env
+            .as_deref(),
+        Some("DARIUS_API_KEY")
+    );
+}
+
+#[test]
+fn runtime_selection_blank_darius_key_falls_through_to_openai() {
+    for darius_value in ["", " \t "] {
+        let _env = ScopedEnv::new(&[
+            ("DARIUS_API_KEY", Some(darius_value)),
+            ("OPENAI_API_KEY", Some("openai-secret")),
+        ]);
+        let temp = TempDir::new().unwrap();
+        let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "fallback").unwrap();
+        assert_eq!(
+            runtime
+                .profile_config
+                .model
+                .as_ref()
+                .unwrap()
+                .api_key_env
+                .as_deref(),
+            Some("OPENAI_API_KEY")
+        );
+    }
+}
+
+#[test]
+fn runtime_selection_no_config_or_usable_key_enters_setup() {
+    let _env = ScopedEnv::new(&[
+        ("DARIUS_API_KEY", Some(" \t ")),
+        ("OPENAI_API_KEY", Some("\n")),
+    ]);
+    let temp = TempDir::new().unwrap();
+    let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "setup").unwrap();
+    assert_eq!(runtime.metadata.mode, "setup");
+    assert_eq!(runtime.metadata.model, "not-configured");
+}
+
+#[test]
+fn runtime_selection_malformed_config_is_not_swallowed() {
+    let temp = TempDir::new().unwrap();
+    let paths = runtime_paths(&temp);
+    let profile = paths.profile("malformed").unwrap();
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(profile.join("config.toml"), "[model\nnot toml").unwrap();
+
+    assert!(matches!(
+        SessionRuntime::from_profile(&paths, "malformed"),
+        Err(RuntimeError::Config(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_selection_unwritable_home_reports_io_error() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new().unwrap();
+    let paths = runtime_paths(&temp);
+    std::fs::set_permissions(&paths.home, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let result = SessionRuntime::from_profile(&paths, "blocked");
+    std::fs::set_permissions(&paths.home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(result, Err(RuntimeError::Io(_))));
+}
+
+#[test]
+fn runtime_selection_config_show_exposes_secret_safe_diagnostics() {
+    let temp = TempDir::new().unwrap();
+    let output = isolated_binary(
+        &temp,
+        &["config", "show"],
+        &[("DARIUS_API_KEY", "do-not-print-this-secret")],
+    );
+    let text = stdout(&output);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for expected in [
+        "Version: 1.2.0",
+        "Home:",
+        "Profile path:",
+        "Config path:",
+        "Config parse: missing",
+        "DARIUS_API_KEY: present",
+        "OPENAI_API_KEY: missing",
+        "Memory: open",
+        "Workspace:",
+        "Provider URL: https://api.openai.com/v1",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text}");
+    }
+    assert!(!text.contains("do-not-print-this-secret"), "{text}");
+}
+
+#[test]
+fn runtime_selection_status_exposes_diagnostics_without_done() {
+    let _env = ScopedEnv::new(&[("DARIUS_API_KEY", None), ("OPENAI_API_KEY", None)]);
+    let temp = TempDir::new().unwrap();
+    let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "status").unwrap();
+    let (mut worker, mut events) = TuiWorker::new(runtime);
+    let (commands, command_rx) = std::sync::mpsc::channel();
+    commands
+        .send(RuntimeCommand::ExecuteSlash(CommandInvocation {
+            id: CommandId::Status,
+            name: "/status".into(),
+            args: String::new(),
+        }))
+        .unwrap();
+    commands.send(RuntimeCommand::Shutdown).unwrap();
+    worker.run_loop(command_rx);
+    let emitted: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    let lines = emitted
+        .iter()
+        .filter_map(|event| match event {
+            UiEvent::Status { line } => Some(line.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(lines.contains("Version: 1.2.0"), "{lines}");
+    assert!(lines.contains("Runtime state: setup"), "{lines}");
+    assert!(lines.contains("Memory: open"), "{lines}");
+    assert!(!emitted.iter().any(|event| matches!(event, UiEvent::Done)));
+}
+
+#[test]
+fn runtime_selection_submitted_setup_goal_emits_guidance_not_fake_done() {
+    let _env = ScopedEnv::new(&[("DARIUS_API_KEY", None), ("OPENAI_API_KEY", None)]);
+    let temp = TempDir::new().unwrap();
+    let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "first-run").unwrap();
+    let (mut worker, mut events) = TuiWorker::new(runtime);
+    let (commands, command_rx) = std::sync::mpsc::channel();
+    commands
+        .send(RuntimeCommand::SubmitGoal {
+            text: "analyze my files".into(),
+            mode: Mode::Auto,
+            effort: Effort::Low,
+        })
+        .unwrap();
+    commands.send(RuntimeCommand::Shutdown).unwrap();
+    worker.run_loop(command_rx);
+    let emitted: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    let lines = emitted
+        .iter()
+        .filter_map(|event| match event {
+            UiEvent::Status { line } => Some(line.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(lines.contains("Setup required"), "{lines}");
+    assert!(lines.contains("No goal was run"), "{lines}");
+    assert!(!emitted.iter().any(|event| matches!(event, UiEvent::Done)));
+    assert!(!lines.contains("completed"), "{lines}");
 }

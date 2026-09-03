@@ -1,7 +1,4 @@
 //! One reusable session runtime shared by CLI, TUI, web, and A2A.
-//!
-//! Constructs profile/config/memory/tools/model once so every surface
-//! runs the same cognitive loop against the same dependencies.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,9 +11,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::ProfileConfig;
 use crate::config_error::ConfigError;
+use crate::diagnostics;
 use crate::paths::{DariusPaths, PathError};
+use crate::runtime_selection::RuntimeState;
+use crate::runtime_selector::{nonblank, select};
 
-/// Errors that can occur when building a session runtime.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("configuration error: {0}")]
@@ -33,7 +32,6 @@ pub enum RuntimeError {
     Io(#[from] std::io::Error),
 }
 
-/// Configuration for building a session runtime.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub profile: String,
@@ -49,7 +47,49 @@ impl RuntimeConfig {
     }
 }
 
-/// A fully-constructed session runtime ready to run cognitive loops.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RuntimeOptions {
+    pub offline: bool,
+}
+
+struct ResolvedProfile {
+    config: RuntimeConfig,
+    profile_config: ProfileConfig,
+    config_path: PathBuf,
+    config_exists: bool,
+    state: RuntimeState,
+}
+
+fn resolve_profile(
+    paths: &DariusPaths,
+    profile: &str,
+    options: RuntimeOptions,
+) -> Result<ResolvedProfile, RuntimeError> {
+    let config = RuntimeConfig::from_profile(paths, profile)?;
+    let config_path = ProfileConfig::config_path(paths, profile)?;
+    let config_exists = config_path.try_exists()?;
+    let mut profile_config = if config_exists {
+        ProfileConfig::load(paths, profile)?
+    } else {
+        ProfileConfig::default()
+    };
+    let state = if options.offline {
+        RuntimeState::OfflineDemo
+    } else {
+        select(config_exists.then_some(&profile_config), nonblank)
+    };
+    if !config_exists && let RuntimeState::Live(provider) = &state {
+        profile_config.model = Some(provider.config());
+    }
+    Ok(ResolvedProfile {
+        config,
+        profile_config,
+        config_path,
+        config_exists,
+        state,
+    })
+}
+
 pub struct SessionRuntime {
     pub config: RuntimeConfig,
     pub profile_config: ProfileConfig,
@@ -60,118 +100,130 @@ pub struct SessionRuntime {
     pub event_sender: broadcast::Sender<UiEvent>,
     pub cancellation: CancellationToken,
     pub policy: LoopPolicy,
+    state: RuntimeState,
+    diagnostics: Vec<String>,
 }
 
 impl SessionRuntime {
-    /// Build a session runtime from a profile name.
-    ///
-    /// - Loads `ProfileConfig`.
-    /// - Creates `MemoryEngine` and `ToolRegistry`.
-    /// - Registers memory/task/coding tools.
-    /// - Selects Mock only when no model config exists.
-    /// - Returns `MissingApiKey` when config exists but key is absent.
     pub fn from_profile(paths: &DariusPaths, profile: &str) -> Result<Self, RuntimeError> {
-        let config = RuntimeConfig::from_profile(paths, profile)?;
-        std::fs::create_dir_all(&config.profile_dir)?;
+        Self::from_options(paths, profile, RuntimeOptions::default())
+    }
 
-        let profile_config = ProfileConfig::load(paths, profile)?;
-        let memory = MemoryEngine::open(&config.profile_dir)?;
-        let mut tools = ToolRegistry::new(&config.profile_dir)?;
-
-        // Register builtins.
+    pub fn from_options(
+        paths: &DariusPaths,
+        profile: &str,
+        options: RuntimeOptions,
+    ) -> Result<Self, RuntimeError> {
+        let resolved = resolve_profile(paths, profile, options)?;
+        if let RuntimeState::MissingKey(provider) = &resolved.state {
+            return Err(RuntimeError::MissingApiKey(provider.key_env.clone()));
+        }
+        std::fs::create_dir_all(&resolved.config.profile_dir)?;
+        let memory = MemoryEngine::open(&resolved.config.profile_dir)?;
+        let mut tools = ToolRegistry::new(&resolved.config.profile_dir)?;
         darius_tools::register_memory_builtins(&mut tools, &memory);
         let board = Arc::new(parking_lot::Mutex::new(darius_tools::TaskBoard::new(15)));
         darius_tools::register_task_builtins(&mut tools, board);
         darius_tools::register_coding_builtins(&mut tools);
-
-        let (model, model_label) = if profile_config.model.is_none() {
-            // No model config: use offline Mock.
-            let plan_response = r#"{"tasks":[{"title":"Plan for the given goal"}]}"#.to_string();
-            let react_responses = vec![
-                r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#
-                    .to_string(),
-                "DONE".to_string(),
-            ];
-            (
-                Box::new(darius_cognitive::MockModel::new(
-                    plan_response,
-                    react_responses,
-                )) as Box<dyn Model>,
-                "mock".to_string(),
-            )
-        } else {
-            // Model config exists: check for API key.
-            let env_name = profile_config
-                .model
-                .as_ref()
-                .and_then(|m| m.api_key_env.as_deref())
-                .unwrap_or("DARIUS_API_KEY");
-            match std::env::var(env_name) {
-                Ok(_) => {
-                    // API key present: build a live model.
-                    let cache = Arc::new(darius_daemon::CacheCoordinator::new());
-                    let router = darius_daemon::ModelRouter::new(cache);
-                    if let Some(ref model_config) = profile_config.model {
-                        router.register_provider(darius_daemon::Provider {
-                            name: model_config.provider.clone(),
-                            model: model_config.model.clone(),
-                            base_url: model_config.base_url.clone(),
-                            enabled: true,
-                            api_key_env: model_config
-                                .api_key_env
-                                .clone()
-                                .unwrap_or_else(|| "DARIUS_API_KEY".into()),
-                        });
-                    }
-                    (
-                        Box::new(darius_daemon::LiveModel::new(
-                            router,
-                            darius_daemon::BudgetScope::Session,
-                        )) as Box<dyn Model>,
-                        profile_config
-                            .model
-                            .as_ref()
-                            .map(|m| m.model.clone())
-                            .unwrap_or_else(|| "live".into()),
-                    )
-                }
-                Err(_) => {
-                    return Err(RuntimeError::MissingApiKey(env_name.into()));
-                }
-            }
-        };
-
+        let model = model_for(&resolved.state);
         let metadata = RunMetadata {
             profile: profile.into(),
-            model: model_label,
-            mode: "auto".into(),
+            model: model_label(&resolved.state),
+            mode: resolved.state.label().into(),
         };
-
+        let diagnostics = diagnostics::lines(
+            paths,
+            profile,
+            &resolved.config_path,
+            resolved.config_exists,
+            &resolved.state,
+            true,
+        );
         let (event_sender, _) = broadcast::channel(256);
-        let cancellation = CancellationToken::new();
-        let policy = LoopPolicy::default();
-
         Ok(Self {
-            config,
-            profile_config,
+            config: resolved.config,
+            profile_config: resolved.profile_config,
             memory,
             tools,
             model,
             metadata,
             event_sender,
-            cancellation,
-            policy,
+            cancellation: CancellationToken::new(),
+            policy: LoopPolicy::default(),
+            state: resolved.state,
+            diagnostics,
         })
     }
 
-    /// Subscribe to the event broadcast channel.
+    pub fn diagnostics_for(
+        paths: &DariusPaths,
+        profile: &str,
+        options: RuntimeOptions,
+    ) -> Result<Vec<String>, RuntimeError> {
+        let resolved = resolve_profile(paths, profile, options)?;
+        std::fs::create_dir_all(&resolved.config.profile_dir)?;
+        MemoryEngine::open(&resolved.config.profile_dir)?;
+        Ok(diagnostics::lines(
+            paths,
+            profile,
+            &resolved.config_path,
+            resolved.config_exists,
+            &resolved.state,
+            true,
+        ))
+    }
+
+    pub fn is_setup(&self) -> bool {
+        matches!(self.state, RuntimeState::Setup)
+    }
+
+    pub fn is_offline_demo(&self) -> bool {
+        matches!(self.state, RuntimeState::OfflineDemo)
+    }
+
+    pub fn diagnostics(&self) -> &[String] {
+        &self.diagnostics
+    }
+
     pub fn subscribe_events(&self) -> broadcast::Receiver<UiEvent> {
         self.event_sender.subscribe()
     }
 
-    /// Get a clone of the cancellation token.
     pub fn cancellation_token(&self) -> CancellationToken {
         self.cancellation.clone()
+    }
+}
+
+fn model_for(state: &RuntimeState) -> Box<dyn Model> {
+    match state {
+        RuntimeState::Live(provider) => {
+            let cache = Arc::new(darius_daemon::CacheCoordinator::new());
+            let router = darius_daemon::ModelRouter::new(cache);
+            router.register_provider(darius_daemon::Provider {
+                name: provider.provider.clone(),
+                model: provider.model.clone(),
+                base_url: provider.base_url.clone(),
+                enabled: true,
+                api_key_env: provider.key_env.clone(),
+            });
+            Box::new(darius_daemon::LiveModel::new(
+                router,
+                darius_daemon::BudgetScope::Session,
+            ))
+        }
+        RuntimeState::OfflineDemo | RuntimeState::Setup => Box::new(
+            darius_cognitive::MockModel::new("{\"tasks\":[]}".into(), vec!["DONE".into()]),
+        ),
+        RuntimeState::MissingKey(_) => unreachable!("missing keys do not build runtimes"),
+    }
+}
+
+fn model_label(state: &RuntimeState) -> String {
+    match state {
+        RuntimeState::Live(provider) => format!("{}/{}", provider.provider, provider.model),
+        RuntimeState::OfflineDemo => "offline-demo".into(),
+        RuntimeState::Setup => "not-configured".into(),
+        RuntimeState::MissingKey(_) => "not-configured".into(),
     }
 }
 
@@ -189,12 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn from_profile_uses_mock_when_config_is_missing() {
+    fn from_profile_enters_setup_when_config_is_missing() {
         let temp = TempDir::new().unwrap();
-        let paths = paths(&temp);
-        let runtime = SessionRuntime::from_profile(&paths, "offline").unwrap();
-        assert_eq!(runtime.metadata.model, "mock");
-        assert_eq!(runtime.metadata.profile, "offline");
+        let runtime = SessionRuntime::from_profile(&paths(&temp), "offline").unwrap();
+        assert_eq!(runtime.metadata.model, "not-configured");
+        assert!(runtime.is_setup());
     }
 
     #[test]
@@ -203,14 +254,11 @@ mod tests {
         let paths = paths(&temp);
         let profile = paths.profile("missingkey").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
-        std::fs::write(
-            profile.join("config.toml"),
-            "[model]\nprovider = \"provider\"\nbase_url = \"https://api.example.test\"\nmodel = \"test\"\napi_key_env = \"DARIUS_TEST_MISSING_KEY_NEVER_SET\"",
-        )
-        .unwrap();
-
-        let result = SessionRuntime::from_profile(&paths, "missingkey");
-        assert!(matches!(result, Err(RuntimeError::MissingApiKey(_))));
+        std::fs::write(profile.join("config.toml"), "[model]\nprovider = \"provider\"\nbase_url = \"https://api.example.test\"\nmodel = \"test\"\napi_key_env = \"DARIUS_TEST_MISSING_KEY_NEVER_SET\"\n").unwrap();
+        assert!(matches!(
+            SessionRuntime::from_profile(&paths, "missingkey"),
+            Err(RuntimeError::MissingApiKey(_))
+        ));
     }
 
     #[test]

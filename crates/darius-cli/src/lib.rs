@@ -12,9 +12,12 @@ mod config;
 mod config_error;
 mod config_init;
 mod config_publish;
+mod diagnostics;
 mod events;
 pub mod paths;
 pub mod runtime;
+mod runtime_selection;
+mod runtime_selector;
 mod safety;
 pub mod tui_runtime;
 
@@ -52,15 +55,17 @@ pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> 
     let Cli {
         profile,
         cwd,
-        offline: _,
+        offline,
         command,
     } = cli;
     match command {
-        Some(Command::Tui) => cmd_tui(&profile, cwd.as_deref()),
-        Some(Command::Run { goal }) => cmd_run(goal, &profile, cwd.as_deref()),
+        Some(Command::Tui) => cmd_tui(&profile, cwd.as_deref(), offline),
+        Some(Command::Run { goal }) => cmd_run(goal, &profile, cwd.as_deref(), offline),
         Some(Command::Config { command }) => cmd_config(command, &profile, cwd.as_deref()),
         Some(Command::Memory { command }) => cmd_memory(command, &profile, cwd.as_deref()),
-        None if io.stdin_is_terminal && io.stdout_is_terminal => cmd_tui(&profile, cwd.as_deref()),
+        None if io.stdin_is_terminal && io.stdout_is_terminal => {
+            cmd_tui(&profile, cwd.as_deref(), offline)
+        }
         None => {
             Cli::command().print_help()?;
             Ok(())
@@ -68,11 +73,15 @@ pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> 
     }
 }
 
-fn cmd_tui(profile: &str, cwd: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_tui(
+    profile: &str,
+    cwd: Option<&Path>,
+    offline: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let runtime = if let Some(cwd) = cwd {
-        crate::tui_runtime::build_runtime_with_cwd(profile, cwd.to_path_buf())?
+        crate::tui_runtime::build_runtime_with_cwd(profile, cwd.to_path_buf(), offline)?
     } else {
-        crate::tui_runtime::build_runtime(profile)?
+        crate::tui_runtime::build_runtime(profile, offline)?
     };
     let (mut worker, event_rx) = TuiWorker::new(runtime);
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -143,74 +152,34 @@ fn cmd_run(
     goal: Vec<String>,
     profile_name: &str,
     cwd: Option<&Path>,
+    offline: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let goal = goal.join(" ");
-    println!("Running cognitive loop with goal: {goal}");
-
     let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
-    let profile_dir = get_profile_dir(&paths, profile_name)?;
-    let config = ProfileConfig::load(&paths, profile_name)?;
-
-    let memory = darius_memory::MemoryEngine::open(&profile_dir)?;
-    let mut tools = darius_tools::ToolRegistry::new(&profile_dir)?;
-    darius_tools::register_memory_builtins(&mut tools, &memory);
-    darius_tools::register_coding_builtins(&mut tools);
-
-    let policy = darius_cognitive::LoopPolicy::default();
-
-    let mut model: Box<dyn darius_cognitive::Model> = if config.is_configured() {
-        println!(
-            "Using live provider: {}",
-            config.model.as_ref().unwrap().provider
-        );
-        let cache = std::sync::Arc::new(darius_daemon::CacheCoordinator::new());
-        let router = darius_daemon::ModelRouter::new(cache);
-        if let Some(ref model_config) = config.model {
-            router.register_provider(darius_daemon::Provider {
-                name: model_config.provider.clone(),
-                model: model_config.model.clone(),
-                base_url: model_config.base_url.clone(),
-                enabled: true,
-                api_key_env: model_config
-                    .api_key_env
-                    .clone()
-                    .unwrap_or_else(|| "DARIUS_API_KEY".into()),
-            });
-        }
-        Box::new(darius_daemon::LiveModel::new(
-            router,
-            darius_daemon::BudgetScope::Session,
-        ))
-    } else {
-        println!("No provider configured. Using offline MockModel.");
-        println!(
-            "Set DARIUS_API_KEY and create ~/.darius/profiles/default/config.toml to use live providers."
-        );
-        let plan_response = format!(
-            r#"{{"tasks":[{{"title":"Plan for: {}"}}]}}"#,
-            goal.replace('"', "\\\"")
-        );
-        let react_responses = vec![
-            r#"TOOL {"name":"memory_remember","arguments":{"body":"working on task"}}"#.to_string(),
-            "DONE".to_string(),
-        ];
-        Box::new(darius_cognitive::MockModel::new(
-            plan_response,
-            react_responses,
-        ))
-    };
-
+    let mut runtime = crate::runtime::SessionRuntime::from_options(
+        &paths,
+        profile_name,
+        crate::runtime::RuntimeOptions { offline },
+    )?;
+    if runtime.is_offline_demo() {
+        println!("Runtime state: offline-demo");
+        println!("Offline demo: no real file analysis or completion was performed.");
+        return Ok(());
+    }
+    if runtime.is_setup() {
+        println!("Runtime state: setup");
+        println!("Setup required: set DARIUS_API_KEY or OPENAI_API_KEY, then run config init.");
+        println!("No goal was run; no completion was claimed.");
+        return Ok(());
+    }
+    println!("Running cognitive loop with goal: {goal}");
     let (plan, acceptance) = darius_cognitive::run_loop(
-        &darius_cognitive::RunMetadata {
-            profile: profile_name.to_owned(),
-            model: "mock".into(),
-            mode: "auto".into(),
-        },
-        &policy,
+        &runtime.metadata,
+        &runtime.policy,
         &goal,
-        &mut *model,
-        &mut tools,
-        &memory,
+        runtime.model.as_mut(),
+        &mut runtime.tools,
+        &runtime.memory,
     )?;
 
     println!("Plan: {} tasks", plan.tasks.len());
@@ -238,13 +207,12 @@ fn cmd_config(
     let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
     match command {
         ConfigCommand::Show => {
-            let config = ProfileConfig::load(&paths, profile)?;
-            println!("Profile: {profile}");
-            println!("Configured: {}", config.is_configured());
-            if let Some(model) = config.model {
-                println!("Provider: {}", model.provider);
-                println!("Model: {}", model.model);
-                println!("Base URL: {}", model.base_url);
+            for line in crate::runtime::SessionRuntime::diagnostics_for(
+                &paths,
+                profile,
+                crate::runtime::RuntimeOptions::default(),
+            )? {
+                println!("{line}");
             }
         }
         ConfigCommand::Init {

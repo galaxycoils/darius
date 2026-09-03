@@ -156,9 +156,27 @@ impl TuiWorker {
     }
 
     pub fn run_loop(&mut self, command_rx: std::sync::mpsc::Receiver<darius_tui::RuntimeCommand>) {
+        if self.runtime.is_setup() {
+            self.emit_setup_guidance();
+        }
         loop {
             match command_rx.recv() {
                 Ok(darius_tui::RuntimeCommand::SubmitGoal { text, .. }) => {
+                    if self.runtime.is_setup() {
+                        self.emit_setup_guidance();
+                        continue;
+                    }
+                    if self.runtime.is_offline_demo() {
+                        let _ = self.runtime.event_sender.send(UiEvent::Status {
+                            line: "Runtime state: offline-demo".into(),
+                        });
+                        let _ = self.runtime.event_sender.send(UiEvent::Status {
+                            line:
+                                "Offline demo: no real file analysis or completion was performed."
+                                    .into(),
+                        });
+                        continue;
+                    }
                     let sink = Arc::new(BroadcastEventSink(self.runtime.event_sender.clone()));
                     let control = self.control.clone();
                     let loop_ = CognitiveLoop::new(sink, control);
@@ -171,33 +189,40 @@ impl TuiWorker {
                         &self.runtime.memory,
                     );
                 }
-                Ok(darius_tui::RuntimeCommand::ExecuteSlash(inv)) => {
-                    match inv.id {
-                        darius_tui::CommandId::Compact => {
-                            let _ = self.runtime.event_sender.send(UiEvent::Status {
-                                line: "Compacting session context (lean-tail)...".into(),
-                            });
-                            if let Ok(pack) = self
+                Ok(darius_tui::RuntimeCommand::ExecuteSlash(inv)) => match inv.id {
+                    darius_tui::CommandId::Status => {
+                        for line in self.runtime.diagnostics() {
+                            let _ = self
                                 .runtime
-                                .memory
-                                .build_pack(self.runtime.policy.memory_max_chars, 12)
-                            {
-                                let _ = self.runtime.event_sender.send(UiEvent::Status {
-                                    line: format!(
-                                        "Context compacted: {} memory records retained",
-                                        pack.record_ids.len()
-                                    ),
-                                });
-                            }
-                        }
-                        _ => {
-                            let _ = self.runtime.event_sender.send(UiEvent::Status {
-                                line: format!("Command: {}", inv.name),
-                            });
+                                .event_sender
+                                .send(UiEvent::Status { line: line.clone() });
                         }
                     }
-                    let _ = self.runtime.event_sender.send(UiEvent::Done);
-                }
+                    darius_tui::CommandId::Compact => {
+                        let _ = self.runtime.event_sender.send(UiEvent::Status {
+                            line: "Compacting session context (lean-tail)...".into(),
+                        });
+                        if let Ok(pack) = self
+                            .runtime
+                            .memory
+                            .build_pack(self.runtime.policy.memory_max_chars, 12)
+                        {
+                            let _ = self.runtime.event_sender.send(UiEvent::Status {
+                                line: format!(
+                                    "Context compacted: {} memory records retained",
+                                    pack.record_ids.len()
+                                ),
+                            });
+                        }
+                        let _ = self.runtime.event_sender.send(UiEvent::Done);
+                    }
+                    _ => {
+                        let _ = self.runtime.event_sender.send(UiEvent::Status {
+                            line: format!("Command: {}", inv.name),
+                        });
+                        let _ = self.runtime.event_sender.send(UiEvent::Done);
+                    }
+                },
                 Ok(darius_tui::RuntimeCommand::ResolvePermission { id, choice }) => {
                     self.control.resolve(&id, choice.into());
                 }
@@ -211,21 +236,35 @@ impl TuiWorker {
             }
         }
     }
+    fn emit_setup_guidance(&self) {
+        let _ = self.runtime.event_sender.send(UiEvent::Status {
+            line: "Setup required: set DARIUS_API_KEY or OPENAI_API_KEY, then run config init."
+                .into(),
+        });
+        let _ = self.runtime.event_sender.send(UiEvent::Status {
+            line: "No goal was run; no completion was claimed.".into(),
+        });
+    }
 }
 
 /// Build a session runtime from a profile name.
-pub fn build_runtime(profile: &str) -> Result<SessionRuntime, crate::runtime::RuntimeError> {
+pub fn build_runtime(
+    profile: &str,
+    offline: bool,
+) -> Result<SessionRuntime, crate::runtime::RuntimeError> {
     let paths = DariusPaths::resolve(&OsEnv, None)?;
-    SessionRuntime::from_profile(&paths, profile)
+    SessionRuntime::from_options(&paths, profile, crate::runtime::RuntimeOptions { offline })
 }
 
 /// Build a session runtime with a custom working directory.
 pub fn build_runtime_with_cwd(
     profile: &str,
     cwd: PathBuf,
+    offline: bool,
 ) -> Result<SessionRuntime, crate::runtime::RuntimeError> {
     let paths = DariusPaths::resolve(&OsEnv, Some(&cwd))?;
-    let runtime = SessionRuntime::from_profile(&paths, profile)?;
+    let runtime =
+        SessionRuntime::from_options(&paths, profile, crate::runtime::RuntimeOptions { offline })?;
     std::env::set_current_dir(cwd)?;
     Ok(runtime)
 }
