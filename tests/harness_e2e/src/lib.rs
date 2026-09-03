@@ -266,7 +266,7 @@ mod tests {
                 "what is the capital of France?",
                 &mut convo,
                 &mut model,
-                &mut tools,
+                &tools,
                 &memory,
                 &ws,
             ))
@@ -369,14 +369,18 @@ mod tests {
         darius_tools::register_coding_builtins(&mut registry);
 
         let large_src = dir.join("large_file.txt");
-        let content = "START_LINE\n".to_string() + &"padding line\n".repeat(3000) + "END_LINE\n";
+        let content = "START_LINE\n".to_string()
+            + &("padding ".to_string() + &"x".repeat(64) + "\n").repeat(999);
         std::fs::write(&large_src, &content).unwrap();
 
         // 1. read_file spills to tool_results
         let read_call = darius_tools::ToolCall {
             id: "call-1".into(),
             name: "read_file".into(),
-            arguments: serde_json::json!({"path": large_src.to_str().unwrap()}),
+            arguments: serde_json::json!({
+                "path": large_src.to_str().unwrap(),
+                "limit": 1000
+            }),
         };
         let outcome = registry.execute(&read_call);
         let spilled_path = match outcome {
