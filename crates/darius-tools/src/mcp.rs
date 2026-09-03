@@ -228,7 +228,8 @@ mod tests {
         let temp_dir =
             std::env::temp_dir().join(format!("darius_mcp_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let mut registry = ToolRegistry::new(&temp_dir).unwrap();
+        let mut registry =
+            ToolRegistry::new_with_roots(&temp_dir, &temp_dir.join("tool_results")).unwrap();
 
         let client = Arc::new(LocalMcpClient::new());
         client.add_tool(McpToolDef {

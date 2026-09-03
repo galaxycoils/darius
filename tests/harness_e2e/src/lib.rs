@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(pack.record_ids.len(), 1);
 
         // Step 2: Tool registry + memory_search
-        let mut tools = darius_tools::ToolRegistry::new(&profile_dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&profile_dir, &profile_dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         let search_call = darius_tools::ToolCall {
@@ -261,7 +261,7 @@ mod tests {
         std::fs::create_dir_all(&profile_dir).unwrap();
 
         let memory = darius_memory::MemoryEngine::open(&profile_dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&profile_dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&profile_dir, &profile_dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         // Insert a record with large body (near 32 KiB)
@@ -333,7 +333,7 @@ mod tests {
     fn e2e_tool_spill_recall_workflow() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_spill_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_coding_builtins(&mut registry);
 
         let large_src = dir.join("large_file.txt");
@@ -434,7 +434,7 @@ mod tests {
     fn e2e_instruction_write_protection() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_prot_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_coding_builtins(&mut registry);
 
         let skill_file = dir.join("SKILL.md");
@@ -475,7 +475,7 @@ mod tests {
     fn e2e_mcp_discovery_and_step_gating() {
         let dir = std::env::temp_dir().join(format!("darius_e2e_mcp_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut registry = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let client = Arc::new(darius_tools::LocalMcpClient::new());
         client.add_tool(darius_tools::McpToolDef {

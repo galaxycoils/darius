@@ -95,6 +95,7 @@ pub struct SessionRuntime {
     pub profile_config: ProfileConfig,
     pub memory: MemoryEngine,
     pub tools: ToolRegistry,
+    pub task_board: Arc<parking_lot::Mutex<darius_tools::TaskBoard>>,
     pub model: Box<dyn Model>,
     pub metadata: RunMetadata,
     pub event_sender: broadcast::Sender<UiEvent>,
@@ -120,10 +121,11 @@ impl SessionRuntime {
         }
         std::fs::create_dir_all(&resolved.config.profile_dir)?;
         let memory = MemoryEngine::open(&resolved.config.profile_dir)?;
-        let mut tools = ToolRegistry::new(&resolved.config.profile_dir)?;
+        let spill_dir = resolved.config.profile_dir.join("tool_results");
+        let mut tools = ToolRegistry::new_with_roots(&paths.workspace, &spill_dir)?;
         darius_tools::register_memory_builtins(&mut tools, &memory);
         let board = Arc::new(parking_lot::Mutex::new(darius_tools::TaskBoard::new(15)));
-        darius_tools::register_task_builtins(&mut tools, board);
+        darius_tools::register_task_builtins(&mut tools, board.clone());
         darius_tools::register_coding_builtins(&mut tools);
         let model = model_for(&resolved.state);
         let metadata = RunMetadata {
@@ -145,6 +147,7 @@ impl SessionRuntime {
             profile_config: resolved.profile_config,
             memory,
             tools,
+            task_board: board,
             model,
             metadata,
             event_sender,
@@ -271,5 +274,23 @@ mod tests {
         let runtime = SessionRuntime::from_profile(&paths(&temp), "metadata").unwrap();
         let _receiver = runtime.subscribe_events();
         assert!(!runtime.cancellation_token().is_cancelled());
+    }
+
+    #[test]
+    fn runtime_retains_task_board() {
+        let temp = TempDir::new().unwrap();
+        let runtime = SessionRuntime::from_profile(&paths(&temp), "board").unwrap();
+        runtime.task_board.lock().add("retained task").unwrap();
+        let call = darius_tools::ToolCall {
+            id: "board-1".into(),
+            name: "task_list".into(),
+            arguments: serde_json::Value::Null,
+        };
+        match runtime.tools.execute(&call) {
+            darius_tools::ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.contains("retained task"));
+            }
+            darius_tools::ToolOutcome::Err { message } => panic!("task_list failed: {message}"),
+        }
     }
 }

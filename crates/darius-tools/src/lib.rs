@@ -1,5 +1,7 @@
 pub mod mcp;
+pub mod path_policy;
 pub use mcp::*;
+pub use path_policy::PathPolicy;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -159,19 +161,30 @@ pub type ToolHandler = Box<dyn Fn(&ToolCall) -> Result<ToolOutcome, ToolError> +
 
 /// Tool registry with disk spill for large results.
 pub struct ToolRegistry {
+    workspace_root: PathBuf,
     spill_dir: PathBuf,
     preview_ceiling: usize,
     handlers: HashMap<String, RegisteredTool>,
+    policy: PathPolicy,
 }
 
 impl ToolRegistry {
     pub fn new(profile_dir: &Path) -> Result<Self, ToolError> {
-        let spill_dir = profile_dir.join("tool_results");
-        std::fs::create_dir_all(&spill_dir)?;
+        Self::new_with_roots(profile_dir, &profile_dir.join("tool_results"))
+    }
+
+    /// Bind the registry to an explicit workspace root and spill dir.
+    pub fn new_with_roots(workspace_root: &Path, spill_dir: &Path) -> Result<Self, ToolError> {
+        let policy = PathPolicy::new(workspace_root)?;
+        std::fs::create_dir_all(spill_dir)?;
         Ok(Self {
-            spill_dir,
+            workspace_root: policy.root().to_path_buf(),
+            spill_dir: spill_dir
+                .canonicalize()
+                .unwrap_or_else(|_| spill_dir.to_path_buf()),
             preview_ceiling: DEFAULT_PREVIEW_CEILING,
             handlers: HashMap::new(),
+            policy,
         })
     }
 
@@ -240,6 +253,14 @@ impl ToolRegistry {
 
     pub fn spill_dir(&self) -> &Path {
         &self.spill_dir
+    }
+
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+
+    pub fn path_policy(&self) -> &PathPolicy {
+        &self.policy
     }
 
     pub fn preview_ceiling(&self) -> usize {
@@ -729,7 +750,7 @@ mod tests {
     fn shell_tool_executes_command() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let call = ToolCall {
@@ -753,7 +774,7 @@ mod tests {
         let file_path = dir.join("test.txt");
         std::fs::write(&file_path, "test content").unwrap();
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let call = ToolCall {
@@ -776,7 +797,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("output.txt");
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let call = ToolCall {
@@ -803,7 +824,7 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "").unwrap();
         std::fs::write(dir.join("b.rs"), "").unwrap();
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let call = ToolCall {
@@ -827,7 +848,7 @@ mod tests {
     fn unknown_tool_returns_error() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = ToolRegistry::new(&dir).unwrap();
+        let registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let call = ToolCall {
             id: "test-1".into(),
@@ -848,7 +869,7 @@ mod tests {
     fn large_payload_spills_to_disk() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         registry.set_preview_ceiling(100);
 
         let large_content = "x".repeat(500);
@@ -868,7 +889,7 @@ mod tests {
     fn small_payload_does_not_spill() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         registry.set_preview_ceiling(100);
 
         let small_content = "hello world";
@@ -953,7 +974,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             })
             .unwrap();
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_memory_builtins(&mut registry, &memory);
 
         let call = ToolCall {
@@ -979,7 +1000,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_memory_builtins(&mut registry, &memory);
 
         let call = ToolCall {
@@ -1009,7 +1030,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let board = std::sync::Arc::new(parking_lot::Mutex::new(TaskBoard::new(15)));
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
 
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_memory_builtins(&mut registry, &memory);
         register_task_builtins(&mut registry, board.clone());
 
@@ -1058,7 +1079,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_memory_builtins(&mut registry, &memory);
 
         assert_eq!(registry.risk("memory_search"), Some(ToolRisk::ReadOnly));
@@ -1073,7 +1094,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let board = std::sync::Arc::new(parking_lot::Mutex::new(TaskBoard::new(15)));
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_task_builtins(&mut registry, board);
 
         assert_eq!(registry.risk("task_list"), Some(ToolRisk::ReadOnly));
@@ -1087,7 +1108,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     fn tool_risk_coding_tools_classification() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         assert_eq!(registry.risk("shell"), Some(ToolRisk::Shell));
@@ -1102,7 +1123,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     fn tool_risk_unknown_tool_returns_none() {
         let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = ToolRegistry::new(&dir).unwrap();
+        let registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         assert_eq!(registry.risk("nonexistent"), None);
 
@@ -1115,7 +1136,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
         let board = std::sync::Arc::new(parking_lot::Mutex::new(TaskBoard::new(15)));
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_memory_builtins(&mut registry, &memory);
         register_task_builtins(&mut registry, board);
         register_coding_builtins(&mut registry);
@@ -1138,7 +1159,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         registry.set_preview_ceiling(500);
         register_coding_builtins(&mut registry);
 
@@ -1198,7 +1219,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let dir =
             std::env::temp_dir().join(format!("darius_tools_spill_sec_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let outside_file = dir.join("secret.txt");
@@ -1225,7 +1246,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     fn test_write_to_agents_md_requires_approval() {
         let dir = std::env::temp_dir().join(format!("darius_tools_prot_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         let agents_file = dir.join("AGENTS.md");
@@ -1275,7 +1296,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
     fn test_peer_send_step_gated_auth() {
         let dir = std::env::temp_dir().join(format!("darius_tools_peer_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut registry = ToolRegistry::new(&dir).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         register_coding_builtins(&mut registry);
 
         // 1. Without authentication -> fails
@@ -1308,6 +1329,72 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         let outcome = registry.execute(&auth_call);
         assert!(matches!(outcome, ToolOutcome::Ok { .. }));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_policy_traversal_rejected() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_traversal_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        assert!(policy.resolve("../escape.txt", false).is_err());
+        assert!(policy.resolve("sub/../../escape.txt", true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_policy_symlink_escape_rejected() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_symlink_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "darius_path_policy_outside_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.join("secret.txt"), dir.join("link.txt")).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        #[cfg(unix)]
+        assert!(policy.resolve("link.txt", false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn path_policy_valid_create_allowed() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_create_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        let created = policy.resolve("notes/new.txt", true).unwrap();
+        assert!(created.starts_with(dir.canonicalize().unwrap()));
+        assert!(policy.resolve("notes/new.txt", false).is_err());
+        let abs = dir.join("notes/existing.txt");
+        std::fs::write(&abs, "hi").unwrap();
+        assert!(policy.resolve(abs.to_str().unwrap(), false).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_policy_explicit_cwd_contained() {
+        let dir = std::env::temp_dir().join(format!(
+            "darius_path_policy_cwd_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        assert_eq!(policy.root(), &dir.canonicalize().unwrap());
+        let resolved = policy.resolve("a.txt", true).unwrap();
+        assert_eq!(resolved, policy.root().join("a.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -474,7 +474,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = default_metadata();
         let policy = LoopPolicy::default();
@@ -506,7 +506,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = default_metadata();
         let policy = LoopPolicy::default();
@@ -529,7 +529,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = default_metadata();
         let policy = LoopPolicy::default();
@@ -557,7 +557,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = default_metadata();
         let policy = LoopPolicy::default();
@@ -614,7 +614,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = RunMetadata {
             profile: "work".into(),
@@ -657,7 +657,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
 
         let metadata = default_metadata();
         let policy = LoopPolicy::default();
@@ -761,7 +761,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
         let metadata = RunMetadata {
             profile: "test".into(),
@@ -1028,7 +1028,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         // Counter increments on every memory_remember execution.
@@ -1104,7 +1104,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         let counter = Arc::new(AtomicUsize::new(0));
@@ -1161,7 +1161,7 @@ mod tests {
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         let counter = Arc::new(AtomicUsize::new(0));
@@ -1224,7 +1224,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_coding_builtins(&mut tools);
 
         let counter = Arc::new(AtomicUsize::new(0));
@@ -1276,7 +1276,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"second"}}"#
             std::env::temp_dir().join(format!("darius_cognitive_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let memory = darius_memory::MemoryEngine::open(&dir).unwrap();
-        let mut tools = darius_tools::ToolRegistry::new(&dir).unwrap();
+        let mut tools = darius_tools::ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
         darius_tools::register_memory_builtins(&mut tools, &memory);
 
         let counter = Arc::new(AtomicUsize::new(0));
