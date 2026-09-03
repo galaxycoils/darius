@@ -9,6 +9,7 @@ use std::process;
 mod config;
 mod config_error;
 mod config_init;
+mod config_publish;
 mod events;
 pub mod paths;
 pub mod runtime;

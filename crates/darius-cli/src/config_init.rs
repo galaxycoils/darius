@@ -1,9 +1,9 @@
 use crate::config::{ModelConfig, ProfileConfig};
 use crate::config_error::ConfigError;
+use crate::config_publish::{publish, write_temp};
 use crate::paths::DariusPaths;
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -38,20 +38,11 @@ pub fn initialize_profile(
     config.validate()?;
     let content = toml::to_string(&config).map_err(|_| ConfigError::Serialize)?;
     let temporary = directory.join(format!(".config.toml.{}.tmp", uuid::Uuid::new_v4()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        #[cfg(unix)]
-        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-        file.write_all(content.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temporary, &target)
-    })();
+    let result =
+        write_temp(&temporary, &content).and_then(|()| publish(&temporary, &target, force));
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary);
-        return Err(ConfigError::Write(error));
+        return Err(error);
     }
     Ok(target)
 }

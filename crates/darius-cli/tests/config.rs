@@ -186,3 +186,52 @@ fn config_init_uses_isolated_home_and_profile() {
     );
     assert!(path.exists());
 }
+
+#[test]
+fn config_read_failure_is_visible_and_sanitized() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(profile.join("config.toml")).unwrap();
+
+    let error = ProfileConfig::load(&paths, "default").unwrap_err();
+    assert!(matches!(error, ConfigError::Read(_)));
+    assert!(!error.to_string().contains("DARIUS_TEST_SECRET_VALUE"));
+}
+
+#[test]
+fn config_parse_error_does_not_disclose_file_content() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    fs::write(
+        profile.join("config.toml"),
+        "super-secret-value = \"DARIUS_TEST_SECRET_VALUE\"\n[model",
+    )
+    .unwrap();
+
+    let error = ProfileConfig::load(&paths, "default").unwrap_err();
+    assert!(matches!(error, ConfigError::InvalidToml { .. }));
+    assert!(!error.to_string().contains("DARIUS_TEST_SECRET_VALUE"));
+}
+
+#[test]
+fn config_init_force_replaces_existing_metadata_without_temp_artifacts() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    initialize_profile(&paths, "default", &metadata(), false).unwrap();
+    let replacement = ProviderMetadata {
+        model: "replacement-model".into(),
+        ..metadata()
+    };
+    let path = initialize_profile(&paths, "default", &replacement, true).unwrap();
+    let content = fs::read_to_string(&path).unwrap();
+    let entries: Vec<_> = fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+
+    assert!(content.contains("replacement-model"));
+    assert_eq!(entries, vec!["config.toml"]);
+}
