@@ -2024,12 +2024,14 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
 
     // ── Task 2.3 cancellable shell (RED first) ───────────────────────
 
+    #[cfg(unix)]
     fn shell_tmp(prefix: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("tool_results")).unwrap();
         dir
     }
 
+    #[cfg(unix)]
     fn shell_executor(dir: &std::path::Path) -> crate::shell::ShellExecutor {
         crate::shell::ShellExecutor {
             workspace: dir.to_path_buf(),
@@ -2038,6 +2040,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         }
     }
 
+    #[cfg(unix)]
     fn shell_call(id: &str, command: &str) -> ToolCall {
         ToolCall {
             id: id.into(),
@@ -2046,6 +2049,7 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         }
     }
 
+    #[cfg(unix)]
     fn shell_ctx(millis: u64) -> ExecutionContext {
         ExecutionContext {
             cancel: tokio_util::sync::CancellationToken::new(),
