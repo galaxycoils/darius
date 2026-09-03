@@ -5,6 +5,8 @@ use crate::{PathPolicy, ToolError};
 pub const DEFAULT_LIMIT: u64 = 200;
 /// Hard cap on lines served per page.
 pub const MAX_LIMIT: u64 = 1000;
+/// Hard cap on bytes loaded for a read (1 MiB); larger files are rejected.
+pub const MAX_READ_BYTES: u64 = 1024 * 1024;
 
 /// Read `raw` as UTF-8 text, rejecting binary, returning lines
 /// `[offset, offset+limit)` with a 1-based offset.
@@ -15,6 +17,11 @@ pub fn read_paged(
     limit: u64,
 ) -> Result<String, ToolError> {
     let path = policy.resolve(raw, false)?;
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > MAX_READ_BYTES {
+        return Err(ToolError::InvalidArgs(
+            "file exceeds 1 MiB read bound".into(),
+        ));
+    }
     let bytes = std::fs::read(&path)?;
     if bytes.contains(&0) {
         return Err(ToolError::InvalidArgs("binary file rejected".into()));

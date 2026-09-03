@@ -1,7 +1,11 @@
+pub mod create_path;
+pub mod ensure_dirs;
 pub mod mcp;
 pub mod path_policy;
 pub mod read_file;
 pub mod search_files;
+pub mod search_filter;
+pub mod search_walk;
 pub mod spec;
 pub mod write_file;
 pub use mcp::*;
@@ -54,7 +58,8 @@ pub enum ToolOutcome {
     },
 }
 
-const DEFAULT_PREVIEW_CEILING: usize = 32_768;
+/// Single spill ceiling for tool previews (see `spec::SPILL_CEILING`).
+pub use spec::SPILL_CEILING as PREVIEW_CEILING;
 
 /// Task board status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -186,7 +191,7 @@ impl ToolRegistry {
             spill_dir: spill_dir
                 .canonicalize()
                 .unwrap_or_else(|_| spill_dir.to_path_buf()),
-            preview_ceiling: DEFAULT_PREVIEW_CEILING,
+            preview_ceiling: spec::SPILL_CEILING,
             handlers: HashMap::new(),
             policy,
         })
@@ -238,10 +243,7 @@ impl ToolRegistry {
             return (content.to_string(), None);
         }
 
-        let preview = content
-            .chars()
-            .take(self.preview_ceiling)
-            .collect::<String>();
+        let preview = spec::truncate_preview(content, self.preview_ceiling);
         let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
         let path = self.spill_dir.join(&filename);
 
@@ -512,7 +514,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
         }
 
         if full.len() > ceiling_shell {
-            let preview = full.chars().take(ceiling_shell).collect::<String>();
+            let preview = spec::truncate_preview(&full, ceiling_shell);
             let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
             let path = spill_dir_shell.join(&filename);
             let _ = std::fs::write(&path, &full);
@@ -598,6 +600,7 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             return Err(ToolError::InvalidArgs("path required".into()));
         }
 
+        crate::ensure_dirs::ensure_parent_dirs(policy_write.root(), path_str)?;
         let path = policy_write.resolve(path_str, true)?;
         if darius_safety::is_protected_path(&path) {
             let approved = call
@@ -611,12 +614,6 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
                     path.display()
                 )));
             }
-        }
-
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            let _ = std::fs::create_dir_all(parent);
         }
 
         let bytes = write_file::write_atomic(&policy_write, path_str, content)?;
@@ -704,8 +701,6 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             spilled_path: None,
         })
     });
-
-    register_spill_builtins(registry);
 }
 
 /// Register spill inspection tools (spill_read, read_spill).
@@ -1828,5 +1823,121 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 "schema lacks parameters"
             );
         }
+    }
+
+    // ── RED tests for Task 2.2 caps-contract fixes ──────────────────────
+
+    #[test]
+    fn red_search_skips_oversized_content_file() {
+        let dir = coding_file_tmp();
+        let big = format!("needle-{}", "x".repeat(600 * 1024));
+        std::fs::write(dir.join("big.txt"), &big).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        let hits = crate::search_files::search(&policy, ".", None, Some("needle"), 50).unwrap();
+        assert!(
+            hits.iter().all(|h| !h.contains("big.txt")),
+            "oversized file scanned: {hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn red_read_paged_rejects_oversized_file() {
+        let dir = coding_file_tmp();
+        std::fs::write(dir.join("huge.txt"), "y".repeat(2 * 1024 * 1024)).unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        match crate::read_file::read_paged(&policy, "huge.txt", 1, 10) {
+            Err(crate::ToolError::InvalidArgs(msg)) => assert!(
+                msg.contains("exceeds") || msg.contains("MiB") || msg.contains("bound"),
+                "unexpected message: {msg}"
+            ),
+            Err(e) => panic!("wrong error kind: {e}"),
+            Ok(_) => panic!("expected oversized read to fail"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn red_write_creates_nested_ancestors() {
+        let dir = coding_file_tmp();
+        let registry = coding_file_registry(&dir);
+        let call = ToolCall {
+            id: "red-nested".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "newdir/sub/nested.txt", "content": "nested-ok"}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Ok { .. } => {}
+            ToolOutcome::Err { message } => panic!("nested write failed: {message}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.join("newdir/sub/nested.txt")).unwrap(),
+            "nested-ok"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn red_search_depth_budget_terminates() {
+        let dir = coding_file_tmp();
+        let mut cur = dir.clone();
+        for i in 0..60 {
+            cur = cur.join(format!("d{i:02}"));
+            std::fs::create_dir_all(&cur).unwrap();
+        }
+        std::fs::write(cur.join("bottom.txt"), "deep").unwrap();
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        let hits = crate::search_files::search(&policy, ".", Some("bottom.txt"), None, 50).unwrap();
+        assert!(
+            hits.iter().all(|h| !h.contains("bottom.txt")),
+            "depth budget not enforced: {hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn red_spill_preview_truncates_by_bytes() {
+        let dir = coding_file_tmp();
+        let spill_dir = dir.join("tool_results");
+        std::fs::create_dir_all(&spill_dir).unwrap();
+        let full = "é".repeat(100); // 200 bytes, 100 chars
+        match crate::spec::finalize(full, &spill_dir, 10) {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert!(
+                    preview.len() <= 10,
+                    "preview exceeds byte ceiling: {} bytes",
+                    preview.len()
+                );
+                assert!(spilled_path.is_some());
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_budget_caps_visited_entries() {
+        let dir = coding_file_tmp();
+        for i in 0..60 {
+            std::fs::write(dir.join(format!("g{i:02}.txt")), "x").unwrap();
+        }
+        let policy = path_policy::PathPolicy::new(&dir).unwrap();
+        let (hits, visited) =
+            crate::search_files::search_with_budget(&policy, ".", Some(".txt"), None, 50, 10, 24)
+                .unwrap();
+        assert!(visited <= 10, "visited budget exceeded: {visited}");
+        assert!(hits.len() <= 10);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn spill_preview_stays_on_char_boundary() {
+        assert_eq!(crate::spec::truncate_preview("ééé", 5), "éé");
+        assert_eq!(crate::spec::truncate_preview("abc", 10), "abc");
+        assert_eq!(crate::spec::SPILL_CEILING, 32 * 1024);
+        assert_eq!(crate::PREVIEW_CEILING, crate::spec::SPILL_CEILING);
     }
 }

@@ -1,10 +1,11 @@
 //! Recursive bounded filename/content search in the workspace.
 use crate::{PathPolicy, ToolError};
-use std::path::Path;
 
-/// Caps: matches per search, and bytes scanned per file for content.
+/// Caps: matches per search, bytes scanned per file, entries visited, depth.
 pub const MAX_RESULTS: usize = 50;
 pub const MAX_SCAN_BYTES: u64 = 512 * 1024;
+pub const MAX_VISITED: usize = 20_000;
+pub const MAX_DEPTH: usize = 24;
 
 /// Search `subdir` recursively (`name` filename, `content` UTF-8 bytes).
 /// Symlinks are never followed, so hits stay in the workspace.
@@ -15,45 +16,33 @@ pub fn search(
     content: Option<&str>,
     limit: usize,
 ) -> Result<Vec<String>, ToolError> {
+    search_with_budget(policy, subdir, name, content, limit, MAX_VISITED, MAX_DEPTH)
+        .map(|(hits, _)| hits)
+}
+
+/// Same as [`search`] with explicit budgets; returns hits plus entries visited.
+pub fn search_with_budget(
+    policy: &PathPolicy,
+    subdir: &str,
+    name: Option<&str>,
+    content: Option<&str>,
+    limit: usize,
+    max_visited: usize,
+    max_depth: usize,
+) -> Result<(Vec<String>, usize), ToolError> {
     if name.is_none() && content.is_none() {
         return Err(ToolError::InvalidArgs("name or content required".into()));
     }
     let cap = limit.clamp(1, MAX_RESULTS);
-    let (mut out, mut stack) = (Vec::new(), vec![policy.resolve(subdir, false)?]);
-    while let Some(dir) = stack.pop() {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_symlink() {
-                    continue;
-                }
-                if path.is_dir() {
-                    stack.push(path);
-                } else if name_ok(&path, name) && content_ok(&path, content) {
-                    out.push(path.display().to_string());
-                    if out.len() >= cap {
-                        return Ok(out);
-                    }
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Filename filter; `None` matches everything.
-fn name_ok(path: &Path, name: Option<&str>) -> bool {
-    let Some(n) = name else { return true };
-    path.file_name()
-        .is_some_and(|f| f.to_string_lossy().contains(n))
-}
-
-/// Content filter; `None` matches, binary and oversized files never do.
-fn content_ok(path: &Path, needle: Option<&str>) -> bool {
-    let Some(needle) = needle else { return true };
-    match std::fs::read(path) {
-        Err(_) => false,
-        Ok(bytes) if bytes.len() as u64 > MAX_SCAN_BYTES || bytes.contains(&0) => false,
-        Ok(bytes) => String::from_utf8(bytes).is_ok_and(|t| t.contains(needle)),
-    }
+    let root = policy.resolve(subdir, false)?;
+    Ok(crate::search_walk::walk(
+        root,
+        cap,
+        max_visited,
+        max_depth,
+        |path| {
+            crate::search_filter::name_ok(path, name)
+                && crate::search_filter::content_ok(path, content)
+        },
+    ))
 }

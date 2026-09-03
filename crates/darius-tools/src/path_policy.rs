@@ -23,11 +23,12 @@ impl PathPolicy {
     }
 
     /// Resolve `raw` inside the root. Rejects `..` and symlink escape.
-    /// Absolute paths are allowed only when they resolve inside the root.
-    /// A missing final component is allowed only when `for_create` is
-    /// set (its parent must already exist). A pre-existing final-component
-    /// symlink is always rejected on the create path.
+    /// Absolute paths allowed only inside the root. Missing final
+    /// component allowed only when `for_create` is set.
     pub fn resolve(&self, raw: &str, for_create: bool) -> Result<PathBuf, ToolError> {
+        if for_create {
+            return crate::create_path::resolve_create(&self.root, raw);
+        }
         if raw.is_empty() {
             return Err(ToolError::InvalidArgs("path required".into()));
         }
@@ -40,32 +41,12 @@ impl PathPolicy {
         } else {
             self.root.join(rel)
         };
-        if for_create {
-            let parent = joined.parent().unwrap_or(&self.root).to_path_buf();
-            let canon = parent
-                .canonicalize()
-                .map_err(|_| ToolError::InvalidArgs("parent directory missing".into()))?;
-            if !canon.starts_with(&self.root) {
-                return Err(ToolError::InvalidArgs("path escapes workspace".into()));
-            }
-            let name = joined
-                .file_name()
-                .ok_or_else(|| ToolError::InvalidArgs("path required".into()))?;
-            let resolved = canon.join(name);
-            if let Ok(meta) = std::fs::symlink_metadata(&resolved)
-                && meta.file_type().is_symlink()
-            {
-                return Err(ToolError::InvalidArgs("path escapes workspace".into()));
-            }
-            Ok(resolved)
-        } else {
-            let canon = joined
-                .canonicalize()
-                .map_err(|_| ToolError::InvalidArgs("path does not exist".into()))?;
-            if !canon.starts_with(&self.root) {
-                return Err(ToolError::InvalidArgs("path escapes workspace".into()));
-            }
-            Ok(canon)
+        let canon = joined
+            .canonicalize()
+            .map_err(|_| ToolError::InvalidArgs("path does not exist".into()))?;
+        if !canon.starts_with(&self.root) {
+            return Err(ToolError::InvalidArgs("path escapes workspace".into()));
         }
+        Ok(canon)
     }
 }

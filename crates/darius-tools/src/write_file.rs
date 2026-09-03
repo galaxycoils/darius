@@ -14,6 +14,7 @@ pub fn write_atomic(policy: &PathPolicy, raw: &str, content: &str) -> Result<usi
     if content.len() > MAX_WRITE_BYTES {
         return Err(ToolError::InvalidArgs("content exceeds 1 MiB".into()));
     }
+    crate::ensure_dirs::ensure_parent_dirs(policy.root(), raw)?;
     let path = policy.resolve(raw, true)?;
     let parent = path
         .parent()
