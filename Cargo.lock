@@ -725,11 +725,13 @@ dependencies = [
  "darius-core",
  "darius-memory",
  "darius-safety",
+ "libc",
  "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
+ "tokio-util",
  "uuid",
 ]
 

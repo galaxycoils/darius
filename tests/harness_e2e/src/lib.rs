@@ -220,6 +220,9 @@ mod tests {
                 assert!(preview.contains("Paris"));
             }
             darius_tools::ToolOutcome::Err { message } => panic!("search failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         // Step 3: CognitiveLoop with MockModel
@@ -289,6 +292,9 @@ mod tests {
                 assert!(preview.len() <= 1001, "preview too long: {}", preview.len());
             }
             darius_tools::ToolOutcome::Err { message } => panic!("search failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         // Verify spill directory exists
@@ -352,6 +358,9 @@ mod tests {
                 spilled_path.expect("spilled path expected")
             }
             darius_tools::ToolOutcome::Err { message } => panic!("read failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         };
 
         // 2. spill_read recalls from tool_results
@@ -370,6 +379,9 @@ mod tests {
                 assert!(preview.starts_with("START_LINE"));
             }
             darius_tools::ToolOutcome::Err { message } => panic!("recall failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let _ = std::fs::remove_dir_all(&dir);

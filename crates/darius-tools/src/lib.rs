@@ -1,13 +1,16 @@
 pub mod create_path;
 pub mod ensure_dirs;
+pub mod execution;
 pub mod mcp;
 pub mod path_policy;
 pub mod read_file;
 pub mod search_files;
 pub mod search_filter;
 pub mod search_walk;
+pub mod shell;
 pub mod spec;
 pub mod write_file;
+pub use execution::{ExecutionContext, ToolExecutor};
 pub use mcp::*;
 pub use path_policy::PathPolicy;
 
@@ -56,6 +59,10 @@ pub enum ToolOutcome {
     Err {
         message: String,
     },
+    /// Execution stopped via the call's cancellation token.
+    Interrupted,
+    /// Execution exceeded the call's deadline.
+    TimedOut,
 }
 
 /// Single spill ceiling for tool previews (see `spec::SPILL_CEILING`).
@@ -485,49 +492,17 @@ pub fn register_task_builtins(
 
 /// Register coding builtins (shell, read_file, search_files, write_file, glob, spill_read) on a tool registry.
 pub fn register_coding_builtins(registry: &mut ToolRegistry) {
-    let spill_dir_shell = registry.spill_dir.clone();
-    let ceiling_shell = registry.preview_ceiling;
-    let policy_shell = registry.policy.clone();
+    let shell_executor = crate::shell::ShellExecutor {
+        workspace: registry.policy.root().to_path_buf(),
+        spill_dir: registry.spill_dir.clone(),
+        ceiling: registry.preview_ceiling,
+    };
     registry.register_with_risk("shell", ToolRisk::Shell, move |call| {
-        let command = call
-            .arguments
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if command.is_empty() {
-            return Err(ToolError::InvalidArgs("command required".into()));
-        }
-
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(policy_shell.root())
-            .output()
-            .map_err(ToolError::Io)?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let mut full = stdout;
-        if !stderr.is_empty() {
-            full.push_str(&format!("\n[stderr]\n{stderr}"));
-        }
-
-        if full.len() > ceiling_shell {
-            let preview = spec::truncate_preview(&full, ceiling_shell);
-            let filename = format!("tool_result_{}.txt", uuid::Uuid::new_v4());
-            let path = spill_dir_shell.join(&filename);
-            let _ = std::fs::write(&path, &full);
-            Ok(ToolOutcome::Ok {
-                preview,
-                spilled_path: Some(path),
-            })
-        } else {
-            Ok(ToolOutcome::Ok {
-                preview: full.chars().take(2000).collect(),
-                spilled_path: None,
-            })
-        }
+        let ctx = crate::execution::ExecutionContext {
+            cancel: tokio_util::sync::CancellationToken::new(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(24 * 60 * 60),
+        };
+        Ok(shell_executor.execute(call, &ctx))
     });
 
     let spill_dir_read = registry.spill_dir.clone();
@@ -795,6 +770,9 @@ mod tests {
         match outcome {
             ToolOutcome::Ok { preview, .. } => assert!(preview.contains("hello world")),
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -819,6 +797,9 @@ mod tests {
         match outcome {
             ToolOutcome::Ok { preview, .. } => assert!(preview.contains("test content")),
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -842,6 +823,9 @@ mod tests {
         match outcome {
             ToolOutcome::Ok { preview, .. } => assert!(preview.contains("output.txt")),
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let content = std::fs::read_to_string(&file_path).unwrap();
@@ -872,6 +856,9 @@ mod tests {
                 assert!(preview.contains("b.rs"));
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1021,6 +1008,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(preview.contains("wal memory test"));
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1047,6 +1037,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(preview.contains("remembered:"));
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let count = memory.record_count().unwrap();
@@ -1217,6 +1210,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 spilled_path.unwrap()
             }
             ToolOutcome::Err { message } => panic!("read failed: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         };
 
         // Now recall via spill_read
@@ -1241,6 +1237,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(preview.starts_with("hello world"));
             }
             ToolOutcome::Err { message } => panic!("recall failed: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1269,6 +1268,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(message.contains("inside tool_results"));
             }
             ToolOutcome::Ok { .. } => panic!("expected spill_read outside tool_results to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1300,6 +1302,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             }
             ToolOutcome::Ok { .. } => {
                 panic!("expected write to AGENTS.md without approval to fail")
+            }
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
             }
         }
 
@@ -1346,6 +1351,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(message.contains("discovery/auth"));
             }
             ToolOutcome::Ok { .. } => panic!("expected unauthenticated peer_send to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
 
         // 2. With authentication -> succeeds
@@ -1484,6 +1492,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 "unexpected message: {message}"
             ),
             ToolOutcome::Ok { .. } => panic!("expected read_file /etc/passwd to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1511,6 +1522,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Err { .. } => {}
             ToolOutcome::Ok { .. } => panic!("expected write_file outside root to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         assert!(!target.exists());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1543,6 +1557,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Err { .. } => {}
             ToolOutcome::Ok { .. } => panic!("expected write through final symlink to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         #[cfg(unix)]
         assert_eq!(
@@ -1573,6 +1590,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 dir.canonicalize().unwrap().to_string_lossy().trim()
             ),
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1592,6 +1612,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Err { .. } => {}
             ToolOutcome::Ok { .. } => panic!("expected glob outside root to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1631,6 +1654,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(spilled_path.is_none());
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1648,6 +1674,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Err { message } => assert!(message.contains("binary")),
             ToolOutcome::Ok { .. } => panic!("expected binary read to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1664,6 +1693,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Err { .. } => {}
             ToolOutcome::Ok { .. } => panic!("expected traversal read to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1686,6 +1718,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(!preview.contains("a.txt"), "unexpected hit: {preview}");
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1710,6 +1745,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(!preview.contains("no.txt"), "unexpected hit: {preview}");
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1739,6 +1777,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Ok { preview, .. } => assert!(preview.contains("out.txt")),
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         assert_eq!(
             std::fs::read_to_string(dir.join("notes").join("out.txt")).unwrap(),
@@ -1771,6 +1812,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&binary) {
             ToolOutcome::Err { message } => assert!(message.contains("binary")),
             ToolOutcome::Ok { .. } => panic!("expected binary write to fail"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("expected error, got terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&outside);
@@ -1792,6 +1836,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert_eq!(std::fs::read_to_string(&spilled).unwrap(), big);
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         assert_eq!(crate::spec::SPILL_CEILING, 32 * 1024);
         match crate::spec::finalize("small".into(), &spill_dir, crate::spec::SPILL_CEILING) {
@@ -1803,6 +1850,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(spilled_path.is_none());
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1869,6 +1919,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         match registry.execute(&call) {
             ToolOutcome::Ok { .. } => {}
             ToolOutcome::Err { message } => panic!("nested write failed: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         assert_eq!(
             std::fs::read_to_string(dir.join("newdir/sub/nested.txt")).unwrap(),
@@ -1914,6 +1967,9 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
                 assert!(spilled_path.is_some());
             }
             ToolOutcome::Err { message } => panic!("unexpected error: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1939,5 +1995,198 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
         assert_eq!(crate::spec::truncate_preview("abc", 10), "abc");
         assert_eq!(crate::spec::SPILL_CEILING, 32 * 1024);
         assert_eq!(crate::PREVIEW_CEILING, crate::spec::SPILL_CEILING);
+    }
+
+    // ── Task 2.3 cancellable shell (RED first) ───────────────────────
+
+    fn shell_tmp(prefix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("tool_results")).unwrap();
+        dir
+    }
+
+    fn shell_executor(dir: &std::path::Path) -> crate::shell::ShellExecutor {
+        crate::shell::ShellExecutor {
+            workspace: dir.to_path_buf(),
+            spill_dir: dir.join("tool_results"),
+            ceiling: crate::spec::SPILL_CEILING,
+        }
+    }
+
+    fn shell_call(id: &str, command: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: "shell".into(),
+            arguments: serde_json::json!({"command": command}),
+        }
+    }
+
+    fn shell_ctx(millis: u64) -> ExecutionContext {
+        ExecutionContext {
+            cancel: tokio_util::sync::CancellationToken::new(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_millis(millis),
+        }
+    }
+
+    #[test]
+    fn shell_cwd_is_workspace() {
+        let dir = shell_tmp("darius_shell_cwd");
+        let ex = shell_executor(&dir);
+        match ex.execute(&shell_call("cwd-1", "pwd"), &shell_ctx(10_000)) {
+            ToolOutcome::Ok { preview, .. } => assert_eq!(
+                preview.trim(),
+                dir.canonicalize().unwrap().to_string_lossy().trim()
+            ),
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_success_captures_output() {
+        let dir = shell_tmp("darius_shell_ok");
+        let ex = shell_executor(&dir);
+        match ex.execute(&shell_call("ok-1", "echo hello-shell"), &shell_ctx(10_000)) {
+            ToolOutcome::Ok { preview, .. } => assert!(preview.contains("hello-shell")),
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_nonzero_is_error() {
+        let dir = shell_tmp("darius_shell_exit");
+        let ex = shell_executor(&dir);
+        match ex.execute(&shell_call("exit-1", "exit 3"), &shell_ctx(10_000)) {
+            ToolOutcome::Err { message } => {
+                assert!(message.contains('3'), "missing exit code: {message}")
+            }
+            other => panic!("nonzero exit must not succeed: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_stderr_captured() {
+        let dir = shell_tmp("darius_shell_stderr");
+        let ex = shell_executor(&dir);
+        match ex.execute(&shell_call("stderr-1", "echo oops >&2"), &shell_ctx(10_000)) {
+            ToolOutcome::Ok { preview, .. } => {
+                assert!(preview.contains("oops"), "missing stderr: {preview}")
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_timeout_kills_process() {
+        let dir = shell_tmp("darius_shell_timeout");
+        let ex = shell_executor(&dir);
+        let start = std::time::Instant::now();
+        let outcome = ex.execute(&shell_call("timeout-1", "sleep 30"), &shell_ctx(300));
+        assert!(
+            matches!(outcome, ToolOutcome::TimedOut),
+            "expected timeout: {outcome:?}"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "kill too slow"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_cancellation_interrupts_long_command() {
+        let dir = shell_tmp("darius_shell_cancel");
+        let ex = shell_executor(&dir);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let ctx = ExecutionContext {
+            cancel: cancel.clone(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+        };
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            cancel.cancel();
+        });
+        let start = std::time::Instant::now();
+        let outcome = ex.execute(&shell_call("cancel-1", "sleep 30"), &ctx);
+        assert!(
+            matches!(outcome, ToolOutcome::Interrupted),
+            "expected interrupt: {outcome:?}"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "cancel too slow"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_child_group_reaped() {
+        let dir = shell_tmp("darius_shell_reap");
+        let watch = dir.join(format!("reap-{}.log", uuid::Uuid::new_v4()));
+        std::fs::write(&watch, "start\n").unwrap();
+        let needle = watch.file_name().unwrap().to_string_lossy().to_string();
+        let ex = shell_executor(&dir);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let ctx = ExecutionContext {
+            cancel: cancel.clone(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+        };
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            cancel.cancel();
+        });
+        let outcome = ex.execute(
+            &shell_call("reap-1", &format!("tail -f {} & wait", watch.display())),
+            &ctx,
+        );
+        assert!(
+            matches!(outcome, ToolOutcome::Interrupted),
+            "expected interrupt: {outcome:?}"
+        );
+        let start = std::time::Instant::now();
+        loop {
+            let ps = std::process::Command::new("ps")
+                .args(["ax", "-o", "pid,command"])
+                .output()
+                .expect("ps failed");
+            let out = String::from_utf8_lossy(&ps.stdout);
+            if !out.contains(&needle) {
+                break;
+            }
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(5),
+                "child survived killpg:\n{out}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shell_large_output_spills() {
+        let dir = shell_tmp("darius_shell_spill");
+        let ex = shell_executor(&dir);
+        let cmd = "awk 'BEGIN{for(i=0;i<50000;i++) print \"line-\" i}'";
+        match ex.execute(&shell_call("spill-1", cmd), &shell_ctx(30_000)) {
+            ToolOutcome::Ok {
+                preview,
+                spilled_path,
+            } => {
+                assert!(
+                    preview.len() <= crate::spec::SPILL_CEILING,
+                    "preview over ceiling: {}",
+                    preview.len()
+                );
+                let spilled = spilled_path.expect("large output must spill");
+                let full = std::fs::read_to_string(&spilled).unwrap();
+                assert!(full.len() > crate::spec::SPILL_CEILING);
+                assert!(full.contains("line-49999"));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

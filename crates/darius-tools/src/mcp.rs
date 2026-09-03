@@ -255,6 +255,9 @@ mod tests {
                 assert!(preview.contains("SELECT 1"));
             }
             ToolOutcome::Err { message } => panic!("mcp tool call failed: {message}"),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);

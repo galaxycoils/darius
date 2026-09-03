@@ -486,6 +486,9 @@ mod tests {
         let spawned_preview = match outcome {
             darius_tools::ToolOutcome::Ok { preview, .. } => preview,
             darius_tools::ToolOutcome::Err { message } => panic!("spawn failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         };
         assert!(spawned_preview.contains("spawned subagent"));
 
@@ -504,6 +507,9 @@ mod tests {
                 assert!(preview.contains(id_str));
             }
             darius_tools::ToolOutcome::Err { message } => panic!("list failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         // 3. Steer subagent
@@ -532,6 +538,9 @@ mod tests {
                 assert!(preview.contains("stopped subagent"));
             }
             darius_tools::ToolOutcome::Err { message } => panic!("stop failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);

@@ -271,6 +271,22 @@ impl CognitiveLoop {
                                 spilled: None,
                             });
                         }
+                        darius_tools::ToolOutcome::Interrupted
+                        | darius_tools::ToolOutcome::TimedOut => {
+                            let label =
+                                if matches!(&outcome, darius_tools::ToolOutcome::Interrupted) {
+                                    "Interrupted"
+                                } else {
+                                    "Timed out"
+                                };
+                            let _ = board.add_evidence(task_id, label);
+                            self.emit(UiEvent::ToolEnd {
+                                id: call.id.clone(),
+                                ok: false,
+                                preview: label.to_string(),
+                                spilled: None,
+                            });
+                        }
                     }
                 }
 

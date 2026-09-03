@@ -291,6 +291,9 @@ mod tests {
                 assert!(preview.contains("retained task"));
             }
             darius_tools::ToolOutcome::Err { message } => panic!("task_list failed: {message}"),
+            darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
         }
     }
 }
