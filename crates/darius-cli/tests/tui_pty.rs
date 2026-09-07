@@ -3,47 +3,17 @@
 //! These tests use portable-pty to spawn the real `darius` binary in a
 //! pseudo-terminal, exercising the full TUI lifecycle (setup, input, exit).
 
+mod support;
+
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use support::DariusHomeSnapshot;
+use support::fake_provider::{FakeProvider, ScriptedResponse};
 use tempfile::TempDir;
-
-/// Snapshot of ~/.darius state before/after a test to verify no pollution.
-#[derive(Debug, Default)]
-struct DariusHomeSnapshot {
-    exists: bool,
-    metadata: Option<std::fs::Metadata>,
-}
-
-impl DariusHomeSnapshot {
-    fn capture() -> Self {
-        let path = dirs::home_dir().map(|h| h.join(".darius"));
-        let (exists, metadata) = path
-            .as_ref()
-            .map(|p| (p.exists(), std::fs::metadata(p).ok()))
-            .unwrap_or((false, None));
-        Self { exists, metadata }
-    }
-
-    fn assert_unchanged(&self, label: &str) {
-        let after = Self::capture();
-        assert_eq!(
-            self.exists, after.exists,
-            "{label}: ~/.darius existence changed (before={}, after={})",
-            self.exists, after.exists
-        );
-        if let (Some(before), Some(after)) = (self.metadata.as_ref(), after.metadata.as_ref()) {
-            assert_eq!(
-                before.modified().ok(),
-                after.modified().ok(),
-                "{label}: ~/.darius mtime changed",
-            );
-        }
-    }
-}
 
 /// Helper that spawns `darius` in a PTY with a clean, isolated environment.
 struct PtyTestHarness {
@@ -61,8 +31,19 @@ impl PtyTestHarness {
     /// Spawn `darius` with a temporary DARIUS_HOME and workspace.
     /// The binary is resolved via CARGO_BIN_EXE_darius (set by cargo test).
     fn spawn(args: &[&str]) -> Result<Self, Box<dyn std::error::Error>> {
-        let bin = std::env::var_os("CARGO_BIN_EXE_darius")
-            .ok_or("CARGO_BIN_EXE_darius not set — run via `cargo test`")?;
+        Self::spawn_with_options(args, &[], |_home, _workspace| Ok(()))
+    }
+
+    fn spawn_with_options(
+        args: &[&str],
+        env_vars: &[(&str, &str)],
+        setup: impl FnOnce(&Path, &Path) -> Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let bin = std::env::var_os("DARIUS_BIN_UNDER_TEST")
+            .or_else(|| std::env::var_os("CARGO_BIN_EXE_darius"))
+            .ok_or(
+                "Neither DARIUS_BIN_UNDER_TEST nor CARGO_BIN_EXE_darius set — run via `cargo test`",
+            )?;
         let bin_path = PathBuf::from(bin);
         assert!(
             bin_path.exists(),
@@ -77,6 +58,8 @@ impl PtyTestHarness {
         let darius_home = TempDir::new()?;
         let workspace = TempDir::new()?;
 
+        setup(darius_home.path(), workspace.path())?;
+
         // Build PTY
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
@@ -89,11 +72,16 @@ impl PtyTestHarness {
         // Prepare command with clean env
         let mut cmd = CommandBuilder::new(bin_path);
         cmd.args(args);
+        cmd.cwd(workspace.path());
         cmd.env("DARIUS_HOME", darius_home.path());
         cmd.env("DARIUS_WORKSPACE", workspace.path());
         cmd.env("HOME", darius_home.path()); // Also redirect HOME so ~/.darius = temp
         cmd.env_remove("DARIUS_API_KEY"); // Ensure no API key leaks in
         cmd.env_remove("DARIUS_PROFILE"); // No profile preset
+
+        for (k, v) in env_vars {
+            cmd.env(k, v);
+        }
 
         let child = pair.slave.spawn_command(cmd)?;
         let mut reader = pair.master.try_clone_reader()?;
@@ -130,6 +118,10 @@ impl PtyTestHarness {
             _workspace: workspace,
             _snapshot: snapshot,
         })
+    }
+
+    fn workspace_path(&self) -> &Path {
+        self._workspace.path()
     }
 
     /// Read until `needle` appears in output, or timeout.
@@ -287,4 +279,199 @@ fn clean_home_bare_launch() {
         .wait_for_reader(Duration::from_secs(1))
         .expect("PTY reader should terminate after child exit");
     harness.assert_home_unchanged("clean_home_bare_launch");
+}
+
+#[test]
+fn cleanup_path_idle_ctrl_c() {
+    let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
+    harness
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("bare PTY invocation should render the TUI");
+    harness.write_bytes(&[0x03]).expect("send Ctrl-C");
+    let exit_code = harness
+        .wait_with_timeout(Duration::from_secs(5))
+        .expect("wait failed")
+        .expect("process should exit within 5s");
+    assert_eq!(exit_code, 0, "idle Ctrl-C should exit 0");
+    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
+    harness.assert_home_unchanged("cleanup_path_idle_ctrl_c");
+}
+
+#[test]
+fn cleanup_path_quit_slash() {
+    let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
+    harness
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("bare PTY invocation should render the TUI");
+    harness.write_bytes(b"/quit\r").expect("send /quit");
+    let exit_code = harness
+        .wait_with_timeout(Duration::from_secs(5))
+        .expect("wait failed")
+        .expect("process should exit within 5s");
+    assert_eq!(exit_code, 0, "/quit command should exit 0");
+    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
+    harness.assert_home_unchanged("cleanup_path_quit_slash");
+}
+
+#[test]
+fn cleanup_path_eof() {
+    let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
+    harness
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("bare PTY invocation should render the TUI");
+    drop(harness.writer.take());
+    let _ = harness.wait_with_timeout(Duration::from_secs(5));
+    harness.assert_home_unchanged("cleanup_path_eof");
+}
+
+#[test]
+fn first_run_setup_journey() {
+    let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
+    harness
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("bare PTY invocation should render the TUI");
+
+    // Submit a goal on first-run without configured API key
+    harness.write_bytes(b"hello\r").expect("submit goal");
+    harness
+        .read_until("Setup required", Duration::from_secs(5))
+        .expect("should display setup guidance");
+
+    // Check /config command
+    harness.write_bytes(b"/config\r").expect("send /config");
+    harness
+        .read_until("Profile: default", Duration::from_secs(5))
+        .expect("should display config status");
+
+    // Exit cleanly with /quit
+    harness.write_bytes(b"/quit\r").expect("send /quit");
+    let exit_code = harness
+        .wait_with_timeout(Duration::from_secs(5))
+        .expect("wait failed")
+        .expect("process should exit within 5s");
+    assert_eq!(exit_code, 0, "first_run_setup_journey should exit 0");
+    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
+    harness.assert_home_unchanged("first_run_setup_journey");
+}
+
+#[test]
+fn full_agent_journey() {
+    let provider = FakeProvider::start();
+    let provider_url = provider.url().to_string();
+
+    // Turn 1: model executes write_file tool call requiring permission
+    provider.push_tool_call(
+        "call-1",
+        "write_file",
+        serde_json::json!({
+            "path": "greeting.txt",
+            "content": "hello from darius agent journey\n"
+        }),
+    );
+    // After tool completes, model provides final text
+    provider.push_text("Successfully wrote greeting.txt!");
+
+    // Turn 2: model execution that we will interrupt with Ctrl-C
+    provider.push_delay(
+        Duration::from_secs(5),
+        ScriptedResponse::text("this delayed response should not finish"),
+    );
+
+    let key_env = "DARIUS_TEST_JOURNEY_KEY";
+    let key_val = "secret-key-123";
+
+    let mut harness = PtyTestHarness::spawn_with_options(
+        &[],
+        &[(key_env, key_val)],
+        |home, _ws| {
+            let profile_dir = home.join("profiles/default");
+            std::fs::create_dir_all(&profile_dir)?;
+            let config = format!(
+                "[model]\nprovider = \"custom-provider\"\nbase_url = \"{provider_url}/v1\"\nmodel = \"custom-model\"\napi_key_env = \"{key_env}\"\n"
+            );
+            std::fs::write(profile_dir.join("config.toml"), config)?;
+            Ok(())
+        },
+    )
+    .expect("spawn failed");
+
+    harness
+        .read_until("Welcome back", Duration::from_secs(5))
+        .expect("PTY should render welcome card");
+
+    // Turn 1: Submit goal that invokes write_file tool
+    harness
+        .write_bytes(b"write greeting file\r")
+        .expect("send goal");
+
+    // Wait for permission prompt to appear
+    harness
+        .read_until("Permission Required", Duration::from_secs(5))
+        .expect("permission prompt should appear");
+
+    // Press Enter to accept "Allow once"
+    harness.write_bytes(b"\r").expect("accept permission");
+
+    // Wait for model completion and turn 1 Done
+    let turn1_out = harness
+        .read_until("Successfully wrote greeting.txt!", Duration::from_secs(5))
+        .expect("agent should finish writing file");
+
+    if !turn1_out.contains("Done") {
+        harness
+            .read_until("Done", Duration::from_secs(2))
+            .expect("turn 1 should complete to Done");
+    }
+
+    // Verify workspace artifact was actually written
+    let created_file = harness.workspace_path().join("greeting.txt");
+    assert!(
+        created_file.exists(),
+        "greeting.txt should have been created"
+    );
+    let content = std::fs::read_to_string(&created_file).expect("read greeting.txt");
+    assert_eq!(content, "hello from darius agent journey\n");
+
+    let initial_count = provider.request_count();
+
+    // Turn 2: Submit long goal and interrupt with Ctrl-C
+    harness
+        .write_bytes(b"long task to interrupt\r")
+        .expect("send long goal");
+
+    // Wait until goal appears in transcript (confirming turn has started in TUI)
+    harness
+        .read_until("long task to interrupt", Duration::from_secs(5))
+        .expect("turn 2 goal should appear in transcript");
+
+    // Wait until fake provider receives the request
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut started = false;
+    while std::time::Instant::now() < deadline {
+        if provider.request_count() > initial_count {
+            started = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(started, "Turn 2 should have reached the provider");
+
+    // Send Ctrl-C to interrupt the turn
+    harness.write_bytes(&[0x03]).expect("send Ctrl-C interrupt");
+
+    // Wait for turn to be cancelled and return to Done
+    harness
+        .read_until("Done", Duration::from_secs(5))
+        .expect("should return to Done state after interrupt");
+
+    // Send /quit to exit TUI
+    harness.write_bytes(b"/quit\r").expect("send /quit");
+    let exit_code = harness
+        .wait_with_timeout(Duration::from_secs(5))
+        .expect("wait failed")
+        .expect("process should exit within 5s");
+    assert_eq!(exit_code, 0, "full_agent_journey should exit 0");
+
+    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
+    harness.assert_home_unchanged("full_agent_journey");
 }
