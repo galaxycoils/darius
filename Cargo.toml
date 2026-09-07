@@ -25,7 +25,7 @@ version = "1.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/galaxycoils/darius"
-description = "Darius — the most powerful open-source agent harness"
+description = "Darius — open-source terminal agent harness"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

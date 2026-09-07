@@ -2,23 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.2.0] - 2026-09-01
+## [1.2.0] - 2026-09-07
 
 ### Added
-- **Lean-Tail Context Compression**: `darius-cognitive/src/compress.rs` implements `lean_tail_compress` and `/compact` command to maintain head system context and recent turns while discarding middle bulk under token budgets.
-- **Tool Spill Recall Path**: Large tool outputs (>32 KiB) automatically spill to disk in `tool_results/`; added `spill_read`/`read_spill` tools restricted to spilled results.
-- **Live Subagent Steer / List / Stop & Schema Validation**: `LocalSubagentRuntime` supporting live mid-turn message injection (`subagent_steer`), active task listing (`subagent_list`), graceful cancellation (`subagent_stop`), and JSON Schema output validation.
-- **Cron Memory Continuity & Persistent Notepad**: Scheduled recurring jobs preserve durable memory and notepads across runs, with hash-based change detection to skip model invocations when payloads remain unchanged.
-- **Instruction-File Write Protection**: Safety gate and `InstructionWriteGate` requiring explicit approval before modifying `AGENTS.md`, `SKILL.md`, `skills/`, `memory.db`, or `.darius/`.
-- **Secret Redaction**: Automatic regex-driven scrubbing of `sk-` keys, Bearer tokens, and password/secret fields across all tool outputs, UI events, and traces.
-- **Prompt-Cache Coordinator**: Deterministic prefix hashing (`compute_prefix_cache_key`) and hit/miss token tracking to optimize LLM prompt cache performance.
-- **MCP Thin Client & Registry**: Stdio and SSE Model Context Protocol client with ping health checks, tool discovery, and step-gating enforcement.
-- **Peer A2A Messaging**: Direct agent-to-agent envelope messaging (`POST /a2a/peer`, `GET /a2a/inbox/{handle}`) with sender quota rate-limiting.
-- **Live Status Metrics & Fuzzy Command Palette**: Real-time cache hit ratio, memory char size, and subagent counters in TUI status footer, accompanied by subsequence fuzzy palette filtering.
-- **Worktree Management & Rollback**: Isolated git worktree lifecycle management with session rollback and TTL-based pruning.
-- **Approval Dry-Run CLI**: `darius approval-check <tool> [args]` command to verify permission requirements and risk level without execution.
-- **Dynamic Role Model Overrides**: Profile config support for `[model_overrides]` routing specialized roles (`planner`, `rater`, `smol`, `advisor`).
-- **Comprehensive E2E Integration Suite**: End-to-end integration tests verifying the full matrix of new capabilities.
+- **Correlated Multi-Turn Agent Loop**: Implemented exact OpenAI-compatible adapter supporting function tool calls with strict ID correlation, cancellation tokens, and request deadlines.
+- **Responsive Async Session Actor**: Replaced blocked synchronous loop with decoupled async session actor (`actor.rs`), keeping TUI controls responsive during provider latency and long-running tools.
+- **Runtime Enforced Execution Policies**: Hard-enforced Auto and Plan modes. In Plan mode, mutating tool calls (`write_file`) and shell execution are strictly denied before execution.
+- **Session Permission Management**: Interactive AllowOnce / AllowSession / Deny prompts for mutating and shell tools; noninteractive `darius run` rejects mutations with exit code 1 and guidance.
+- **Canonical Command Registry**: Closed-world set of 13 slash commands and 4 CLI subcommands (`tui`, `run`, `config`, `memory`), with complete Clap argument parsing and help output.
+- **Terminal Guard & Cleanup**: Guaranteed raw mode restoration, alternate screen exit, and cursor visibility across all normal and abnormal exits via RAII `TerminalGuard` and panic hook.
+- **Robust Installer & Release Pipeline**: Aligned asset target naming (`darius-{macos|linux}-{aarch64|x86_64}.tar.gz`), local `--artifact-dir` install staging, sha256 checksum verification, and atomic binary replacement.
+
+### Corrected
+- **Retired Public Overclaims**: Formally retired unverified or non-working features from public exposure:
+  - Retired unverified subagent orchestration (`subagent_steer`, `subagent_list`, `subagent_stop`).
+  - Retired unverified cron job scheduling and persistence (`darius cron`).
+  - Retired unverified MCP thin client registry.
+  - Retired unverified A2A hub and peer messaging (`darius a2a`, `/a2a`, `/serve`).
+  - Retired unverified worktree rollback and dry-run CLI (`darius approval-check`).
+  - Corrected legacy commands (`daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`).
 
 ## [1.1.2] - 2026-08-31
 

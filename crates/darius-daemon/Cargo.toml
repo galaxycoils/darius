@@ -3,7 +3,7 @@ name = "darius-daemon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Darius daemon — session manager, A2A hub, and service orchestrator"
+description = "Model router and OpenAI-compatible provider adapter"
 
 [lib]
 name = "darius_daemon"

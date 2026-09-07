@@ -560,8 +560,8 @@ mod tests {
         let (state, _) = darius_web::ServerState::new();
         let _router = darius_web::create_router(state);
 
-        // Verify card has peer_a2a
+        // Verify card has agent_loop
         let card = darius_web::agent_card();
-        assert!(card.capabilities.contains(&"peer_a2a".into()));
+        assert!(card.capabilities.contains(&"agent_loop".into()));
     }
 }

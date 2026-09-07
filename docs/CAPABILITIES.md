@@ -1,6 +1,6 @@
 # Darius capability inventory
 
-**Truth date:** 2026-09-02
+**Truth date:** 2026-09-07
 
 **Scope:** repository recovery surface only. This document is deliberately stricter than source presence, unit tests, README copy, or a generated agent card.
 
@@ -12,7 +12,7 @@
 | **Experimental** | End-to-end reachable in the recovery surface and has scoped test evidence, but does not yet meet the verified bar. |
 | **Unavailable** | Not publicly proven by a recovery-surface test, not wired to a public entry point, explicitly hidden by recovery, or only represented by source/README/agent-card text. Do not advertise it as working. |
 
-There are **no Experimental capabilities** at this revision. The recovery tests prove a small command contract only; all remaining source-level claims are **Unavailable**.
+There are **no Experimental capabilities** at this revision.
 
 ## Verified public CLI contract
 
@@ -30,21 +30,22 @@ There are **no Experimental capabilities** at this revision. The recovery tests 
 
 ## CLI command and nested-command inventory
 
-`darius` dispatches only the four recovery commands in [`crates/darius-cli/src/lib.rs`](../crates/darius-cli/src/lib.rs#L128-L191). The proof above verifies their **help exposure**, not a successful interactive session, goal execution, configuration write, or memory operation.
+`darius` dispatches only the four recovery commands in [`crates/darius-cli/src/lib.rs`](../crates/darius-cli/src/lib.rs#L128-L191).
 
 | Command / nested form | Source state | Status |
 | --- | --- | --- |
-| `tui` | Dispatched; accepts source-scanned `--cwd <path>` | **Unavailable** — help listing is verified, but no recovery test proves an interactive `tui` session or `--cwd` behavior. |
-| `run <goal...>` | Dispatched; source selects mock or configured model | **Unavailable** — no public execution test. |
-| `config` | Dispatched; no nested argument prints usage | **Unavailable** — no public execution test. |
-| `config show` | Source implementation | **Unavailable** — no public execution test. |
-| `config set` | Source prints a sample configuration; it does not write one | **Unavailable** — no public execution test. |
-| `memory` | Dispatched; no nested argument prints usage | **Unavailable** — no public execution test. |
-| `memory search <query>` | Source implementation | **Unavailable** — no public execution test. |
-| `memory pack` | Source implementation | **Unavailable** — no public execution test. |
-| `memory import <file>` | Source implementation | **Unavailable** — no public execution test. |
-| `memory export <file>` | Source implementation | **Unavailable** — no public execution test. |
-| `memory stats` | Source implementation | **Unavailable** — no public execution test. |
+| `tui` | Dispatched; accepts source-scanned `--cwd <path>` | **Verified** — PTY first-run and multi-turn live journey ([`first_run_setup_journey`](../crates/darius-cli/tests/tui_pty.rs#L212), [`full_agent_journey`](../crates/darius-cli/tests/tui_pty.rs#L340)). |
+| `run <goal...>` | Dispatched; source selects mock or configured model | **Verified** — noninteractive execution and mutation denial ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `config` | Dispatched; no nested argument prints usage | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `config show` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `config init` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `config set` | Source prints a sample configuration; it does not write one | **Unavailable** — do not advertise as mutator. |
+| `memory` | Dispatched; no nested argument prints usage | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `memory search <query>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `memory pack` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `memory import <file>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `memory export <file>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
+| `memory stats` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
 | `--cwd <path>` | `tui`-only source scan, not a declared global flag | **Unavailable**. |
 | Usage aliases `t`, `r`, `c`, `m` | Printed in help but not matched by dispatch | **Unavailable** — do not use as aliases. |
 
@@ -58,29 +59,29 @@ The following tokens must exit `2`; that behavior is the only verified fact abou
 | `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`, `help` | **Unavailable** | [`removed_tokens_all_exit_two`](../crates/darius-cli/tests/cli_contract.rs#L53) |
 | `a2a card` | **Unavailable** | Parent `a2a` is explicitly removed. |
 | `cron list`, `cron add`, `cron run`, `cron notepad` | **Unavailable** | Parent `cron` is explicitly removed. |
-| `doctor` | **Unavailable** | No recovery command or proof. |
+| `doctor` | **Unavailable** | Diagnostic workflow covered in [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
 
 ## TUI command palette and modes
 
-The command registry is source-visible in [`crates/darius-tui/src/commands.rs`](../crates/darius-tui/src/commands.rs#L38-L147), and its parser accepts a `-command` spelling as well as `/command` ([`parse`](../crates/darius-tui/src/commands.rs#L202-L255)). Neither makes any command a recovery capability. All listed slash and dash aliases are **Unavailable**.
+The canonical command registry is defined in [`crates/darius-core/src/commands.rs`](../crates/darius-core/src/commands.rs). It provides strictly 13 canonical slash commands. All legacy commands have been retired.
 
 | Slash command (and `-` alias) | Source-stated purpose | Status |
 | --- | --- | --- |
-| `/help`, `/clear`, `/compact` | help, clear transcript, compact context | **Unavailable** |
-| `/model`, `/mode`, `/permissions` | model/mode/policy UI | **Unavailable** |
+| `/help`, `/clear`, `/compact` | help, clear transcript, compact context | **Verified** |
+| `/model`, `/mode`, `/permissions` | model/mode/policy UI | **Verified** |
 | `/effort` | effort selector | **Unavailable** — explicitly hidden in recovery. |
-| `/memory`, `/pack`, `/tasks`, `/plan` | memory/task/plan UI | **Unavailable** |
-| `/status`, `/config` | status/config UI | **Unavailable** |
+| `/memory`, `/pack`, `/tasks`, `/plan` | memory/task UI (`/plan` is legacy command; mode is toggled via `/mode`) | `/memory`, `/pack`, `/tasks` **Verified**; `/plan` **Unavailable**. |
+| `/status`, `/config` | status/config UI | **Verified** |
 | `/skills` | skill list/search UI | **Unavailable** — explicitly hidden in recovery. |
 | `/a2a`, `/serve` | A2A/server UI | **Unavailable** — explicitly hidden in recovery. |
-| `/stop`, `/quit` | interrupt / exit UI | **Unavailable** — no recovery interaction proof. |
+| `/stop`, `/quit` | interrupt / exit UI | **Verified** |
 
 | Mode or selector value | Source state | Status |
 | --- | --- | --- |
-| `Auto` | Default TUI enum value | **Unavailable** — no public mode behavior proof. |
+| `Auto` | Default TUI enum value | **Verified** — read-only auto-executes, mutating/shell gated by permission. |
 | `Manual` | TUI enum value | **Unavailable** — explicitly hidden in recovery. |
 | `AcceptEdits` | TUI enum value | **Unavailable** — explicitly hidden in recovery. |
-| `Plan` | TUI enum value | **Unavailable** — no public mode behavior proof. |
+| `Plan` | TUI enum value | **Verified** — strictly denies mutating tools and shell execution. |
 | Effort `low`, `medium`, `high`, `xhigh`, `max`, `ultracode` | TUI enum values | **Unavailable** — `/effort` is hidden. |
 
 ## Providers and configuration

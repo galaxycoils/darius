@@ -18,10 +18,10 @@ cargo install --git https://github.com/galaxycoils/darius darius-cli
 
 ## Quickstart
 
-### 1. Run the smoke test (no API key needed)
+### 1. View help and subcommands (no API key needed)
 
 ```sh
-darius session-smoke
+darius --help
 ```
 
 ### 2. Launch the TUI
@@ -71,7 +71,7 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 | `❯ text` + Enter | Send a message |
 | `/` | Open command palette (with fuzzy matching) |
 | `-` at column zero | Also opens command palette |
-| `Shift+Tab` | Cycle mode (auto → manual → accept-edits → plan) |
+| `Shift+Tab` | Cycle mode (auto → plan) |
 | `Esc` | Close palette / interrupt |
 | `q` | Quit |
 
@@ -82,19 +82,14 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 | `/help` | Show available commands |
 | `/clear` | Clear transcript |
 | `/compact` | Compact session context (lean-tail compression) |
-| `/model` | Show/set model |
-| `/mode` | Cycle interaction mode |
-| `/effort` | Set effort level |
-| `/permissions` | View permission policy |
+| `/model` | Show current provider/model (read-only) |
+| `/mode [auto|plan]` | Set Auto or Plan mode |
+| `/permissions` | Show the current permission policy |
 | `/memory` | Memory search & stats |
 | `/pack` | Build bounded MemoryPack |
 | `/tasks` | Show task board |
-| `/plan` | Enter plan mode |
 | `/status` | Session status & live cache/memory metrics |
 | `/config` | Show effective profile config |
-| `/skills` | List skills |
-| `/a2a` | A2A card info & peer inbox |
-| `/serve` | Start localhost server |
 | `/stop` | Stop current operation |
 | `/quit` | Exit TUI |
 
@@ -104,33 +99,24 @@ Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful f
 |---------|-------------|
 | `darius run "goal"` | Cognitive loop (Mock or live if configured) |
 | `darius tui` | Launch Claude-Code-style TUI |
-| `darius serve` | Start web dashboard + A2A server |
-| `darius session-smoke` | Integrated daemon + session + handoff test |
-| `darius cron list\|add\|run\|notepad` | Cron jobs with memory continuity & notepads |
-| `darius approval-check <tool> [args]` | Dry-run check tool execution approval requirements |
+| `darius config show` | Show profile config |
+| `darius config init` | Initialize profile configuration |
 | `darius memory search <q>` | FTS5 search |
 | `darius memory pack` | Bounded MemoryPack (≤3500 chars) |
 | `darius memory import <file>` | Deduped JSONL import |
 | `darius memory export <file>` | JSONL export |
 | `darius memory stats` | Record count + DB path |
-| `darius config show` | Show profile config |
-| `darius a2a card` | Show A2A agent card |
 
 ## What's in v1.2.0
 
-- ✅ **Lean-Tail Context Compression**: Keeps head and tail pinned while rolling middle context under budget.
-- ✅ **Disk Spill Recall (`spill_read`)**: Large tool payloads (>32 KiB) spill to disk; paginated recall without RAM residency.
-- ✅ **Live Subagent Steer / List / Stop & Schema Validation**: In-process subagent supervision with JSON Schema enforcement.
-- ✅ **Cron Memory Continuity & Notepad**: Scheduled recurring jobs with persistent notepad and change-detection hashing.
-- ✅ **Instruction-File Write Protection**: Gated writes for `AGENTS.md`, `SKILL.md`, `skills/`, `memory.db`, `.darius/`.
-- ✅ **Secret Redaction**: Automatic scrubbing of `sk-` keys, Bearer tokens, and secrets across logs and UI events.
-- ✅ **Prompt-Cache Coordinator**: Deterministic prefix hashing and hit/miss token tracking.
-- ✅ **MCP Thin Registry & Health**: Model Context Protocol stdio/SSE client with ping health checks and step gating.
-- ✅ **Peer A2A Messaging**: Direct agent-to-agent envelope delivery with recipient inbox and rate limit quotas.
-- ✅ **Live Metrics & Fuzzy Palette**: Real-time cache ratio, memory size, and subagent counters in status bar with fuzzy matching.
-- ✅ **Worktree Management & Rollback**: Isolated git worktrees with automatic session rollback and TTL pruning.
-- ✅ **Approval Dry-Run CLI**: `darius approval-check` utility to inspect tool risk without executing.
-- ✅ **Dynamic Role Model Overrides**: Profile config support for `planner`, `rater`, `smol`, and `advisor` roles.
+- ✅ **Correlated Multi-Turn Agent Loop**: Full OpenAI-compatible adapter supporting function tool calls with strict ID correlation.
+- ✅ **Async Responsive TUI Runtime**: Decoupled session actor handling interrupts, permission dialogs, and clean terminal exits under 2 seconds.
+- ✅ **Execution Policies & Permissions**: Hard-enforced Auto and Plan modes with interactive AllowOnce/AllowSession/Deny approval prompts.
+- ✅ **Clean-Home Diagnostics & Honest Onboarding**: Detects unconfigured environment with truthful hints, zero home pollution.
+- ✅ **Canonical Command Registry**: Closed-world set of 13 slash commands and 4 CLI subcommands with fuzzy matching and autocomplete.
+- ✅ **Durable SQLite Memory Engine**: FTS5 full-text search, bounded pack generation, and JSONL import/export.
+- ✅ **Safe Sandboxed Tools**: Strictly validated file read/write, file search, and truthfully cancellable shell tool execution.
+- ℹ️ **Note on Prior Version Overclaims**: Unverified features advertised in earlier v1.1.2/v1.2.0 drafts (e.g. MCP thin client, subagent orchestration, A2A hub, cron scheduling, worktree rollback) have been formally retired from the public surface to ensure complete operational truth. See [CAPABILITIES.md](docs/CAPABILITIES.md) and [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Build & Test
 

@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 repository.workspace = true
-description = "Darius web dashboard + A2A"
+description = "Darius status and inspection dashboard"
 
 [lib]
 name = "darius_web"

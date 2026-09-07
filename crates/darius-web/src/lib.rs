@@ -1,4 +1,4 @@
-//! Darius web dashboard + A2A server.
+//! Darius web dashboard and status server.
 
 use axum::{
     Json, Router,
@@ -49,13 +49,12 @@ pub fn agent_card() -> AgentCard {
     AgentCard {
         name: "darius".into(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        description: "Darius — open-source lean agent harness".into(),
+        description: "Darius — open-source terminal agent harness".into(),
         capabilities: vec![
-            "cognitive_loop".into(),
+            "agent_loop".into(),
             "memory_search".into(),
             "tool_execution".into(),
-            "task_board".into(),
-            "peer_a2a".into(),
+            "permissions".into(),
         ],
     }
 }
@@ -307,8 +306,8 @@ mod tests {
     fn agent_card_returns_darius() {
         let card = agent_card();
         assert_eq!(card.name, "darius");
-        assert!(card.capabilities.contains(&"cognitive_loop".into()));
-        assert!(card.capabilities.contains(&"peer_a2a".into()));
+        assert!(card.capabilities.contains(&"agent_loop".into()));
+        assert!(card.capabilities.contains(&"tool_execution".into()));
     }
 
     #[test]

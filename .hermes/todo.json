@@ -1,0 +1,197 @@
+{
+  "tasks": [
+    {
+      "id": "0.1",
+      "desc": "Create RED-only public contract tests",
+      "file": "crates/darius-cli/tests/cli_contract.rs",
+      "status": "completed"
+    },
+    {
+      "id": "0.2",
+      "desc": "Replace false PTY smoke with clean-home launch reproduction",
+      "file": "crates/darius-cli/tests/tui_pty.rs",
+      "status": "completed"
+    },
+    {
+      "id": "0.3",
+      "desc": "Create capability inventory",
+      "file": "docs/CAPABILITIES.md",
+      "status": "completed"
+    },
+    {
+      "id": "1.1",
+      "desc": "Add one Darius path authority",
+      "file": "crates/darius-cli/src/paths.rs",
+      "status": "completed"
+    },
+    {
+      "id": "1.2",
+      "desc": "Make config typed, explicit, and atomic",
+      "file": "crates/darius-cli/src/config.rs",
+      "status": "completed"
+    },
+    {
+      "id": "1.3",
+      "desc": "Replace manual argv parsing with complete Clap surface",
+      "file": "crates/darius-cli/src/args.rs",
+      "status": "completed"
+    },
+    {
+      "id": "1.4",
+      "desc": "Add honest runtime selection and setup diagnostics",
+      "file": "crates/darius-cli/src/runtime.rs",
+      "status": "completed"
+    },
+    {
+      "id": "2.1",
+      "desc": "Give ToolRegistry explicit roots and session state",
+      "file": "crates/darius-tools/src/lib.rs",
+      "status": "completed"
+    },
+    {
+      "id": "2.2",
+      "desc": "Replace toy file/search/write tools",
+      "file": "crates/darius-tools/src/read_file.rs",
+      "status": "completed"
+    },
+    {
+      "id": "2.3",
+      "desc": "Make shell cancellable and truthful",
+      "file": "crates/darius-tools/src/shell.rs",
+      "status": "completed"
+    },
+    {
+      "id": "2.4",
+      "desc": "Enforce closed-world model tool allowlist",
+      "file": "crates/darius-tools/src/model_tools.rs",
+      "status": "completed"
+    },
+    {
+      "id": "3.1",
+      "desc": "Add correlated conversation messages",
+      "file": "crates/darius-cognitive/src/conversation.rs",
+      "status": "completed"
+    },
+    {
+      "id": "3.2",
+      "desc": "Implement exact configured OpenAI-compatible adapter",
+      "file": "crates/darius-daemon/src/model_router/openai.rs",
+      "status": "completed"
+    },
+    {
+      "id": "3.3",
+      "desc": "Replace plan/react loop with one agent loop",
+      "file": "crates/darius-cognitive/src/agent_loop.rs",
+      "status": "completed"
+    },
+    {
+      "id": "4.1",
+      "desc": "Reproduce blocked controls",
+      "file": "crates/darius-cli/src/tui_runtime.rs",
+      "status": "completed"
+    },
+    {
+      "id": "4.2",
+      "desc": "Build async session actor",
+      "file": "crates/darius-cli/src/tui_runtime/actor.rs",
+      "status": "completed"
+    },
+    {
+      "id": "4.3",
+      "desc": "Persist and enforce session permissions",
+      "file": "crates/darius-cli/src/permissions.rs",
+      "status": "completed"
+    },
+    {
+      "id": "4.4",
+      "desc": "Enforce only Auto and Plan modes",
+      "file": "crates/darius-cognitive/src/execution_policy.rs",
+      "status": "completed"
+    },
+    {
+      "id": "5.1",
+      "desc": "Create one availability/command registry",
+      "file": "crates/darius-core/src/commands.rs",
+      "status": "completed"
+    },
+    {
+      "id": "5.2",
+      "desc": "Execute every registered command",
+      "file": "crates/darius-cli/src/command_handler.rs",
+      "status": "completed"
+    },
+    {
+      "id": "6.1",
+      "desc": "Fix event ordering, lag, resize, and paste",
+      "file": "crates/darius-tui/src/terminal.rs",
+      "status": "completed"
+    },
+    {
+      "id": "6.2",
+      "desc": "Complete composer, palette, scroll, and disclosures",
+      "file": "crates/darius-tui/src/app.rs",
+      "status": "completed"
+    },
+    {
+      "id": "6.3",
+      "desc": "Restore terminal on all exits",
+      "file": "crates/darius-tui/src/terminal.rs",
+      "status": "completed"
+    },
+    {
+      "id": "7.1",
+      "desc": "Add deterministic fake provider",
+      "file": "crates/darius-cli/tests/support/fake_provider.rs",
+      "status": "completed"
+    },
+    {
+      "id": "7.2",
+      "desc": "Prove clean first-run journey",
+      "file": "crates/darius-cli/tests/tui_pty.rs",
+      "status": "completed"
+    },
+    {
+      "id": "7.3",
+      "desc": "Prove complete live TTY journey",
+      "file": "crates/darius-cli/tests/tui_pty.rs",
+      "status": "completed"
+    },
+    {
+      "id": "7.4",
+      "desc": "Prove retained noninteractive commands",
+      "file": "crates/darius-cli/tests/run_e2e.rs",
+      "status": "completed"
+    },
+    {
+      "id": "8.1",
+      "desc": "Align installer and assets",
+      "file": "scripts/release-target.sh",
+      "status": "completed"
+    },
+    {
+      "id": "8.2",
+      "desc": "Gate tag release on exact SHA evidence",
+      "file": ".github/workflows/release.yml",
+      "status": "completed"
+    },
+    {
+      "id": "8.3",
+      "desc": "Audit every machine-visible claim",
+      "file": "scripts/audit-public-claims.sh",
+      "status": "completed"
+    },
+    {
+      "id": "8.4",
+      "desc": "Run full gates and adversarial review",
+      "file": "",
+      "status": "completed"
+    },
+    {
+      "id": "8.5",
+      "desc": "User-visible binary checkpoint",
+      "file": "",
+      "status": "completed"
+    }
+  ],
+  "current": "8.5"
+}

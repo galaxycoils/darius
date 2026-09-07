@@ -26,4 +26,8 @@ jobs:
 
       - run: cargo test --workspace
 
+      - run: bash tests/install_test.sh
+
+      - run: bash scripts/audit-public-claims.sh
+
       - run: cargo build --release -p darius-cli
