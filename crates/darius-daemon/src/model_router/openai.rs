@@ -20,8 +20,15 @@ impl AsyncModel for LiveModel {
         tools: &[ToolSpec],
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
-        let key = std::env::var(&self.key_env)
-            .map_err(|_| CognitiveError::Loop("authentication failed".into()))?;
+        let is_local = self.base_url.contains("localhost")
+            || self.base_url.contains("127.0.0.1")
+            || self.base_url.contains("0.0.0.0")
+            || self.key_env.eq_ignore_ascii_case("NONE");
+        let key = match std::env::var(&self.key_env) {
+            Ok(k) if !k.trim().is_empty() => k,
+            _ if is_local => "ollama".to_string(),
+            _ => return Err(CognitiveError::Loop("authentication failed".into())),
+        };
         let input = usage::estimate_input(messages, tools).max(1);
         let mut reservation = self
             .budget

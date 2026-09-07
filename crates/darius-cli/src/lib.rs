@@ -86,6 +86,11 @@ fn cmd_tui(
     } else {
         crate::tui_runtime::build_runtime(profile, offline)?
     };
+    let initial_profile = runtime.metadata.profile.clone();
+    let initial_model = runtime.metadata.model.clone();
+    let initial_workspace = runtime.workspace.clone();
+    let initial_mode = runtime.mode;
+
     let (mut worker, event_rx) = TuiWorker::new(runtime);
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
     let worker_handle = std::thread::spawn(move || worker.run_loop(cmd_rx));
@@ -93,7 +98,13 @@ fn cmd_tui(
         commands: cmd_tx,
         events: event_rx,
     };
-    darius_tui::run_tui(AppState::default(), controller)?;
+    let mut state = AppState::default();
+    state.profile = initial_profile;
+    state.model = initial_model;
+    state.cwd = Some(initial_workspace);
+    state.mode = initial_mode;
+
+    darius_tui::run_tui(state, controller)?;
     let _ = worker_handle.join();
     Ok(())
 }
@@ -237,6 +248,15 @@ fn cmd_config(
             };
             let path = initialize_profile(&paths, profile, &metadata, force)?;
             println!("Initialized profile '{profile}' at {}", path.display());
+        }
+        ConfigCommand::Preset { name, force } => {
+            let metadata =
+                ProviderMetadata::from_preset_or_fields(Some(&name), None, None, None, None)?;
+            let path = initialize_profile(&paths, profile, &metadata, force)?;
+            println!(
+                "Initialized profile '{profile}' from preset '{name}' at {}",
+                path.display()
+            );
         }
     }
     Ok(())

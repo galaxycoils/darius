@@ -44,7 +44,23 @@ impl ProfileConfig {
     }
 
     pub fn is_configured(&self) -> bool {
+        if self.is_local() {
+            return self.model.is_some();
+        }
         self.model.is_some() && self.api_key().is_some()
+    }
+
+    pub fn is_local(&self) -> bool {
+        let Some(model) = &self.model else {
+            return false;
+        };
+        model.base_url.contains("localhost")
+            || model.base_url.contains("127.0.0.1")
+            || model.base_url.contains("0.0.0.0")
+            || model
+                .api_key_env
+                .as_deref()
+                .is_some_and(|e| e.eq_ignore_ascii_case("NONE"))
     }
 
     pub fn get_role_model(&self, role: &str) -> Option<String> {

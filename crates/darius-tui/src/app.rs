@@ -159,6 +159,7 @@ pub struct AppState {
     pub cache_hit_ratio: Option<f64>,
     pub memory_chars: Option<usize>,
     pub running_subagents: usize,
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,11 +211,26 @@ impl Default for AppState {
             cache_hit_ratio: None,
             memory_chars: None,
             running_subagents: 0,
+            cwd: None,
         }
     }
 }
 
 impl AppState {
+    pub fn display_cwd(&self) -> String {
+        if let Some(ref cwd) = self.cwd {
+            let path_str = cwd.to_string_lossy();
+            if let Ok(home) = std::env::var("HOME") {
+                if let Some(rel) = path_str.strip_prefix(&home) {
+                    return format!("~{rel}");
+                }
+            }
+            path_str.into_owned()
+        } else {
+            ".".into()
+        }
+    }
+
     pub fn push_message(&mut self, msg: impl Into<String>) {
         self.transcript
             .push(TranscriptItem::Assistant { text: msg.into() });

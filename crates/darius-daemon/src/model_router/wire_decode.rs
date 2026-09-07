@@ -7,12 +7,25 @@ pub async fn read_response(
     resp: reqwest::Response,
 ) -> Result<(ModelOutput, Option<ProviderUsage>), CognitiveError> {
     if !resp.status().is_success() {
-        return Err(match resp.status().as_u16() {
-            401 | 403 => CognitiveError::Loop("authentication failed".into()),
-            429 => CognitiveError::Loop("rate limited".into()),
-            500..=599 => CognitiveError::Loop("provider unavailable".into()),
-            _ => CognitiveError::Loop("provider error".into()),
+        let status = resp.status().as_u16();
+        let detail = resp.text().await.ok().and_then(|t| {
+            serde_json::from_str::<Value>(&t).ok().and_then(|v| {
+                v.pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
         });
+        let msg = match (status, detail) {
+            (401 | 403, Some(d)) => format!("authentication failed: {d}"),
+            (401 | 403, None) => "authentication failed".into(),
+            (429, Some(d)) => format!("rate limited: {d}"),
+            (429, None) => "rate limited".into(),
+            (500..=599, Some(d)) => format!("provider unavailable ({status}): {d}"),
+            (500..=599, None) => "provider unavailable".into(),
+            (s, Some(d)) => format!("provider error ({s}): {d}"),
+            (s, None) => format!("provider error ({s})"),
+        };
+        return Err(CognitiveError::Loop(msg));
     }
     let out = match resp.json().await {
         Ok(v) => v,

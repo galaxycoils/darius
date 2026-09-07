@@ -27,14 +27,13 @@ pub(crate) fn handle_slash(actor: &mut SessionActor, inv: &CommandInvocation) {
 
     match inv.id {
         CommandId::Help => {
-            actor.status("Available commands:");
+            let mut help = String::from("Available commands:\n");
             for cmd in COMMANDS {
-                actor.status(format!("  {} - {}", cmd.name, cmd.description));
+                help.push_str(&format!("  {:14} - {}\n", cmd.name, cmd.description));
             }
-            actor.status("Keyboard shortcuts:");
-            actor.status(
-                "  Enter: Submit | Esc: Palette | Shift+Tab: Cycle Mode | Ctrl+C: Interrupt",
-            );
+            help.push_str("\nKeyboard shortcuts:\n");
+            help.push_str("  Enter: Submit | Esc: Palette | Shift+Tab: Cycle Mode | Ctrl+C: Interrupt");
+            actor.status(help);
         }
         CommandId::Clear => {
             actor.emit(UiEvent::ClearTranscript);

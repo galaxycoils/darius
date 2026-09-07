@@ -67,6 +67,7 @@ fn resolve_profile(
     profile: &str,
     options: RuntimeOptions,
 ) -> Result<ResolvedProfile, RuntimeError> {
+    crate::runtime_selector::load_dotenv_if_present(Some(&paths.workspace));
     let config = RuntimeConfig::from_profile(paths, profile)?;
     let config_path = ProfileConfig::config_path(paths, profile)?;
     let config_exists = config_path.try_exists()?;

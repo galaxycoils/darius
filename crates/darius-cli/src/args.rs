@@ -29,27 +29,49 @@ pub enum Command {
 
 #[derive(clap::Subcommand)]
 pub enum ConfigCommand {
+    /// Display current runtime configuration and diagnostics
     Show,
+    /// Initialize a profile with model provider settings
     Init {
+        /// Model provider type (e.g. openai_compatible, ollama)
         #[arg(long)]
         provider: String,
+        /// Base URL for the provider API
         #[arg(long)]
         base_url: url::Url,
+        /// Model identifier (e.g. gpt-4o-mini, claude-3.5-sonnet, llama3.2)
         #[arg(long)]
         model: String,
+        /// Environment variable name holding the API key
         #[arg(long)]
         key_env: String,
+        /// Overwrite existing profile configuration
+        #[arg(long)]
+        force: bool,
+    },
+    /// Quick-configure a profile from a named preset (openai, openrouter, ollama, groq)
+    Preset {
+        /// Preset name: openai, openrouter, ollama, or groq
+        name: String,
+        /// Overwrite existing profile configuration
         #[arg(long)]
         force: bool,
     },
 }
 
 #[derive(clap::Subcommand)]
-#[rustfmt::skip]
 pub enum MemoryCommand {
-    Search { #[arg(required = true, num_args = 1..)] query: Vec<String> },
+    /// Search durable memory records
+    Search {
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+    },
+    /// Build and display a memory pack
     Pack,
+    /// Import memory records from a JSONL file
     Import { file: PathBuf },
+    /// Export memory records to a JSONL file
     Export { file: PathBuf },
+    /// Display memory database statistics
     Stats,
 }

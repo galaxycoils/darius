@@ -159,7 +159,14 @@ pub fn render_welcome(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
         ]),
         Line::from(vec![
             Span::styled("cwd     ", Style::default().fg(theme.muted)),
-            Span::styled("~/dev/project", Style::default().fg(theme.text)),
+            Span::styled(
+                state
+                    .cwd
+                    .as_ref()
+                    .map(|_| state.display_cwd())
+                    .unwrap_or_else(|| "~/dev/project".into()),
+                Style::default().fg(theme.text),
+            ),
         ]),
         Line::from(vec![
             Span::styled("profile ", Style::default().fg(theme.muted)),
@@ -411,14 +418,21 @@ fn draw_inner<B: ratatui::backend::Backend>(
     let theme = Theme::detect(&crate::theme::OsEnv);
     terminal.draw(|f| {
         let area = f.size();
+        if area.width < 30 || area.height < 6 {
+            let msg = Paragraph::new("Terminal too small").style(Style::default().fg(theme.delete));
+            f.render_widget(msg, area);
+            return;
+        }
+
         let has_user_turn = state
             .transcript
             .iter()
             .any(|item| matches!(item, TranscriptItem::User { .. }));
+        let show_welcome = !has_user_turn && area.height >= 18;
 
         // Build vertical constraints: welcome, transcript, [palette], [permission], composer.
         let mut constraints: Vec<Constraint> = vec![];
-        if !has_user_turn {
+        if show_welcome {
             constraints.push(Constraint::Length(6)); // welcome card
         }
         constraints.push(Constraint::Min(1)); // transcript
@@ -437,8 +451,8 @@ fn draw_inner<B: ratatui::backend::Backend>(
 
         let mut idx = 0;
 
-        // 1. Optional welcome card while no user turn.
-        if !has_user_turn {
+        // 1. Optional welcome card while no user turn and enough vertical height.
+        if show_welcome {
             render_welcome(chunks[idx], f.buffer_mut(), state, &theme);
             idx += 1;
         }

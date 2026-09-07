@@ -14,6 +14,57 @@ pub struct ProviderMetadata {
     pub api_key_env: Option<String>,
 }
 
+impl ProviderMetadata {
+    pub fn from_preset_or_fields(
+        preset: Option<&str>,
+        provider: Option<String>,
+        base_url: Option<url::Url>,
+        model: Option<String>,
+        key_env: Option<String>,
+    ) -> Result<Self, ConfigError> {
+        let (p_provider, p_base, p_model, p_key) = match preset.map(str::to_lowercase).as_deref() {
+            Some("openrouter") => (
+                "openai_compatible",
+                "https://openrouter.ai/api/v1",
+                "anthropic/claude-3.5-sonnet",
+                "OPENROUTER_API_KEY",
+            ),
+            Some("ollama") => (
+                "ollama",
+                "http://localhost:11434/v1",
+                "llama3.2",
+                "NONE",
+            ),
+            Some("groq") => (
+                "openai_compatible",
+                "https://api.groq.com/openai/v1",
+                "llama-3.3-70b-versatile",
+                "GROQ_API_KEY",
+            ),
+            _ => (
+                "openai_compatible",
+                "https://api.openai.com/v1",
+                "gpt-4o-mini",
+                "OPENAI_API_KEY",
+            ),
+        };
+
+        let provider = provider.unwrap_or_else(|| p_provider.to_string());
+        let base_url = base_url
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| p_base.to_string());
+        let model = model.unwrap_or_else(|| p_model.to_string());
+        let api_key_env = key_env.or_else(|| Some(p_key.to_string()));
+
+        Ok(Self {
+            provider,
+            base_url,
+            model,
+            api_key_env,
+        })
+    }
+}
+
 pub fn initialize_profile(
     paths: &DariusPaths,
     profile: &str,
