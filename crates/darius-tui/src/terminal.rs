@@ -1,20 +1,11 @@
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
+use std::io::{self, Write};
 use std::time::Duration;
 
 use crate::app::AppState;
 use crate::controller::{RuntimeCommand, TuiController};
 use crate::input::map_key;
 use crate::render::draw;
-
-/// Terminal lifecycle guard that ensures raw mode, cursor visibility,
-/// and alternate screen are always restored — even on panic.
-///
-/// Uses a trait object backend so tests can verify the cleanup sequence
-/// without touching a real terminal.
-pub struct TerminalGuard {
-    inner: Box<dyn TerminalBackend>,
-}
 
 /// Abstraction over crossterm operations so we can test cleanup order.
 pub trait TerminalBackend: Send {
@@ -55,32 +46,57 @@ impl TerminalBackend for CrosstermBackendImpl {
     }
 }
 
+/// Terminal lifecycle guard that ensures raw mode, cursor visibility,
+/// and alternate screen are always restored — even on panic.
+///
+/// Uses a trait object backend so tests can verify the cleanup sequence
+/// without touching a real terminal.
+pub struct TerminalGuard {
+    inner: Box<dyn TerminalBackend>,
+    raw_enabled: bool,
+    alt_screen_entered: bool,
+    cursor_hidden: bool,
+}
+
 impl TerminalGuard {
     /// Enter raw mode and alternate screen using the real crossterm backend.
     pub fn enter() -> io::Result<Self> {
-        let inner: Box<dyn TerminalBackend> = Box::new(CrosstermBackendImpl);
-        inner.enable_raw_mode()?;
-        inner.enter_alternate_screen()?;
-        inner.hide_cursor()?;
-        Ok(Self { inner })
+        Self::with_backend(Box::new(CrosstermBackendImpl))
     }
 
     /// Enter with a custom backend (used in tests).
     pub fn with_backend(inner: Box<dyn TerminalBackend>) -> io::Result<Self> {
-        inner.enable_raw_mode()?;
-        inner.enter_alternate_screen()?;
-        inner.hide_cursor()?;
-        Ok(Self { inner })
+        let mut guard = Self {
+            inner,
+            raw_enabled: false,
+            alt_screen_entered: false,
+            cursor_hidden: false,
+        };
+        guard.inner.enable_raw_mode()?;
+        guard.raw_enabled = true;
+        guard.inner.enter_alternate_screen()?;
+        guard.alt_screen_entered = true;
+        guard.inner.hide_cursor()?;
+        guard.cursor_hidden = true;
+        let _ = io::stdout().flush();
+        Ok(guard)
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         // Order matters: show cursor BEFORE leaving alternate screen,
-        // leave alternate screen BEFORE disabling raw mode.
-        let _ = self.inner.show_cursor();
-        let _ = self.inner.leave_alternate_screen();
-        let _ = self.inner.disable_raw_mode();
+        // leave alternate screen BEFORE disabling raw mode, and flush stdout.
+        if self.cursor_hidden {
+            let _ = self.inner.show_cursor();
+        }
+        if self.alt_screen_entered {
+            let _ = self.inner.leave_alternate_screen();
+        }
+        if self.raw_enabled {
+            let _ = self.inner.disable_raw_mode();
+        }
+        let _ = io::stdout().flush();
     }
 }
 
@@ -90,7 +106,6 @@ fn effect_to_command(state: &AppState, effect: crate::app::Effect) -> Option<Run
         crate::app::Effect::SubmitGoal(text) => Some(RuntimeCommand::SubmitGoal {
             text,
             mode: state.mode,
-            effort: state.effort,
         }),
         crate::app::Effect::ExecuteCommand(inv) => Some(RuntimeCommand::ExecuteSlash(inv)),
         crate::app::Effect::Interrupt => Some(RuntimeCommand::Interrupt),
@@ -103,15 +118,43 @@ fn effect_to_command(state: &AppState, effect: crate::app::Effect) -> Option<Run
 
 /// True when the command means "exit the TUI now".
 fn cmd_is_quit(cmd: &RuntimeCommand) -> bool {
-    matches!(cmd, RuntimeCommand::Shutdown)
+    matches!(
+        cmd,
+        RuntimeCommand::Shutdown
+            | RuntimeCommand::ExecuteSlash(crate::commands::CommandInvocation {
+                id: crate::commands::CommandId::Quit,
+                ..
+            })
+    )
+}
+
+/// Drain all runtime events from the broadcast receiver into AppState.
+/// Handles lagged events with a visible warning, and stops on empty/closed.
+/// Returns false if the event stream is closed (worker terminated).
+pub fn drain_events(
+    events: &mut tokio::sync::broadcast::Receiver<
+        darius_core::runtime_protocol::RuntimeEvent<darius_cognitive::UiEvent>,
+    >,
+    state: &mut AppState,
+) -> bool {
+    loop {
+        match events.try_recv() {
+            Ok(event) => state.apply_runtime_event(event),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break true,
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                state.status_line = Some(format!("Warning: lagged by {n} events"));
+            }
+            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break false,
+        }
+    }
 }
 
 /// Run the TUI event loop.
 ///
-/// 1. Draw.
-/// 2. Drain `controller.events.try_recv()` → `state.apply_event`.
+/// 1. Drain `controller.events` → `state.apply_event`.
+/// 2. Draw.
 /// 3. Poll crossterm with a short timeout (never block indefinitely).
-/// 4. Ignore key-release events.
+/// 4. Ignore key-release events; handle resize and paste.
 /// 5. Route press through `map_key` → `reduce` → `RuntimeCommand`.
 /// 6. Break only on Quit, controller closure, or fatal terminal error.
 pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result<()> {
@@ -123,14 +166,14 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
     terminal.clear()?;
 
     let result: io::Result<()> = loop {
-        // 1. Draw.
-        if let Err(e) = draw(&mut terminal, &state) {
-            break Err(e);
+        // 1. Drain events before draw.
+        if !drain_events(&mut controller.events, &mut state) {
+            break Ok(());
         }
 
-        // 2. Drain events (non-blocking).
-        while let Ok(event) = controller.events.try_recv() {
-            state.apply_event(event);
+        // 2. Draw.
+        if let Err(e) = draw(&mut terminal, &state) {
+            break Err(e);
         }
 
         // 3. Poll crossterm — do not block the redraw indefinitely.
@@ -142,6 +185,10 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
                         if matches!(key.kind, crossterm::event::KeyEventKind::Release) {
                             continue;
                         }
+                        // Drain pending runtime events before interpreting the key.
+                        if !drain_events(&mut controller.events, &mut state) {
+                            break Ok(());
+                        }
                         // 5. Map and reduce.
                         if let Some(action) = map_key(key, &state)
                             && let Some(effect) = state.reduce(action)
@@ -149,6 +196,7 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
                         {
                             // 6. Send command; break on closure.
                             if cmd_is_quit(&cmd) {
+                                let _ = controller.commands.send(cmd);
                                 break Ok(());
                             }
                             match controller.commands.send(cmd) {
@@ -160,14 +208,18 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
                             }
                         }
                     }
-                    Ok(_) => {
-                        // Non-key events (resize, paste) — redraw will pick them up.
+                    Ok(crossterm::event::Event::Resize(_w, _h)) => {
+                        let _ = terminal.autoresize();
                     }
+                    Ok(crossterm::event::Event::Paste(text)) => {
+                        state.reduce(crate::app::Action::Paste(text));
+                    }
+                    Ok(_) => {}
                     Err(e) => break Err(e),
                 }
             }
             Ok(false) => {
-                // Timeout — loop back to draw + drain events.
+                // Timeout — loop back to drain + draw.
             }
             Err(e) => break Err(e),
         }
@@ -229,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_enter_calls_raw_mode_alt_screen_hide_cursor() {
+    fn terminal_guard_enter_calls_raw_mode_alt_screen_hide_cursor() {
         let ops = Arc::new(AtomicUsize::new(0));
         let backend = Box::new(TestBackend::new(ops.clone()));
         let _guard = TerminalGuard::with_backend(backend).unwrap();
@@ -237,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_drop_restores_in_correct_order() {
+    fn terminal_guard_drop_restores_in_correct_order() {
         let ops = Arc::new(AtomicUsize::new(0));
         let backend = Box::new(TestBackend::new(ops.clone()));
         {
@@ -248,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_restores_even_on_panic() {
+    fn terminal_guard_restores_even_on_panic() {
         let ops = Arc::new(AtomicUsize::new(0));
         let backend = Box::new(TestBackend::new(ops.clone()));
         let result = std::panic::catch_unwind(|| {
@@ -259,9 +311,61 @@ mod tests {
         assert_eq!(ops.load(Ordering::SeqCst), 6);
     }
 
+    struct FailingBackend {
+        ops: Arc<AtomicUsize>,
+        fail_at_step: usize,
+    }
+
+    impl TerminalBackend for FailingBackend {
+        fn enable_raw_mode(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            if self.fail_at_step == 1 {
+                Err(io::Error::other("step 1 fail"))
+            } else {
+                Ok(())
+            }
+        }
+        fn disable_raw_mode(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn enter_alternate_screen(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            if self.fail_at_step == 2 {
+                Err(io::Error::other("step 2 fail"))
+            } else {
+                Ok(())
+            }
+        }
+        fn leave_alternate_screen(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn show_cursor(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn hide_cursor(&self) -> io::Result<()> {
+            self.ops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn terminal_guard_partial_init_cleans_up() {
+        let ops = Arc::new(AtomicUsize::new(0));
+        let backend = Box::new(FailingBackend {
+            ops: ops.clone(),
+            fail_at_step: 2,
+        });
+        let res = TerminalGuard::with_backend(backend);
+        assert!(res.is_err());
+        assert_eq!(ops.load(Ordering::SeqCst), 3);
+    }
+
     // ── Event-source harness (proves the loop logic without a PTY) ─────
 
-    use crate::app::{Effort, Mode};
+    use crate::app::Mode;
     use crate::commands::{CommandId, CommandInvocation};
     use darius_cognitive::UiEvent;
 
@@ -286,19 +390,17 @@ mod tests {
         events: Vec<UiEvent>,
         keys: Vec<crossterm::event::KeyEvent>,
     ) -> (AppState, Vec<RuntimeCommand>) {
-        let (mut controller, cmd_rx, event_tx) = TuiController::new(64);
+        let (mut controller, mut cmd_rx, event_tx) = TuiController::new(64);
 
         // Replay the canned events.
         for ev in events {
-            let _ = event_tx.send(ev);
+            let _ = event_tx.send(ev.into());
         }
 
         let mut local_state = AppState::default();
 
         // Drain all available events (mirrors the loop's drain step).
-        while let Ok(ev) = controller.events.try_recv() {
-            local_state.apply_event(ev);
-        }
+        drain_events(&mut controller.events, &mut local_state);
 
         let mut collected = Vec::new();
         for key in &keys {
@@ -469,7 +571,6 @@ mod tests {
                 RuntimeCommand::SubmitGoal {
                     text: "x".into(),
                     mode: Mode::Auto,
-                    effort: Effort::High,
                 },
             ),
             (
@@ -517,5 +618,49 @@ mod tests {
                 other => panic!("mismatch: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn terminal_event_drain_lag_displays_warning() {
+        let (mut controller, _cmd_rx, event_tx) = TuiController::new(4);
+        let mut state = AppState::default();
+        for i in 0..10 {
+            let _ = event_tx.send(
+                UiEvent::Status {
+                    line: format!("msg {i}"),
+                }
+                .into(),
+            );
+        }
+        drain_events(&mut controller.events, &mut state);
+        assert!(
+            state
+                .status_line
+                .as_deref()
+                .unwrap_or("")
+                .contains("Warning: lagged by")
+        );
+    }
+
+    #[test]
+    fn terminal_event_paste_normalization() {
+        let mut state = AppState::default();
+        state.reduce(Action::Paste("hello\r\nworld\nmulti\rline".into()));
+        assert_eq!(state.composer.input, "hello world multi line");
+    }
+
+    #[test]
+    fn terminal_event_ordering_drain_before_draw() {
+        let (mut controller, _cmd_rx, event_tx) = TuiController::new(16);
+        let mut state = AppState::default();
+        assert!(state.transcript.is_empty());
+        let _ = event_tx.send(
+            UiEvent::UserMessage {
+                text: "hello".into(),
+            }
+            .into(),
+        );
+        drain_events(&mut controller.events, &mut state);
+        assert_eq!(state.transcript.len(), 1);
     }
 }

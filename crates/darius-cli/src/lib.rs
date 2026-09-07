@@ -8,6 +8,8 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub mod args;
+pub(crate) mod command_handler;
+pub mod commands;
 mod config;
 mod config_error;
 mod config_init;
@@ -15,6 +17,7 @@ mod config_publish;
 mod diagnostics;
 mod events;
 pub mod paths;
+mod permissions;
 pub mod runtime;
 mod runtime_selection;
 mod runtime_selector;
@@ -84,7 +87,7 @@ fn cmd_tui(
         crate::tui_runtime::build_runtime(profile, offline)?
     };
     let (mut worker, event_rx) = TuiWorker::new(runtime);
-    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
     let worker_handle = std::thread::spawn(move || worker.run_loop(cmd_rx));
     let controller = TuiController {
         commands: cmd_tx,
@@ -176,8 +179,8 @@ fn cmd_run(
     let workspace = runtime.workspace.to_string_lossy().to_string();
     let (tx, _rx) = std::sync::mpsc::channel();
     let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
-    let control = std::sync::Arc::new(darius_cognitive::NoopRunControl);
-    let loopt = darius_cognitive::AgentLoop::new(sink, control);
+    let control = std::sync::Arc::new(permissions::HeadlessRunControl::default());
+    let loopt = darius_cognitive::AgentLoop::new(sink, control.clone());
     let text = crate::runtime::block_on_turn(loopt.run_turn(
         &runtime.metadata,
         &runtime.policy,
@@ -187,8 +190,13 @@ fn cmd_run(
         &runtime.tools,
         &runtime.memory,
         &workspace,
-    ))?;
-
+    ));
+    if control.0.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err(
+            "Mutation denied: run requires interactive approval; use the TUI (`darius tui`)".into(),
+        );
+    }
+    let text = text?;
     println!("{text}");
 
     Ok(())

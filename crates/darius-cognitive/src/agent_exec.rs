@@ -19,6 +19,17 @@ pub fn execute_calls(
             return Err(CognitiveError::Cancelled);
         }
         let risk = darius_tools::model_tools::model_tool_risk(&call.name);
+        if let Some(reason) = crate::execution_policy::denial(control.execution_policy(), risk) {
+            record_outcome(
+                darius_tools::ToolOutcome::Err {
+                    message: reason.into(),
+                },
+                call,
+                sink,
+                msgs,
+            )?;
+            continue;
+        }
         let needs_approval = matches!(risk, Some(ToolRisk::Mutating | ToolRisk::Shell));
         if needs_approval
             && control.approve_tool(call, risk.unwrap_or(ToolRisk::Shell))?

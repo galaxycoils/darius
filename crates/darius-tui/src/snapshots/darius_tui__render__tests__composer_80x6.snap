@@ -2,7 +2,7 @@
 source: crates/darius-tui/src/render.rs
 expression: buffer_to_string(&buffer)
 ---
-◉ xhigh · /effort
+
 ──────────────────────────────────────────────────────────────────────────────
 ❯ hello world
 ──────────────────────────────────────────────────────────────────────────────

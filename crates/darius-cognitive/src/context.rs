@@ -20,6 +20,13 @@ impl TurnContext {
         }
     }
 
+    pub fn with_token(cancel: tokio_util::sync::CancellationToken) -> Self {
+        Self {
+            cancel,
+            ..Self::new()
+        }
+    }
+
     pub fn cancel(&self) {
         self.cancel.cancel();
     }

@@ -11,6 +11,8 @@ mod agent_validate;
 mod agent_visible;
 pub mod compress;
 pub mod context;
+pub mod execution_policy;
+pub use execution_policy::ExecutionPolicy;
 pub mod conversation;
 pub mod model;
 pub mod skills;
@@ -63,6 +65,12 @@ pub use ui_events::*;
 
 /// Control handle for cancellation and tool approval.
 pub trait RunControl: Send + Sync {
+    fn execution_policy(&self) -> ExecutionPolicy {
+        ExecutionPolicy::Auto
+    }
+    fn cancellation_token(&self) -> tokio_util::sync::CancellationToken {
+        tokio_util::sync::CancellationToken::new()
+    }
     fn is_cancelled(&self) -> bool;
     fn approve_tool(
         &self,

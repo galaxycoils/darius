@@ -16,7 +16,7 @@ impl AgentLoop {
         memory: &darius_memory::MemoryEngine,
         workspace: &str,
     ) -> Result<String, CognitiveError> {
-        let ctx = TurnContext::new();
+        let ctx = TurnContext::with_token(self.control.cancellation_token());
         let prompt = coding_system_prompt(workspace);
         let specs = model_tool_specs();
         let rounds = policy.max_react_iters.clamp(1, MAX_ROUNDS);

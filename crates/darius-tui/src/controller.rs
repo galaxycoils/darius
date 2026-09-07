@@ -4,8 +4,9 @@
 //! emits [`UiEvent`]s over a broadcast channel that the TUI receives.
 
 use darius_cognitive::UiEvent;
+use darius_core::runtime_protocol::RuntimeEvent;
 
-use crate::app::{Effort, Mode};
+use crate::app::Mode;
 use crate::commands::CommandInvocation;
 
 /// Commands sent from the TUI to the runtime.
@@ -14,7 +15,6 @@ pub enum RuntimeCommand {
     SubmitGoal {
         text: String,
         mode: Mode,
-        effort: Effort,
     },
     ExecuteSlash(CommandInvocation),
     ResolvePermission {
@@ -27,8 +27,8 @@ pub enum RuntimeCommand {
 
 /// The TUI's handle to the runtime: send commands, receive events.
 pub struct TuiController {
-    pub commands: std::sync::mpsc::Sender<RuntimeCommand>,
-    pub events: tokio::sync::broadcast::Receiver<UiEvent>,
+    pub commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
+    pub events: tokio::sync::broadcast::Receiver<RuntimeEvent<UiEvent>>,
 }
 
 impl TuiController {
@@ -37,10 +37,10 @@ impl TuiController {
         event_capacity: usize,
     ) -> (
         Self,
-        std::sync::mpsc::Receiver<RuntimeCommand>,
-        tokio::sync::broadcast::Sender<UiEvent>,
+        tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+        tokio::sync::broadcast::Sender<RuntimeEvent<UiEvent>>,
     ) {
-        let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(event_capacity);
         (
             Self {
@@ -56,7 +56,7 @@ impl TuiController {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{Effort, Mode};
+    use crate::app::Mode;
     use crate::commands::CommandId;
 
     fn dummy_invocation() -> CommandInvocation {
@@ -69,63 +69,76 @@ mod tests {
 
     #[test]
     fn channel_ordering_is_fifo() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
 
         controller.commands.send(RuntimeCommand::Interrupt).unwrap();
         controller.commands.send(RuntimeCommand::Shutdown).unwrap();
         controller.commands.send(RuntimeCommand::Interrupt).unwrap();
 
-        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Interrupt));
-        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Shutdown));
-        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Interrupt));
+        assert!(matches!(
+            cmd_rx.blocking_recv().unwrap(),
+            RuntimeCommand::Interrupt
+        ));
+        assert!(matches!(
+            cmd_rx.blocking_recv().unwrap(),
+            RuntimeCommand::Shutdown
+        ));
+        assert!(matches!(
+            cmd_rx.blocking_recv().unwrap(),
+            RuntimeCommand::Interrupt
+        ));
     }
 
     #[test]
     fn broadcast_delivers_events_to_receiver() {
         let (mut controller, _cmd_rx, event_tx) = TuiController::new(64);
 
-        event_tx.send(UiEvent::Done).unwrap();
+        event_tx.send(UiEvent::Done.into()).unwrap();
         event_tx
-            .send(UiEvent::Status {
-                line: "hello".into(),
-            })
+            .send(
+                UiEvent::Status {
+                    line: "hello".into(),
+                }
+                .into(),
+            )
             .unwrap();
 
         assert!(matches!(
-            controller.events.try_recv().unwrap(),
+            controller.events.try_recv().unwrap().event,
             UiEvent::Done
         ));
         assert!(
-            matches!(controller.events.try_recv().unwrap(), UiEvent::Status { line } if line == "hello")
+            matches!(controller.events.try_recv().unwrap().event, UiEvent::Status { line } if line == "hello")
         );
     }
 
     #[test]
     fn shutdown_command_drops_cleanly() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller.commands.send(RuntimeCommand::Shutdown).unwrap();
         drop(controller);
-        assert!(matches!(cmd_rx.recv().unwrap(), RuntimeCommand::Shutdown));
-        assert!(cmd_rx.recv().is_err());
+        assert!(matches!(
+            cmd_rx.blocking_recv().unwrap(),
+            RuntimeCommand::Shutdown
+        ));
+        assert!(cmd_rx.blocking_recv().is_none());
     }
 
     #[test]
-    fn submit_goal_carries_text_mode_and_effort() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+    fn submit_goal_carries_text_and_mode() {
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::SubmitGoal {
                 text: "build a feature".into(),
                 mode: Mode::Plan,
-                effort: Effort::Max,
             })
             .unwrap();
 
-        match cmd_rx.recv().unwrap() {
-            RuntimeCommand::SubmitGoal { text, mode, effort } => {
+        match cmd_rx.blocking_recv().unwrap() {
+            RuntimeCommand::SubmitGoal { text, mode } => {
                 assert_eq!(text, "build a feature");
                 assert_eq!(mode, Mode::Plan);
-                assert_eq!(effort, Effort::Max);
             }
             other => panic!("expected SubmitGoal, got {other:?}"),
         }
@@ -133,13 +146,13 @@ mod tests {
 
     #[test]
     fn execute_slash_uses_canonical_invocation() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ExecuteSlash(dummy_invocation()))
             .unwrap();
 
-        match cmd_rx.recv().unwrap() {
+        match cmd_rx.blocking_recv().unwrap() {
             RuntimeCommand::ExecuteSlash(inv) => {
                 assert_eq!(inv.id, CommandId::Help);
                 assert_eq!(inv.name, "/help");
@@ -151,7 +164,7 @@ mod tests {
 
     #[test]
     fn resolve_permission_carries_id_and_choice() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         controller
             .commands
             .send(RuntimeCommand::ResolvePermission {
@@ -160,7 +173,7 @@ mod tests {
             })
             .unwrap();
 
-        match cmd_rx.recv().unwrap() {
+        match cmd_rx.blocking_recv().unwrap() {
             RuntimeCommand::ResolvePermission { id, choice } => {
                 assert_eq!(id, "perm-1");
                 assert_eq!(choice, crate::app::PermissionChoice::AllowOnce);
@@ -173,17 +186,20 @@ mod tests {
     fn lag_event_receivers_get_latest_after_catch_up() {
         let (_controller, _cmd_rx, event_tx) = TuiController::new(4);
         for i in 0..10 {
-            let _ = event_tx.send(UiEvent::Status {
-                line: format!("evt-{i}"),
-            });
+            let _ = event_tx.send(
+                UiEvent::Status {
+                    line: format!("evt-{i}"),
+                }
+                .into(),
+            );
         }
-        assert!(event_tx.send(UiEvent::Done).is_ok());
+        assert!(event_tx.send(UiEvent::Done.into()).is_ok());
     }
 
     #[test]
     fn closed_command_channel_signals_runtime_stop() {
-        let (controller, cmd_rx, _event_tx) = TuiController::new(64);
+        let (controller, mut cmd_rx, _event_tx) = TuiController::new(64);
         drop(controller);
-        assert!(cmd_rx.recv().is_err());
+        assert!(cmd_rx.blocking_recv().is_none());
     }
 }

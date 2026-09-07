@@ -92,7 +92,14 @@ fn resolve_profile(
     })
 }
 
+pub use crate::permissions::SessionPermissions;
+
+/// Session state; model tools must run through the policy-aware agent turn.
+/// There is deliberately no direct model-call dispatch API on the session;
+/// see `AgentLoop::run_turn` for the policy-checked path.
 pub struct SessionRuntime {
+    pub mode: darius_core::runtime_protocol::Mode,
+    pub permissions: SessionPermissions,
     pub config: RuntimeConfig,
     pub profile_config: ProfileConfig,
     pub memory: MemoryEngine,
@@ -150,6 +157,8 @@ impl SessionRuntime {
         let conversation =
             Conversation::from_messages(vec![]).map_err(|e| RuntimeError::Model(e.to_string()))?;
         Ok(Self {
+            mode: darius_core::runtime_protocol::Mode::Auto,
+            permissions: Arc::default(),
             config: resolved.config,
             profile_config: resolved.profile_config,
             memory,
@@ -189,13 +198,8 @@ impl SessionRuntime {
         matches!(self.state, RuntimeState::Setup)
     }
 
-    /// Model-facing dispatch through the verified allowlist. Unknown and
-    /// hidden calls are rejected before permission with one correlated error.
-    /// The agent loop executes through this path.
-    pub fn execute_model_call(&self, call: &darius_tools::ToolCall) -> darius_tools::ToolOutcome {
-        self.tools.execute_model(call)
-    }
-
+    /// Model-facing tool execution must go through `AgentLoop::run_turn`,
+    /// which checks mode and permission before dispatch.
     pub fn is_offline_demo(&self) -> bool {
         matches!(self.state, RuntimeState::OfflineDemo)
     }
@@ -210,6 +214,11 @@ impl SessionRuntime {
 
     pub fn cancellation_token(&self) -> CancellationToken {
         self.cancellation.clone()
+    }
+
+    pub fn compact_conversation(&mut self) -> Result<(), darius_cognitive::CognitiveError> {
+        self.conversation
+            .compact(self.policy.compress_opts.max_chars)
     }
 }
 

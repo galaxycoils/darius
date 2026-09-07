@@ -55,6 +55,13 @@ pub enum UiEvent {
     Status {
         line: String,
     },
+    ClearTranscript,
+    Busy {
+        message: String,
+    },
+    ModeChanged {
+        mode: darius_core::runtime_protocol::Mode,
+    },
     Error {
         message: String,
     },
@@ -91,13 +98,7 @@ pub enum DiffKind {
     Delete,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PermissionChoice {
-    AllowOnce,
-    AllowSession,
-    Deny,
-}
+pub use darius_core::runtime_protocol::PermissionChoice;
 
 /// Sink for live UiEvent progress. Implementations forward events to
 /// the TUI, a web SSE stream, or a test collector.

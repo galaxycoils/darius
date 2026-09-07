@@ -1,5 +1,6 @@
 use crate::commands::CommandInvocation;
 use darius_cognitive::UiEvent;
+pub use darius_core::runtime_protocol::{Mode, PermissionChoice, TurnId};
 
 // ── View types for rendering transcript items ──────────────────────────
 
@@ -83,100 +84,6 @@ pub struct PaletteState {
     pub selected: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    Auto,
-    Manual,
-    AcceptEdits,
-    Plan,
-}
-
-impl Mode {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Auto => Self::Manual,
-            Self::Manual => Self::AcceptEdits,
-            Self::AcceptEdits => Self::Plan,
-            Self::Plan => Self::Auto,
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => "⏵⏵ auto mode on",
-            Self::Manual => "⏸ manual mode on",
-            Self::AcceptEdits => "⏵⏵ accept edits on",
-            Self::Plan => "⏸ plan mode on",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Effort {
-    #[default]
-    Low,
-    Medium,
-    High,
-    XHigh,
-    Max,
-    Ultracode,
-}
-
-impl Effort {
-    pub fn chip(self) -> &'static str {
-        match self {
-            Self::Low => "○ low",
-            Self::Medium => "◐ medium",
-            Self::High => "● high",
-            Self::XHigh => "◉ xhigh",
-            Self::Max => "◈ max",
-            Self::Ultracode => "✦ ultracode",
-        }
-    }
-}
-
-/// The three permission choices matching the interaction contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionChoice {
-    AllowOnce,
-    AllowSession,
-    Deny,
-}
-
-impl From<darius_cognitive::PermissionChoice> for PermissionChoice {
-    fn from(p: darius_cognitive::PermissionChoice) -> Self {
-        match p {
-            darius_cognitive::PermissionChoice::AllowOnce => PermissionChoice::AllowOnce,
-            darius_cognitive::PermissionChoice::AllowSession => PermissionChoice::AllowSession,
-            darius_cognitive::PermissionChoice::Deny => PermissionChoice::Deny,
-        }
-    }
-}
-
-impl From<PermissionChoice> for darius_cognitive::PermissionChoice {
-    fn from(p: PermissionChoice) -> Self {
-        match p {
-            PermissionChoice::AllowOnce => darius_cognitive::PermissionChoice::AllowOnce,
-            PermissionChoice::AllowSession => darius_cognitive::PermissionChoice::AllowSession,
-            PermissionChoice::Deny => darius_cognitive::PermissionChoice::Deny,
-        }
-    }
-}
-
-impl PermissionChoice {
-    /// The three options in display order.
-    pub const ALL: [Self; 3] = [Self::AllowOnce, Self::AllowSession, Self::Deny];
-
-    /// Short label for the rose permission box.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::AllowOnce => "Yes",
-            Self::AllowSession => "Yes, and don't ask again this session",
-            Self::Deny => "No, and tell Darius what to do (esc)",
-        }
-    }
-}
-
 /// Active permission chooser state with selection.
 #[derive(Debug, Clone)]
 pub struct PermissionState {
@@ -239,8 +146,8 @@ pub struct AppState {
     pub transcript: Vec<TranscriptItem>,
     pub tasks: Vec<TaskDisplay>,
     pub running: bool,
+    pub latest_turn: TurnId,
     pub mode: Mode,
-    pub effort: Effort,
     pub composer: ComposerState,
     pub permission_queue: Vec<PermissionRequest>,
     pub permission: Option<PermissionState>,
@@ -257,7 +164,13 @@ pub struct AppState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Insert(char),
+    Paste(String),
     Backspace,
+    Delete,
+    MoveCursorLeft,
+    MoveCursorRight,
+    CursorHome,
+    CursorEnd,
     Submit,
     Quit,
     Cancel,
@@ -266,13 +179,13 @@ pub enum Action {
     PaletteNext,
     PalettePrev,
     PaletteAccept,
+    PaletteComplete,
     CycleMode,
-    CycleEffort,
     Scroll(i16),
-    ToggleTool,
     PermissionNext,
     PermissionPrev,
     PermissionChoose,
+    ToggleTool(Option<usize>),
 }
 
 impl Default for AppState {
@@ -284,8 +197,8 @@ impl Default for AppState {
             transcript: vec![],
             tasks: vec![],
             running: false,
+            latest_turn: TurnId::default(),
             mode: Mode::Auto,
-            effort: Effort::High,
             composer: ComposerState::default(),
             permission_queue: vec![],
             permission: None,
@@ -335,6 +248,10 @@ impl AppState {
 
     pub fn next_permission(&self) -> Option<&PermissionRequest> {
         self.permission_queue.first()
+    }
+
+    pub fn toggle_tool(&mut self, index: Option<usize>) {
+        self.reduce(Action::ToggleTool(index));
     }
 
     /// Apply a UI action to the state. Returns an optional permission choice
@@ -397,8 +314,27 @@ impl AppState {
                     }
                 }
                 Action::Cancel => {
+                    if let Some(perm) = self.permission.take() {
+                        self.permission_queue.retain(|p| p.id != perm.id);
+                        Some(Effect::ResolvePermission {
+                            id: perm.id,
+                            choice: PermissionChoice::Deny,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                Action::Interrupt => {
                     self.permission = None;
-                    None
+                    self.permission_queue.clear();
+                    self.interrupt_armed = true;
+                    Some(Effect::Interrupt)
+                }
+                Action::Quit => {
+                    self.permission = None;
+                    self.permission_queue.clear();
+                    self.exit_requested = true;
+                    Some(Effect::Quit)
                 }
                 _ => None,
             };
@@ -408,14 +344,14 @@ impl AppState {
         if self.palette.open {
             return match action {
                 Action::PaletteNext => {
-                    let filtered = crate::commands::filter("");
+                    let filtered = crate::commands::filter(&self.composer.input);
                     if !filtered.is_empty() {
                         self.palette.selected = (self.palette.selected + 1) % filtered.len();
                     }
                     None
                 }
                 Action::PalettePrev => {
-                    let filtered = crate::commands::filter("");
+                    let filtered = crate::commands::filter(&self.composer.input);
                     if !filtered.is_empty() {
                         if self.palette.selected == 0 {
                             self.palette.selected = filtered.len() - 1;
@@ -425,19 +361,89 @@ impl AppState {
                     }
                     None
                 }
-                Action::PaletteAccept => {
-                    let filtered = crate::commands::filter("");
+                Action::PaletteComplete => {
+                    let filtered = crate::commands::filter(&self.composer.input);
                     if let Some(cmd) = filtered.get(self.palette.selected) {
                         self.palette.open = false;
                         self.palette.selected = 0;
-                        self.composer.input = format!("/{} ", &cmd.name[1..]);
+                        self.composer.input = format!("{} ", cmd.name);
                         self.composer.cursor = self.composer.input.chars().count();
                         self.composer.slash_mode = true;
                     }
                     None
                 }
+                Action::PaletteAccept => {
+                    let filtered = crate::commands::filter(&self.composer.input);
+                    if let Some(cmd) = filtered.get(self.palette.selected) {
+                        self.palette.open = false;
+                        self.palette.selected = 0;
+                        self.composer.input.clear();
+                        self.composer.cursor = 0;
+                        self.composer.slash_mode = false;
+                        match crate::commands::parse_invocation(cmd.name) {
+                            Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
+                            Err(e) => {
+                                self.transcript.push(TranscriptItem::Assistant {
+                                    text: format!("✗ {}", e),
+                                });
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
                 Action::Cancel => {
                     self.palette.open = false;
+                    self.palette.selected = 0;
+                    None
+                }
+                Action::MoveCursorLeft => {
+                    self.composer.cursor = self.composer.cursor.saturating_sub(1);
+                    None
+                }
+                Action::MoveCursorRight => {
+                    let max = self.composer.input.chars().count();
+                    self.composer.cursor = (self.composer.cursor + 1).min(max);
+                    None
+                }
+                Action::CursorHome => {
+                    self.composer.cursor = 0;
+                    None
+                }
+                Action::CursorEnd => {
+                    self.composer.cursor = self.composer.input.chars().count();
+                    None
+                }
+                Action::Delete => {
+                    let cursor = self
+                        .composer
+                        .cursor
+                        .min(self.composer.input.chars().count());
+                    let mut chars: Vec<char> = self.composer.input.chars().collect();
+                    if cursor < chars.len() {
+                        chars.remove(cursor);
+                        self.composer.input = chars.into_iter().collect();
+                        if self.composer.input.is_empty() {
+                            self.palette.open = false;
+                            self.composer.slash_mode = false;
+                        }
+                        self.palette.selected = 0;
+                    }
+                    None
+                }
+                Action::Paste(text) => {
+                    let normalized = text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+                    let cursor = self
+                        .composer
+                        .cursor
+                        .min(self.composer.input.chars().count());
+                    let mut chars: Vec<char> = self.composer.input.chars().collect();
+                    for (i, c) in normalized.chars().enumerate() {
+                        chars.insert(cursor + i, c);
+                    }
+                    self.composer.cursor += normalized.chars().count();
+                    self.composer.input = chars.into_iter().collect();
                     self.palette.selected = 0;
                     None
                 }
@@ -451,6 +457,7 @@ impl AppState {
                         chars.insert(cursor, c);
                         self.composer.input = chars.into_iter().collect();
                         self.composer.cursor += 1;
+                        self.palette.selected = 0;
                     }
                     None
                 }
@@ -464,6 +471,11 @@ impl AppState {
                         chars.remove(cursor - 1);
                         self.composer.input = chars.into_iter().collect();
                         self.composer.cursor -= 1;
+                        if self.composer.input.is_empty() {
+                            self.palette.open = false;
+                            self.composer.slash_mode = false;
+                        }
+                        self.palette.selected = 0;
                     }
                     None
                 }
@@ -488,6 +500,61 @@ impl AppState {
                     self.composer.slash_mode = true;
                     self.palette.open = true;
                     self.palette.selected = 0;
+                }
+                None
+            }
+            Action::Paste(text) => {
+                let normalized = text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+                let cursor = self
+                    .composer
+                    .cursor
+                    .min(self.composer.input.chars().count());
+                let mut chars: Vec<char> = self.composer.input.chars().collect();
+                for (i, c) in normalized.chars().enumerate() {
+                    chars.insert(cursor + i, c);
+                }
+                self.composer.cursor += normalized.chars().count();
+                self.composer.input = chars.into_iter().collect();
+                if self.composer.input.starts_with('/') || self.composer.input.starts_with('-') {
+                    self.composer.slash_mode = true;
+                    self.palette.open = true;
+                    self.palette.selected = 0;
+                }
+                None
+            }
+            Action::MoveCursorLeft => {
+                self.composer.cursor = self.composer.cursor.saturating_sub(1);
+                None
+            }
+            Action::MoveCursorRight => {
+                let max = self.composer.input.chars().count();
+                self.composer.cursor = (self.composer.cursor + 1).min(max);
+                None
+            }
+            Action::CursorHome => {
+                self.composer.cursor = 0;
+                None
+            }
+            Action::CursorEnd => {
+                self.composer.cursor = self.composer.input.chars().count();
+                self.scroll = 0;
+                None
+            }
+            Action::Delete => {
+                let cursor = self
+                    .composer
+                    .cursor
+                    .min(self.composer.input.chars().count());
+                let mut chars: Vec<char> = self.composer.input.chars().collect();
+                if cursor < chars.len() {
+                    chars.remove(cursor);
+                    self.composer.input = chars.into_iter().collect();
+                    if !self.composer.input.starts_with('/')
+                        && !self.composer.input.starts_with('-')
+                    {
+                        self.composer.slash_mode = false;
+                        self.palette.open = false;
+                    }
                 }
                 None
             }
@@ -520,6 +587,8 @@ impl AppState {
                 self.composer.cursor = 0;
                 self.composer.slash_mode = false;
                 self.palette.open = false;
+                self.scroll = 0;
+                self.status_line = None;
 
                 // Check if it's a command (starts with / or -)
                 if input.starts_with('/') || input.starts_with('-') {
@@ -542,29 +611,11 @@ impl AppState {
                 self.composer.slash_mode = true;
                 None
             }
-            Action::CycleMode => {
-                self.mode = self.mode.next();
-                self.status_line = Some(self.mode.label().to_string());
-                None
-            }
-            Action::CycleEffort => {
-                self.effort = match self.effort {
-                    Effort::Low => Effort::Medium,
-                    Effort::Medium => Effort::High,
-                    Effort::High => Effort::XHigh,
-                    Effort::XHigh => Effort::Max,
-                    Effort::Max => Effort::Ultracode,
-                    Effort::Ultracode => Effort::Low,
-                };
-                self.status_line = Some(self.effort.chip().to_string());
-                None
-            }
+            Action::CycleMode => Some(Effect::ExecuteCommand(
+                crate::commands::parse_invocation("/mode").unwrap(),
+            )),
             Action::Scroll(delta) => {
                 self.scroll = self.scroll.saturating_add_signed(delta);
-                None
-            }
-            Action::ToggleTool => {
-                // Placeholder for tool toggle
                 None
             }
             Action::Interrupt => {
@@ -586,10 +637,35 @@ impl AppState {
                 self.exit_requested = true;
                 Some(Effect::Quit)
             }
+            Action::ToggleTool(target) => {
+                match target {
+                    Some(idx) => {
+                        if let Some(TranscriptItem::Tool { expanded, .. }) =
+                            self.transcript.get_mut(idx)
+                        {
+                            *expanded = !*expanded;
+                        }
+                    }
+                    None => {
+                        if let Some(TranscriptItem::Tool { expanded, .. }) = self
+                            .transcript
+                            .iter_mut()
+                            .rev()
+                            .find(|i| matches!(i, TranscriptItem::Tool { .. }))
+                        {
+                            *expanded = !*expanded;
+                        }
+                    }
+                }
+                None
+            }
             // Permission actions handled above when permission is active
             Action::PermissionNext | Action::PermissionPrev | Action::PermissionChoose => None,
             // Palette actions handled above when palette is open
-            Action::PaletteNext | Action::PalettePrev | Action::PaletteAccept => None,
+            Action::PaletteNext
+            | Action::PalettePrev
+            | Action::PaletteAccept
+            | Action::PaletteComplete => None,
         }
     }
 
@@ -604,6 +680,7 @@ impl AppState {
                 self.model = model;
                 self.goal = Some(goal);
                 self.running = true;
+                self.status_line = None;
             }
             UiEvent::UserMessage { text } => {
                 self.transcript.push(TranscriptItem::User { text });
@@ -708,6 +785,17 @@ impl AppState {
                 self.transcript
                     .push(TranscriptItem::Assistant { text: line });
             }
+            UiEvent::ModeChanged { mode } => {
+                self.mode = mode;
+                self.status_line = Some(mode.label().to_string());
+            }
+            UiEvent::Busy { message } => {
+                self.status_line = Some(message);
+            }
+            UiEvent::ClearTranscript => {
+                self.transcript.clear();
+                self.scroll = 0;
+            }
             UiEvent::Done => {
                 self.running = false;
                 self.status_line = Some("Done".into());
@@ -750,16 +838,8 @@ mod tests {
     #[test]
     fn mode_cycle() {
         let m = Mode::Auto;
-        assert_eq!(m.next(), Mode::Manual);
-        assert_eq!(m.next().next(), Mode::AcceptEdits);
-        assert_eq!(m.next().next().next(), Mode::Plan);
-        assert_eq!(m.next().next().next().next(), Mode::Auto);
-    }
-
-    #[test]
-    fn effort_chips() {
-        assert_eq!(Effort::Low.chip(), "○ low");
-        assert_eq!(Effort::Ultracode.chip(), "✦ ultracode");
+        assert_eq!(m.next(), Mode::Plan);
+        assert_eq!(m.next().next(), Mode::Auto);
     }
 
     #[test]
@@ -1100,6 +1180,132 @@ mod tests {
                 assert_eq!(*elapsed_ms, 1234);
             }
             other => panic!("expected Thinking, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_event_clear_transcript() {
+        use darius_cognitive::UiEvent;
+        let mut state = AppState::default();
+        state.transcript.push(TranscriptItem::User {
+            text: "hello".into(),
+        });
+        state.scroll = 5;
+        state.apply_event(UiEvent::ClearTranscript);
+        assert!(state.transcript.is_empty());
+        assert_eq!(state.scroll, 0);
+    }
+
+    #[test]
+    fn command_palette_typing_slash_opens_and_filters() {
+        let mut state = AppState::default();
+        state.reduce(Action::Insert('/'));
+        assert!(state.palette.open);
+        assert!(state.composer.slash_mode);
+        assert_eq!(state.composer.input, "/");
+
+        state.reduce(Action::Insert('m'));
+        assert_eq!(state.composer.input, "/m");
+        let filtered = crate::commands::filter(&state.composer.input);
+        assert!(filtered.iter().any(|c| c.name == "/model"));
+        assert!(filtered.iter().any(|c| c.name == "/mode"));
+        assert!(filtered.iter().any(|c| c.name == "/memory"));
+
+        state.reduce(Action::Insert('d'));
+        let filtered = crate::commands::filter(&state.composer.input);
+        assert_eq!(filtered.len(), 2);
+
+        state.reduce(Action::PaletteNext);
+        assert_eq!(state.palette.selected, 1);
+        state.reduce(Action::PalettePrev);
+        assert_eq!(state.palette.selected, 0);
+
+        state.reduce(Action::PaletteComplete);
+        assert!(!state.palette.open);
+        assert_eq!(state.composer.input, "/model ");
+    }
+
+    #[test]
+    fn composer_cursor_navigation_and_editing() {
+        let mut state = AppState::default();
+        for c in "hello".chars() {
+            state.reduce(Action::Insert(c));
+        }
+        assert_eq!(state.composer.input, "hello");
+        assert_eq!(state.composer.cursor, 5);
+
+        state.reduce(Action::MoveCursorLeft);
+        state.reduce(Action::MoveCursorLeft);
+        assert_eq!(state.composer.cursor, 3);
+
+        state.reduce(Action::Delete);
+        assert_eq!(state.composer.input, "helo");
+        assert_eq!(state.composer.cursor, 3);
+
+        state.reduce(Action::CursorHome);
+        assert_eq!(state.composer.cursor, 0);
+
+        state.reduce(Action::Delete);
+        assert_eq!(state.composer.input, "elo");
+
+        state.reduce(Action::CursorEnd);
+        assert_eq!(state.composer.cursor, 3);
+
+        state.reduce(Action::Backspace);
+        assert_eq!(state.composer.input, "el");
+        assert_eq!(state.composer.cursor, 2);
+    }
+
+    #[test]
+    fn composer_auto_tail_scrolling() {
+        let mut state = AppState::default();
+        assert_eq!(state.scroll, 0);
+
+        state.apply_event(UiEvent::UserMessage {
+            text: "msg 1".into(),
+        });
+        assert_eq!(state.scroll, 0);
+
+        state.reduce(Action::Scroll(3));
+        assert_eq!(state.scroll, 3);
+
+        state.apply_event(UiEvent::AssistantDelta {
+            text: "resp".into(),
+        });
+        assert_eq!(state.scroll, 3);
+
+        state.reduce(Action::CursorEnd);
+        assert_eq!(state.scroll, 0);
+
+        state.scroll = 4;
+        state.composer.input = "new prompt".into();
+        state.reduce(Action::Submit);
+        assert_eq!(state.scroll, 0);
+    }
+
+    #[test]
+    fn composer_tool_disclosure_toggle() {
+        let mut state = AppState::default();
+        state.transcript.push(TranscriptItem::Tool {
+            tool: ToolView {
+                name: "read_file".into(),
+                args_preview: "main.rs".into(),
+                result: "ok".into(),
+                ok: true,
+            },
+            expanded: false,
+        });
+
+        state.toggle_tool(None);
+        match &state.transcript[0] {
+            TranscriptItem::Tool { expanded, .. } => assert!(*expanded),
+            _ => panic!("expected Tool"),
+        }
+
+        state.toggle_tool(Some(0));
+        match &state.transcript[0] {
+            TranscriptItem::Tool { expanded, .. } => assert!(!*expanded),
+            _ => panic!("expected Tool"),
         }
     }
 

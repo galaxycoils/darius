@@ -227,19 +227,15 @@ pub fn render_permission(area: Rect, buf: &mut Buffer, perm: &PermissionState, t
 
 // ── Composer ───────────────────────────────────────────────────────────
 
-/// Render the dual-rule composer with effort chip and mode footer.
+/// Render the dual-rule composer and supported mode footer.
 pub fn render_composer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     let width = area.width as usize;
     let rule = "─".repeat(width.saturating_sub(2));
 
     let mut lines = vec![];
 
-    // Effort chip line
-    let effort_text = format!("{} · /effort", state.effort.chip());
-    lines.push(Line::from(vec![Span::styled(
-        effort_text,
-        Style::default().fg(theme.muted),
-    )]));
+    // Preserve composer spacing and cursor coordinates without advertising effort.
+    lines.push(Line::default());
 
     // Top rule
     lines.push(Line::from(Span::styled(
@@ -495,7 +491,9 @@ fn draw_inner<B: ratatui::backend::Backend>(
         let cursor_x =
             composer_area.x + 2 + unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
         let cursor_y = composer_area.y + 2; // input line is the 3rd row
-        f.set_cursor(cursor_x, cursor_y);
+        let max_x = composer_area.x + composer_area.width.saturating_sub(1);
+        let max_y = composer_area.y + composer_area.height.saturating_sub(1);
+        f.set_cursor(cursor_x.min(max_x), cursor_y.min(max_y));
     })?;
     Ok(())
 }
@@ -666,7 +664,6 @@ mod tests {
     fn composer_80x6() {
         let theme = Theme::for_mode(ColorMode::Truecolor);
         let mut state = fixture_state();
-        state.effort = crate::app::Effort::XHigh;
         state.mode = crate::app::Mode::Auto;
         state.composer.input = "hello world".into();
         let area = Rect::new(0, 0, 80, 6);

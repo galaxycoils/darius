@@ -5,7 +5,7 @@ use darius_cli::paths::DariusPaths;
 use darius_cli::runtime::{RuntimeError, SessionRuntime};
 use darius_cli::tui_runtime::TuiWorker;
 use darius_cognitive::UiEvent;
-use darius_tui::{CommandId, CommandInvocation, Effort, Mode, RuntimeCommand};
+use darius_tui::{CommandId, CommandInvocation, Mode, RuntimeCommand};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -516,7 +516,7 @@ fn runtime_selection_status_exposes_diagnostics_without_done() {
     let temp = TempDir::new().unwrap();
     let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "status").unwrap();
     let (mut worker, mut events) = TuiWorker::new(runtime);
-    let (commands, command_rx) = std::sync::mpsc::channel();
+    let (commands, command_rx) = tokio::sync::mpsc::unbounded_channel();
     commands
         .send(RuntimeCommand::ExecuteSlash(CommandInvocation {
             id: CommandId::Status,
@@ -529,7 +529,7 @@ fn runtime_selection_status_exposes_diagnostics_without_done() {
     let emitted: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
     let lines = emitted
         .iter()
-        .filter_map(|event| match event {
+        .filter_map(|envelope| match &envelope.event {
             UiEvent::Status { line } => Some(line.as_str()),
             _ => None,
         })
@@ -538,7 +538,11 @@ fn runtime_selection_status_exposes_diagnostics_without_done() {
     assert!(lines.contains("Version: 1.2.0"), "{lines}");
     assert!(lines.contains("Runtime state: setup"), "{lines}");
     assert!(lines.contains("Memory: open"), "{lines}");
-    assert!(!emitted.iter().any(|event| matches!(event, UiEvent::Done)));
+    assert!(
+        !emitted
+            .iter()
+            .any(|envelope| matches!(envelope.event, UiEvent::Done))
+    );
 }
 
 #[test]
@@ -547,12 +551,11 @@ fn runtime_selection_submitted_setup_goal_emits_guidance_not_fake_done() {
     let temp = TempDir::new().unwrap();
     let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "first-run").unwrap();
     let (mut worker, mut events) = TuiWorker::new(runtime);
-    let (commands, command_rx) = std::sync::mpsc::channel();
+    let (commands, command_rx) = tokio::sync::mpsc::unbounded_channel();
     commands
         .send(RuntimeCommand::SubmitGoal {
             text: "analyze my files".into(),
             mode: Mode::Auto,
-            effort: Effort::Low,
         })
         .unwrap();
     commands.send(RuntimeCommand::Shutdown).unwrap();
@@ -560,7 +563,7 @@ fn runtime_selection_submitted_setup_goal_emits_guidance_not_fake_done() {
     let emitted: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
     let lines = emitted
         .iter()
-        .filter_map(|event| match event {
+        .filter_map(|envelope| match &envelope.event {
             UiEvent::Status { line } => Some(line.as_str()),
             _ => None,
         })
@@ -568,6 +571,10 @@ fn runtime_selection_submitted_setup_goal_emits_guidance_not_fake_done() {
         .join("\n");
     assert!(lines.contains("Setup required"), "{lines}");
     assert!(lines.contains("No goal was run"), "{lines}");
-    assert!(!emitted.iter().any(|event| matches!(event, UiEvent::Done)));
+    assert!(
+        !emitted
+            .iter()
+            .any(|envelope| matches!(envelope.event, UiEvent::Done))
+    );
     assert!(!lines.contains("completed"), "{lines}");
 }

@@ -1,4 +1,19 @@
-use darius_cognitive::{AgentLoop, EventSink, RunControl, UiEvent};
+mod actor;
+mod dispatch;
+mod emit_helpers;
+mod guidance;
+mod lifecycle;
+mod mode;
+mod permissions;
+mod shutdown;
+mod state;
+pub(crate) use actor::SessionActor;
+pub(crate) use state::State;
+#[cfg(test)]
+mod tests;
+mod turn;
+mod view;
+use darius_cognitive::{EventSink, RunControl, UiEvent};
 use darius_tools::ToolRisk;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,6 +36,8 @@ type PendingPermissions = Arc<
 /// the user is not prompted twice for the same tool+target in one session.
 pub struct ChannelRunControl {
     sink: Arc<dyn EventSink>,
+    paths: darius_tools::PathPolicy,
+    mode: darius_cognitive::ExecutionPolicy,
     pending: PendingPermissions,
     session_cache: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
     cancellation: tokio_util::sync::CancellationToken,
@@ -30,9 +47,12 @@ impl ChannelRunControl {
     pub fn new(
         sink: Arc<dyn EventSink>,
         cancellation: tokio_util::sync::CancellationToken,
+        paths: darius_tools::PathPolicy,
     ) -> Self {
         Self {
             sink,
+            paths,
+            mode: darius_cognitive::ExecutionPolicy::Auto,
             pending: Arc::new(Mutex::new(Vec::new())),
             session_cache: Arc::new(Mutex::new(std::collections::HashSet::new())),
             cancellation,
@@ -46,27 +66,15 @@ impl ChannelRunControl {
             let _ = tx.send(choice);
         }
     }
-
-    fn normalize_target(name: &str, call: &darius_tools::ToolCall) -> String {
-        match name {
-            "write_file" => call
-                .arguments
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            "shell" => call
-                .arguments
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            _ => String::new(),
-        }
-    }
 }
 
 impl RunControl for ChannelRunControl {
+    fn execution_policy(&self) -> darius_cognitive::ExecutionPolicy {
+        self.mode
+    }
+    fn cancellation_token(&self) -> tokio_util::sync::CancellationToken {
+        self.cancellation.clone()
+    }
     fn is_cancelled(&self) -> bool {
         self.cancellation.is_cancelled()
     }
@@ -76,12 +84,11 @@ impl RunControl for ChannelRunControl {
         call: &darius_tools::ToolCall,
         risk: ToolRisk,
     ) -> Result<darius_cognitive::PermissionChoice, darius_cognitive::CognitiveError> {
-        let target = Self::normalize_target(&call.name, call);
-        let cache_key = (call.name.clone(), target);
+        let cache_key = crate::permissions::key(call, &self.paths);
 
         {
             let cache = self.session_cache.lock().unwrap();
-            if cache.contains(&cache_key) {
+            if cache_key.as_ref().is_some_and(|key| cache.contains(key)) {
                 return Ok(darius_cognitive::PermissionChoice::AllowOnce);
             }
         }
@@ -96,19 +103,24 @@ impl RunControl for ChannelRunControl {
         self.sink.emit(UiEvent::PermissionRequired {
             id: call.id.clone(),
             title: format!("Execute {}", call.name),
-            command: format!("{:?}", call.arguments),
+            command: darius_safety::redact_secrets(&format!("{:?}", call.arguments)),
             reason: format!("Tool risk: {:?}", risk),
         });
 
         loop {
             if self.cancellation.is_cancelled() {
+                self.pending
+                    .lock()
+                    .unwrap()
+                    .retain(|(id, _)| id != &call.id);
                 return Err(darius_cognitive::CognitiveError::Cancelled);
             }
             match rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(choice) => {
-                    if matches!(choice, darius_cognitive::PermissionChoice::AllowSession) {
-                        let mut cache = self.session_cache.lock().unwrap();
-                        cache.insert(cache_key);
+                    if matches!(choice, darius_cognitive::PermissionChoice::AllowSession)
+                        && let Some(key) = cache_key
+                    {
+                        self.session_cache.lock().unwrap().insert(key);
                     }
                     return Ok(choice);
                 }
@@ -130,123 +142,26 @@ impl EventSink for BroadcastEventSink {
     }
 }
 
-/// The TUI runtime worker — owns the session and processes commands serially.
+/// The production worker owns the actor; commands remain serviceable during turns.
 pub struct TuiWorker {
-    runtime: SessionRuntime,
-    control: Arc<ChannelRunControl>,
+    actor: actor::SessionActor,
 }
-
 impl TuiWorker {
-    pub fn new(runtime: SessionRuntime) -> (Self, tokio::sync::broadcast::Receiver<UiEvent>) {
-        let event_sender = runtime.event_sender.clone();
-        let cancellation = runtime.cancellation.clone();
-        let control = Arc::new(ChannelRunControl::new(
-            Arc::new(BroadcastEventSink(event_sender.clone())),
-            cancellation,
-        ));
-
-        let worker = Self { runtime, control };
-        let event_rx = event_sender.subscribe();
-
-        (worker, event_rx)
+    pub fn new(
+        runtime: SessionRuntime,
+    ) -> (
+        Self,
+        tokio::sync::broadcast::Receiver<darius_core::runtime_protocol::RuntimeEvent<UiEvent>>,
+    ) {
+        let actor = actor::SessionActor::new(runtime);
+        let events = actor.events.subscribe();
+        (Self { actor }, events)
     }
-
-    pub fn control(&self) -> Arc<ChannelRunControl> {
-        self.control.clone()
-    }
-
-    pub fn run_loop(&mut self, command_rx: std::sync::mpsc::Receiver<darius_tui::RuntimeCommand>) {
-        if self.runtime.is_setup() {
-            self.emit_setup_guidance();
-        }
-        loop {
-            match command_rx.recv() {
-                Ok(darius_tui::RuntimeCommand::SubmitGoal { text, .. }) => {
-                    if self.runtime.is_setup() {
-                        self.emit_setup_guidance();
-                        continue;
-                    }
-                    if self.runtime.is_offline_demo() {
-                        let _ = self.runtime.event_sender.send(UiEvent::Status {
-                            line: "Runtime state: offline-demo".into(),
-                        });
-                        let _ = self.runtime.event_sender.send(UiEvent::Status {
-                            line:
-                                "Offline demo: no real file analysis or completion was performed."
-                                    .into(),
-                        });
-                        continue;
-                    }
-                    let sink = Arc::new(BroadcastEventSink(self.runtime.event_sender.clone()));
-                    let control = self.control.clone();
-                    let loopt = AgentLoop::new(sink, control);
-                    let workspace = self.runtime.workspace.to_string_lossy().to_string();
-                    let _ = crate::runtime::block_on_turn(loopt.run_turn(
-                        &self.runtime.metadata,
-                        &self.runtime.policy,
-                        &text,
-                        &mut self.runtime.conversation,
-                        self.runtime.model.as_mut(),
-                        &self.runtime.tools,
-                        &self.runtime.memory,
-                        &workspace,
-                    ));
-                }
-                Ok(darius_tui::RuntimeCommand::ExecuteSlash(inv)) => match inv.id {
-                    darius_tui::CommandId::Status => {
-                        for line in self.runtime.diagnostics() {
-                            let _ = self
-                                .runtime
-                                .event_sender
-                                .send(UiEvent::Status { line: line.clone() });
-                        }
-                    }
-                    darius_tui::CommandId::Compact => {
-                        let _ = self.runtime.event_sender.send(UiEvent::Status {
-                            line: "Compacting session context (lean-tail)...".into(),
-                        });
-                        if let Ok(pack) = self
-                            .runtime
-                            .memory
-                            .build_pack(self.runtime.policy.memory_max_chars, 12)
-                        {
-                            let _ = self.runtime.event_sender.send(UiEvent::Status {
-                                line: format!(
-                                    "Context compacted: {} memory records retained",
-                                    pack.record_ids.len()
-                                ),
-                            });
-                        }
-                        let _ = self.runtime.event_sender.send(UiEvent::Done);
-                    }
-                    _ => {
-                        let _ = self.runtime.event_sender.send(UiEvent::Status {
-                            line: format!("Command: {}", inv.name),
-                        });
-                        let _ = self.runtime.event_sender.send(UiEvent::Done);
-                    }
-                },
-                Ok(darius_tui::RuntimeCommand::ResolvePermission { id, choice }) => {
-                    self.control.resolve(&id, choice.into());
-                }
-                Ok(darius_tui::RuntimeCommand::Interrupt) => {
-                    self.runtime.cancellation.cancel();
-                }
-                Ok(darius_tui::RuntimeCommand::Shutdown) | Err(_) => {
-                    self.runtime.cancellation.cancel();
-                    break;
-                }
-            }
-        }
-    }
-    fn emit_setup_guidance(&self) {
-        let _ = self.runtime.event_sender.send(UiEvent::Status {
-            line: "Setup required: set DARIUS_API_KEY or OPENAI_API_KEY, then run config init."
-                .into(),
-        });
-        let _ = self.runtime.event_sender.send(UiEvent::Status {
-            line: "No goal was run; no completion was claimed.".into(),
-        });
+    pub fn run_loop(
+        &mut self,
+        commands: tokio::sync::mpsc::UnboundedReceiver<darius_tui::RuntimeCommand>,
+    ) {
+        self.actor.run(commands);
     }
 }
 

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CognitiveLoop — plan, execute, react, accept"
+description = "Correlated multi-turn coding agent loop and execution policies"
 
 [lib]
 name = "darius_cognitive"

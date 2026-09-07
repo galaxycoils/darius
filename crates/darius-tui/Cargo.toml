@@ -15,6 +15,7 @@ ratatui = "0.27"
 crossterm = "0.27"
 unicode-width = "0.1"
 darius-cognitive = { path = "../darius-cognitive" }
+darius-core = { path = "../darius-core" }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true }
 tokio = { workspace = true }

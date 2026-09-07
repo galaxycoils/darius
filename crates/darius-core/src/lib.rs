@@ -21,7 +21,10 @@ impl Default for SubagentId {
     }
 }
 
+pub mod commands;
 pub mod plugins;
+pub mod runtime_protocol;
+pub mod slash;
 
 /// Turn-level cache statistics for the CacheCoordinator.
 ///

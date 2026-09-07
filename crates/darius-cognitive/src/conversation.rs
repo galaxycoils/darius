@@ -39,4 +39,26 @@ impl Conversation {
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
+
+    pub fn len(&self) -> usize {
+        self.messages.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    pub fn compact(&mut self, budget: usize) -> Result<(), CognitiveError> {
+        crate::agent_compact::compact_tool_results(&mut self.messages, budget)
+    }
+
+    pub fn push(&mut self, msg: Message) -> Result<(), CognitiveError> {
+        self.messages.push(msg);
+        validate::validate(&self.messages)?;
+        Ok(())
+    }
+
+    pub fn clear(&mut self) {
+        self.messages.clear();
+    }
 }

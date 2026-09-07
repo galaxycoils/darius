@@ -1,4 +1,147 @@
 //! Task 3.3 RED: one multi-turn coding agent loop over Conversation.
+
+struct PlanControl;
+impl RunControl for PlanControl {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+    fn execution_policy(&self) -> darius_cognitive::ExecutionPolicy {
+        darius_cognitive::ExecutionPolicy::Plan
+    }
+    fn approve_tool(
+        &self,
+        _: &ToolCall,
+        _: darius_tools::ToolRisk,
+    ) -> Result<PermissionChoice, CognitiveError> {
+        panic!("Plan must deny before permission");
+    }
+}
+#[tokio::test]
+async fn execution_policy_plan_denies_all_mutations_with_correlated_results() {
+    let (dir, memory, mut tools, meta, policy) = harness(true);
+    darius_tools::register_task_builtins(
+        &mut tools,
+        Arc::new(darius_tools::TaskBoard::new(15).into()),
+    );
+    std::fs::write(dir.join("input.txt"), "read-only evidence").unwrap();
+    let calls: Vec<_> = [
+        (
+            "write_file",
+            serde_json::json!({"path":"out.txt","content":"must not write"}),
+        ),
+        ("shell", serde_json::json!({"command":"touch shell.txt"})),
+        (
+            "memory_remember",
+            serde_json::json!({"kind":"fact","body":"must not remember"}),
+        ),
+        ("task_add", serde_json::json!({"title":"must not add"})),
+        ("task_complete", serde_json::json!({"id":"1"})),
+        ("read_file", serde_json::json!({"path":"input.txt"})),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (name, arguments))| ToolCall {
+        id: format!("policy-{i}"),
+        name: name.into(),
+        arguments,
+    })
+    .collect();
+    let mut model = MockModel::new(vec![
+        ModelOutput {
+            content: None,
+            tool_calls: calls.clone(),
+        },
+        text_out("planned without mutation"),
+    ]);
+    let sink = collect();
+    let mut convo = Conversation::from_messages(vec![]).unwrap();
+    let output = AgentLoop::new(sink.clone(), Arc::new(PlanControl))
+        .run_turn(
+            &meta,
+            &policy,
+            "plan",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output, "planned without mutation");
+    for call in &calls[..5] {
+        let results: Vec<_> = convo
+            .messages()
+            .iter()
+            .filter_map(|m| match m {
+                darius_cognitive::Message::Tool {
+                    tool_call_id,
+                    content,
+                    ..
+                } if tool_call_id == &call.id => Some(content),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].contains("Plan"));
+    }
+    assert!(!dir.join("out.txt").exists());
+    assert!(!dir.join("shell.txt").exists());
+    assert_eq!(memory.record_count().unwrap(), 0);
+    assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e,UiEvent::ToolEnd {ok:true,preview,..} if preview.contains("read-only evidence"))));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[tokio::test]
+async fn execution_policy_auto_runs_reads_but_gates_every_mutation() {
+    let (dir, memory, tools, meta, policy) = harness(true);
+    std::fs::write(dir.join("input.txt"), "read me").unwrap();
+    let control = Arc::new(GateControl {
+        approvals: Mutex::new(0),
+        deny: true,
+    });
+    let calls = [
+        ("read_file", serde_json::json!({"path":"input.txt"})),
+        (
+            "write_file",
+            serde_json::json!({"path":"out.txt","content":"no"}),
+        ),
+        ("shell", serde_json::json!({"command":"touch shell.txt"})),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (name, arguments))| ToolCall {
+        id: format!("auto-{i}"),
+        name: name.into(),
+        arguments,
+    })
+    .collect();
+    let mut model = MockModel::new(vec![
+        ModelOutput {
+            content: None,
+            tool_calls: calls,
+        },
+        text_out("denied"),
+    ]);
+    let mut convo = Conversation::from_messages(vec![]).unwrap();
+    AgentLoop::new(collect(), control.clone())
+        .run_turn(
+            &meta,
+            &policy,
+            "auto",
+            &mut convo,
+            &mut model,
+            &tools,
+            &memory,
+            &dir.to_string_lossy(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(*control.approvals.lock().unwrap(), 2);
+    assert!(!dir.join("out.txt").exists());
+    assert!(!dir.join("shell.txt").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 use darius_cognitive::{
     AgentLoop, AsyncModel, CognitiveError, Conversation, EventSink, LoopPolicy, MockModel,
     ModelOutput, NoopRunControl, PermissionChoice, RunControl, RunMetadata, ToolSpec, TurnContext,

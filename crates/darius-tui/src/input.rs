@@ -6,6 +6,9 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
     // Permission chooser takes priority when active
     if state.permission.is_some() {
         return match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(Action::Interrupt)
+            }
             KeyCode::Up | KeyCode::Char('k') => Some(Action::PermissionNext),
             KeyCode::Down | KeyCode::Char('j') => Some(Action::PermissionPrev),
             KeyCode::Enter => Some(Action::PermissionChoose),
@@ -19,10 +22,15 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
         return match key.code {
             KeyCode::Esc => Some(Action::Cancel),
             KeyCode::Enter => Some(Action::PaletteAccept),
+            KeyCode::Tab => Some(Action::PaletteComplete),
             KeyCode::Up => Some(Action::PalettePrev),
             KeyCode::Down => Some(Action::PaletteNext),
-            KeyCode::Tab => Some(Action::PaletteAccept),
             KeyCode::Backspace => Some(Action::Backspace),
+            KeyCode::Delete => Some(Action::Delete),
+            KeyCode::Left => Some(Action::MoveCursorLeft),
+            KeyCode::Right => Some(Action::MoveCursorRight),
+            KeyCode::Home => Some(Action::CursorHome),
+            KeyCode::End => Some(Action::CursorEnd),
             KeyCode::Char(c) => Some(Action::Insert(c)),
             _ => None,
         };
@@ -37,11 +45,18 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
                 Action::Quit
             })
         }
+        // Shift+Tab / BackTab is mode toggle
+        KeyCode::BackTab => Some(Action::CycleMode),
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::CycleMode),
         KeyCode::PageUp => Some(Action::Scroll(-1)),
         KeyCode::PageDown => Some(Action::Scroll(1)),
         KeyCode::Enter => Some(Action::Submit),
         KeyCode::Backspace => Some(Action::Backspace),
+        KeyCode::Delete => Some(Action::Delete),
+        KeyCode::Left => Some(Action::MoveCursorLeft),
+        KeyCode::Right => Some(Action::MoveCursorRight),
+        KeyCode::Home => Some(Action::CursorHome),
+        KeyCode::End => Some(Action::CursorEnd),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char(c) => Some(Action::Insert(c)),
         _ => None,
