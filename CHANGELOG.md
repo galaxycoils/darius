@@ -9,7 +9,7 @@
 - Fixed TUI screen clearing on `/clear` command via `terminal.clear()`.
 - Persisted conversation session context to durable memory during `/compact`.
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-09-07
 
 ### Added
 - OpenAI-compatible multi-turn tool protocol with correlated responses, deadlines and cancellation.

@@ -11,7 +11,7 @@ def audit(root):
         text = (root / name).read_text()
         errors.extend(f"{name}:{error}" for error in violations(text))
     changelog = (root / "CHANGELOG.md").read_text()
-    for marker in ("[1.2.0] - Unreleased", "[1.1.2]", "Corrected"):
+    for marker in ("[1.2.1]", "[1.2.0]", "[1.1.2]", "Corrected"):
         if marker not in changelog:
             errors.append(f"CHANGELOG.md missing correction marker {marker}")
     for path in [root / "Cargo.toml", *root.glob("crates/*/Cargo.toml"), *root.glob("tests/*/Cargo.toml")]:
