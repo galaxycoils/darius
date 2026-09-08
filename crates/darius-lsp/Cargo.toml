@@ -3,7 +3,7 @@ name = "darius-lsp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "LSP + DAP coding surface"
+description = "Internal LSP and DAP types; public integration unavailable"
 
 [lib]
 name = "darius_lsp"

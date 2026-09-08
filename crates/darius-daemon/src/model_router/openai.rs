@@ -45,7 +45,21 @@ impl AsyncModel for LiveModel {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|_| CognitiveError::Loop("request failed".into()))?;
+                .map_err(|error| {
+                    if error.is_timeout() {
+                        CognitiveError::Loop(
+                            "provider request timed out: check network connectivity, \
+                             then retry or try again"
+                                .into(),
+                        )
+                    } else {
+                        CognitiveError::Loop(
+                            "provider request failed: check network connectivity and base_url, \
+                             then retry or try again"
+                                .into(),
+                        )
+                    }
+                })?;
             wire_decode::read_response(response).await
         };
         let cancel = ctx.token();
@@ -54,7 +68,11 @@ impl AsyncModel for LiveModel {
             _ = cancel.cancelled() => Err(CognitiveError::Cancelled),
             output = fetch => output,
             _ = tokio::time::sleep(ctx.deadline_duration()) => {
-                Err(CognitiveError::Loop("deadline exceeded".into()))
+                Err(CognitiveError::Loop(
+                    "turn deadline exceeded after 60s (timed out): the provider did not respond; \
+                     retry, check provider latency, or try again"
+                        .into(),
+                ))
             },
         };
         if let Ok((_, Some(reported))) = &result {

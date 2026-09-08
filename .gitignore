@@ -28,3 +28,7 @@ invoked.timestamp
 *.rmeta
 *.rlib
 *.o
+
+# Python
+__pycache__/
+*.pyc

@@ -1,6 +1,6 @@
 //! UiEvent emit helpers for the agent loop.
 use crate::conversation::Message;
-use crate::{EventSink, PermissionChoice, RunMetadata, UiEvent};
+use crate::{DiffKind, DiffLine, EventSink, PermissionChoice, RunMetadata, UiEvent};
 use darius_tools::ToolCall;
 pub fn emit_header(sink: &dyn EventSink, meta: &RunMetadata, goal: &str) {
     sink.emit(UiEvent::Header {
@@ -48,9 +48,36 @@ pub fn emit_write_diff(sink: &dyn EventSink, call: &ToolCall, preview: &str) {
         return;
     }
     let path = call.arguments.get("path").and_then(|v| v.as_str());
+
+    // Parse diff from preview (format: "wrote N bytes to path\n+added\n-removed\n context")
+    let lines = if let Some(diff_start) = preview.find('\n') {
+        preview[diff_start + 1..]
+            .lines()
+            .filter_map(|line| {
+                if line.is_empty() {
+                    return None;
+                }
+                let kind = match line.chars().next() {
+                    Some('+') => DiffKind::Add,
+                    Some('-') => DiffKind::Delete,
+                    Some(' ') => DiffKind::Context,
+                    _ => DiffKind::Context,
+                };
+                Some(DiffLine {
+                    kind,
+                    old: None,
+                    new: None,
+                    text: line[1..].to_string(),
+                })
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
     sink.emit(UiEvent::Diff {
         file: path.unwrap_or("").into(),
         summary: preview.chars().take(200).collect(),
-        lines: vec![],
+        lines,
     });
 }

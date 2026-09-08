@@ -1,180 +1,53 @@
 # Darius capability inventory
 
-**Truth date:** 2026-09-07
+Scope: unreleased v1.2.0 checkout. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
 
-**Scope:** repository recovery surface only. This document is deliberately stricter than source presence, unit tests, README copy, or a generated agent card.
+## Verified local contracts
 
-## Status policy
-
-| Status | Meaning |
-| --- | --- |
-| **Verified** | The public recovery behavior is covered by the linked executable test. A verified listing is not a claim that its underlying feature completes real work. |
-| **Experimental** | End-to-end reachable in the recovery surface and has scoped test evidence, but does not yet meet the verified bar. |
-| **Unavailable** | Not publicly proven by a recovery-surface test, not wired to a public entry point, explicitly hidden by recovery, or only represented by source/README/agent-card text. Do not advertise it as working. |
-
-There are **no Experimental capabilities** at this revision.
-
-## Verified public CLI contract
-
-| Surface | Status | Exact proof |
+| Surface and claim boundary | Status | Named proof |
 | --- | --- | --- |
-| `darius --help` / `darius -h` exposes only `tui`, `run`, `config`, and `memory` | **Verified** | [`public_help_matches_recovery_surface`](../crates/darius-cli/tests/cli_contract.rs#L31) |
-| `darius --version` | **Verified** | [`version_flag_works`](../crates/darius-cli/tests/cli_contract.rs#L70) |
-| `darius -V` | **Verified** | [`version_flag_short_works`](../crates/darius-cli/tests/cli_contract.rs#L78) |
-| Global `--profile <name>` before or after a subcommand, when used with help | **Verified** | [`global_flags_before_subcommand`](../crates/darius-cli/tests/cli_contract.rs#L86); [`global_flags_after_subcommand`](../crates/darius-cli/tests/cli_contract.rs#L101) |
-| Global `--session <id>` before or after a subcommand, when used with help | **Verified** | [`global_flags_before_subcommand`](../crates/darius-cli/tests/cli_contract.rs#L86); [`global_flags_after_subcommand`](../crates/darius-cli/tests/cli_contract.rs#L101) |
-| Missing `--profile`/`--session` value and unknown global flag exit `2` | **Verified** | [`malformed_nested_args`](../crates/darius-cli/tests/cli_contract.rs#L116) |
-| Unknown command exits `2` | **Verified** | [`unknown_command_exits_two`](../crates/darius-cli/tests/cli_contract.rs#L47) |
-| Bare non-TTY invocation prints a setup hint and exits `0`, without full usage | **Verified** | [`no_arg_non_tty_help`](../crates/darius-cli/tests/cli_contract.rs#L131) |
-| Bare clean-home PTY invocation prints a setup hint, restores the terminal, exits `0`, and does not modify `~/.darius` | **Verified** | [`clean_home_bare_launch`](../crates/darius-cli/tests/tui_pty.rs#L212) |
+| Generated top-level CLI exposes only tui/run/config/memory | **Verified** | [`public_help_is_exact_generated_surface`](../crates/darius-cli/tests/cli_contract.rs) |
+| Version flags report the package version | **Verified** | [`version_flags_print_the_current_package_version`](../crates/darius-cli/tests/cli_contract.rs) |
+| Global --profile/--cwd/--offline parse before and after commands | **Verified** | [`globals_parse_before_and_after_subcommand`](../crates/darius-cli/tests/cli_contract.rs) |
+| Removed CLI tokens fail with exit 2 | **Verified** | [`parse_errors_unknown_and_legacy_commands_exit_two`](../crates/darius-cli/tests/cli_contract.rs) |
+| Explicit demo is labelled and does not claim analysis/completion | **Verified** | [`runtime_selection_offline_is_explicit_and_never_claims_analysis_or_completion`](../crates/darius-cli/tests/cli_contract.rs) |
+| Missing configured key reports the variable, not its value | **Verified** | [`runtime_selection_configured_missing_key_names_only_the_variable`](../crates/darius-cli/tests/cli_contract.rs) |
+| No usable configuration/key selects setup, not a mock | **Verified** | [`runtime_selection_no_config_or_usable_key_enters_setup`](../crates/darius-cli/tests/cli_contract.rs) |
+| Config/status diagnostics report runtime selection, not remote health | **Verified** | [`runtime_selection_config_show_exposes_secret_safe_diagnostics`](../crates/darius-cli/tests/cli_contract.rs), [`runtime_selection_status_exposes_diagnostics_without_done`](../crates/darius-cli/tests/cli_contract.rs) |
+| Noninteractive read/tool goal via local fake provider | **Verified** | [`test_run_read_goal_succeeds`](../crates/darius-cli/tests/run_e2e.rs) |
+| Noninteractive mutation denied with TUI guidance | **Verified** | [`test_run_mutation_goal_denied_with_tui_guidance`](../crates/darius-cli/tests/run_e2e.rs) |
+| Config init/show lifecycle | **Verified** | [`test_config_show_and_init`](../crates/darius-cli/tests/run_e2e.rs) |
+| Memory search/pack/import/export/stats lifecycle | **Verified** | [`test_memory_cli_lifecycle`](../crates/darius-cli/tests/run_e2e.rs) |
+| Clean-home bare PTY setup and selected exit cleanup | **Verified** | [`clean_home_bare_launch`](../crates/darius-cli/tests/tui_pty.rs), [`cleanup_path_idle_ctrl_c`](../crates/darius-cli/tests/tui_pty.rs) |
+| Local fake-provider multi-turn TUI journey | **Verified** | [`full_agent_journey`](../crates/darius-cli/tests/tui_pty.rs) |
+| Generated slash help and offline status do not claim hidden features or completion | **Verified** | [`generated_slash_help_and_status_are_truthful`](../crates/darius-cli/tests/public_claims.rs) |
+| Closed-world slash palette/registry, not every command outcome | **Verified** | [`generated_slash_palette_has_only_supported_commands`](../crates/darius-core/tests/public_claims.rs) |
+| Compatibility web refuses execution and advertises no capabilities | **Verified** | [`unavailable_web_surface_never_claims_execution`](../crates/darius-web/tests/public_claims.rs) |
 
-## CLI command and nested-command inventory
+## Retained surfaces and policy
 
-`darius` dispatches only the four recovery commands in [`crates/darius-cli/src/lib.rs`](../crates/darius-cli/src/lib.rs#L128-L191).
+CLI: `tui`, `run <goal...>`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable.
 
-| Command / nested form | Source state | Status |
-| --- | --- | --- |
-| `tui` | Dispatched; accepts source-scanned `--cwd <path>` | **Verified** — PTY first-run and multi-turn live journey ([`first_run_setup_journey`](../crates/darius-cli/tests/tui_pty.rs#L212), [`full_agent_journey`](../crates/darius-cli/tests/tui_pty.rs#L340)). |
-| `run <goal...>` | Dispatched; source selects mock or configured model | **Verified** — noninteractive execution and mutation denial ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `config` | Dispatched; no nested argument prints usage | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `config show` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `config init` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `config set` | Source prints a sample configuration; it does not write one | **Unavailable** — do not advertise as mutator. |
-| `memory` | Dispatched; no nested argument prints usage | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `memory search <query>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `memory pack` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `memory import <file>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `memory export <file>` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `memory stats` | Source implementation | **Verified** ([`run_e2e.rs`](../crates/darius-cli/tests/run_e2e.rs)). |
-| `--cwd <path>` | `tui`-only source scan, not a declared global flag | **Unavailable**. |
-| Usage aliases `t`, `r`, `c`, `m` | Printed in help but not matched by dispatch | **Unavailable** — do not use as aliases. |
+Slash registry: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`. `/model` only reports configuration. Auto gates mutating/shell tools on approval; Plan denies them. This is a tool policy, not a process sandbox or a guarantee that session storage is never written.
 
-### Explicitly removed/hidden CLI tokens
+Tool inventory: `memory_search`, `memory_pack`, `memory_remember`, `task_add`, `task_list`, `task_complete`, `shell`, `read_file`, `search_files`, `write_file`, `spill_read`. Individual registrations are not blanket end-to-end verification. Shell authorization does not confine arbitrary subprocess effects. Cancellation/terminal restoration coverage is path-specific, without a universal latency bound.
 
-The following tokens must exit `2`; that behavior is the only verified fact about them. Source functions, README rows, and historical tests do not make them available.
+## Unavailable integrations and removed names
 
-| Token / nested surface | Status | Exact proof / source note |
-| --- | --- | --- |
-| `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn` | **Unavailable** | [`removed_tokens_all_exit_two`](../crates/darius-cli/tests/cli_contract.rs#L53) |
-| `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`, `help` | **Unavailable** | [`removed_tokens_all_exit_two`](../crates/darius-cli/tests/cli_contract.rs#L53) |
-| `a2a card` | **Unavailable** | Parent `a2a` is explicitly removed. |
-| `cron list`, `cron add`, `cron run`, `cron notepad` | **Unavailable** | Parent `cron` is explicitly removed. |
-| `doctor` | **Unavailable** | Diagnostic workflow covered in [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
+Unavailable CLI: `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`, `help`, `doctor`, `config set`. Doctor means the config/status diagnostic workflow, not a new command.
 
-## TUI command palette and modes
+Unavailable slash commands: `/plan`, `/effort`, `/skills`, `/a2a`, `/serve`; unavailable mode values: Manual and AcceptEdits. Use `/mode plan` instead.
 
-The canonical command registry is defined in [`crates/darius-core/src/commands.rs`](../crates/darius-core/src/commands.rs). It provides strictly 13 canonical slash commands. All legacy commands have been retired.
+Unavailable: `peer_send`, `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop`, MCP, cron scheduling, worktree management/rollback, browser integration, skill mutation and remote sandboxes. Internal Rust symbols are not public support claims.
 
-| Slash command (and `-` alias) | Source-stated purpose | Status |
-| --- | --- | --- |
-| `/help`, `/clear`, `/compact` | help, clear transcript, compact context | **Verified** |
-| `/model`, `/mode`, `/permissions` | model/mode/policy UI | **Verified** |
-| `/effort` | effort selector | **Unavailable** — explicitly hidden in recovery. |
-| `/memory`, `/pack`, `/tasks`, `/plan` | memory/task UI (`/plan` is legacy command; mode is toggled via `/mode`) | `/memory`, `/pack`, `/tasks` **Verified**; `/plan` **Unavailable**. |
-| `/status`, `/config` | status/config UI | **Verified** |
-| `/skills` | skill list/search UI | **Unavailable** — explicitly hidden in recovery. |
-| `/a2a`, `/serve` | A2A/server UI | **Unavailable** — explicitly hidden in recovery. |
-| `/stop`, `/quit` | interrupt / exit UI | **Verified** |
+Unavailable web/A2A execution: no CLI listener is shipped. If embedded, `GET /` renders an unavailable notice; `GET /a2a/card` returns an empty capabilities array. `/api/events`, `/api/goal`, `/a2a/tasks`, `/a2a/tasks/{id}`, `/a2a/peer`, `/a2a/inbox/{handle}`, `/health`, `/status` return 503 unavailable, without creating work or reporting success.
 
-| Mode or selector value | Source state | Status |
-| --- | --- | --- |
-| `Auto` | Default TUI enum value | **Verified** — read-only auto-executes, mutating/shell gated by permission. |
-| `Manual` | TUI enum value | **Unavailable** — explicitly hidden in recovery. |
-| `AcceptEdits` | TUI enum value | **Unavailable** — explicitly hidden in recovery. |
-| `Plan` | TUI enum value | **Verified** — strictly denies mutating tools and shell execution. |
-| Effort `low`, `medium`, `high`, `xhigh`, `max`, `ultracode` | TUI enum values | **Unavailable** — `/effort` is hidden. |
+## Provider and platform boundaries
 
-## Providers and configuration
+OpenAI-compatible wire behavior is tested with local fake providers. Credentialed OpenAI, OpenRouter, Groq, Ollama, native Anthropic, automatic failover and role-model overrides are not verified integrations. A `live` diagnostic means configuration/key selection, not a connectivity or health probe. Only `--offline` selects the demo. See [setup and diagnostics](TROUBLESHOOTING.md).
 
-| Provider / configuration claim | Source state | Status |
-| --- | --- | --- |
-| Offline `MockModel` when no model config is present | Source fallback in [`runtime.rs`](../crates/darius-cli/src/runtime.rs#L82-L96) | **Unavailable** — no public `run` proof. |
-| Configured `openai_compatible` endpoint | Config accepts arbitrary `provider`, `base_url`, `model`, and API-key environment variable; default example names `openai_compatible` | **Unavailable** — no live-provider recovery test. |
-| OpenAI API | Only an OpenAI-compatible wire format is source-visible | **Unavailable** — do not claim a deployed/live integration. |
-| Anthropic / Claude native provider | A router default contains an Anthropic URL, but the client is OpenAI-compatible | **Unavailable** — native Anthropic support is explicitly not available. |
-| Any other named provider, model override, or automatic failover | Source-only configuration/router concepts | **Unavailable**. |
+Release target naming: `macos-x86_64`, `macos-aarch64`, `linux-x86_64`, `linux-aarch64`. Historical `darwin-x86_64`/`darwin-aarch64` names are not current asset names. Published assets, credentialed downloads, cross-platform installation and Windows support are unavailable as claims from this local audit. Local installer tests are not publication evidence.
 
-## Built-in tools and integrations
+## Audit boundary
 
-The session runtime registers memory, task, and coding tools in source ([`runtime.rs`](../crates/darius-cli/src/runtime.rs#L76-L80)). No recovery test proves that a user can invoke any tool through a successful public session, so every item below is **Unavailable**.
-
-| Tool or integration | Source state | Status |
-| --- | --- | --- |
-| `memory_search`, `memory_pack`, `memory_remember` | Memory-tool registrations | **Unavailable** |
-| `task_add`, `task_list`, `task_complete` | Task-tool registrations | **Unavailable** |
-| `shell`, `read_file`, `search_files`, `write_file`, `spill_read` | Coding-tool registrations (`glob`, legacy `read_spill`, and `peer_send` removed; see Task 2.4) | **Unavailable** |
-| `peer_send` | Registration removed (Task 2.4) | **Unavailable** — peer A2A is explicitly unavailable. |
-| `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop` | Source-only registration helper; not registered by the public runtime | **Unavailable** — subagents are explicitly unavailable. |
-| MCP stdio/SSE server registry and dynamically discovered MCP tools | Source module only ([`mcp.rs`](../crates/darius-tools/src/mcp.rs#L25-L163)); no public runtime registration | **Unavailable** — MCP is explicitly unavailable. |
-| Browser tool/integration | No public tool registration | **Unavailable**. |
-| Skill discovery or skill mutation | Source registry concepts only; no public mutation interface | **Unavailable** — skill mutation is explicitly unavailable. |
-| Worktree management, rollback, remote sandboxes | Source modules/README claims, not recovery entry points | **Unavailable** — all are explicitly unavailable. |
-| Messaging beyond the in-process source peer stub | No recovery entry point | **Unavailable**. |
-
-## Server, dashboard, and A2A routes
-
-`darius serve` and `darius a2a` are removed CLI tokens. The router below is source-visible in [`crates/darius-web/src/lib.rs`](../crates/darius-web/src/lib.rs#L113-L125), but no recovered listener binds it. Every route and generated Agent Card capability is **Unavailable**.
-
-| Method and route / generated claim | Status |
-| --- | --- |
-| `GET /` (dashboard) | **Unavailable** — dashboard goal is explicitly unavailable. |
-| `GET /api/events` | **Unavailable** |
-| `POST /api/goal` | **Unavailable** — dashboard goal is explicitly unavailable. |
-| `GET /a2a/card` | **Unavailable** |
-| `POST /a2a/tasks` | **Unavailable** |
-| `GET /a2a/tasks/{id}` | **Unavailable** |
-| `POST /a2a/peer` | **Unavailable** — peer A2A is explicitly unavailable. |
-| `GET /a2a/inbox/{handle}` | **Unavailable** — peer A2A is explicitly unavailable. |
-| Agent-card capabilities: `cognitive_loop`, `memory_search`, `tool_execution`, `task_board`, `peer_a2a` | **Unavailable** — generated metadata is not deployment or public-route proof. |
-
-## Installer and platform claims
-
-The shell installer constructs a release asset named `darius-${OS}-${ARCH}.tar.gz` ([`install.sh`](../install.sh#L13-L48)). It does not prove those assets exist, download, verify, or execute.
-
-| Installer target / install path | Status |
-| --- | --- |
-| `darwin-x86_64` | **Unavailable** — source naming only; no release/install proof. |
-| `darwin-aarch64` | **Unavailable** — source naming only; no release/install proof. |
-| `linux-x86_64` | **Unavailable** — source naming only; no release/install proof. |
-| `linux-aarch64` | **Unavailable** — source naming only; no release/install proof. |
-| `cargo install --git https://github.com/galaxycoils/darius darius-cli` fallback | **Unavailable** — documentation/script claim, not an exercised install. |
-| Windows binary, installer, or remote-sandbox support | **Unavailable** — explicitly unavailable. |
-
-## Machine-visible product claims that are not capability proof
-
-The following claims occur in [`README.md`](../README.md#L119-L133), the generated web Agent Card, or legacy source. They remain **Unavailable** unless and until a recovery-surface test proves the corresponding user path:
-
-- Lean-tail context compression; disk spill recall; live metrics/fuzzy palette.
-- Live subagent steer/list/stop and schema validation.
-- Cron continuity/notepads; approval dry-run; instruction-file protection; secret redaction.
-- Prompt-cache coordination; MCP health/step gating; peer A2A messaging.
-- Worktree lifecycle and automatic rollback; dynamic role model overrides.
-- “Local-first,” “provider-optional,” “zero API keys required,” “live provider,” “web dashboard,” “A2A server,” “deployed,” or “working” claims beyond the verified bare-launch and command-contract facts above.
-
-## Drift guard
-
-When changing the public surface, update this file in the same change. The guard is intentionally source-oriented: it fails if any recovery command, removed token, slash command, runtime-built-in tool, web route, or installer asset family is missing from this inventory. It does **not** promote an item to Verified.
-
-```sh
-python3 - <<'PY'
-from pathlib import Path
-import re
-
-root = Path('.')
-doc = (root / 'docs/CAPABILITIES.md').read_text()
-checks = {
-    'recovery CLI': (root / 'crates/darius-cli/src/lib.rs').read_text(),
-    'slash registry': (root / 'crates/darius-tui/src/commands.rs').read_text(),
-    'tool registrations': (root / 'crates/darius-tools/src/lib.rs').read_text(),
-    'web routes': (root / 'crates/darius-web/src/lib.rs').read_text(),
-}
-needles = set(re.findall(r'"(tui|run|config|memory|daemon|status|start|stop|attach|eval|learn|session-smoke|serve|a2a|cron|approval-check|help)"', checks['recovery CLI']))
-needles |= set(re.findall(r'name: "(/[^" ]+)"', checks['slash registry']))
-needles |= set(re.findall(r'register_with_risk\("([a-z_]+)"', checks['tool registrations']))
-needles |= set(re.findall(r'\.route\("([^"{]+(?:\{id\}|\{handle\})?)"', checks['web routes']))
-needles |= {'darwin-x86_64', 'darwin-aarch64', 'linux-x86_64', 'linux-aarch64'}
-missing = sorted(item for item in needles if item not in doc)
-assert not missing, f'CAPABILITIES.md missing inventory entries: {missing}'
-print(f'capability drift check: PASS ({len(needles)} source inventory needles)')
-PY
-```
+`bash scripts/audit-public-claims.sh` rebuilds the CLI, traverses generated nested help, checks diagnostics/installer help, authoritative prose and manifest descriptions, and executes negative fixtures plus web/slash/CLI contracts. It verifies named capability proof functions exist; it does not execute all linked PTY, installer or provider journey suites. Those remain separate release gates. Release workflow literals are checked, but the workflow itself is not executed locally. Pattern rules are a regression guard, not an exhaustive semantic proof of arbitrary future copy.

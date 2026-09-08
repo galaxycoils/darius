@@ -1,36 +1,42 @@
 #![allow(dead_code)]
 pub mod fake_provider;
+pub mod screen;
 
-/// Snapshot of ~/.darius state before/after a test to verify no pollution.
-#[derive(Debug, Default)]
+/// Snapshot every entry, file byte, and symlink without following links.
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct DariusHomeSnapshot {
-    exists: bool,
-    metadata: Option<std::fs::Metadata>,
+    entries: std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
 }
-
 impl DariusHomeSnapshot {
     pub fn capture() -> Self {
-        let path = dirs::home_dir().map(|h| h.join(".darius"));
-        let (exists, metadata) = path
-            .as_ref()
-            .map(|p| (p.exists(), std::fs::metadata(p).ok()))
-            .unwrap_or((false, None));
-        Self { exists, metadata }
-    }
-
-    pub fn assert_unchanged(&self, label: &str) {
-        let after = Self::capture();
-        assert_eq!(
-            self.exists, after.exists,
-            "{label}: ~/.darius existence changed (before={}, after={})",
-            self.exists, after.exists
-        );
-        if let (Some(before), Some(after)) = (self.metadata.as_ref(), after.metadata.as_ref()) {
-            assert_eq!(
-                before.modified().ok(),
-                after.modified().ok(),
-                "{label}: ~/.darius mtime changed",
-            );
+        fn walk(
+            path: &std::path::Path,
+            entries: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+        ) {
+            let metadata = std::fs::symlink_metadata(path).expect("snapshot metadata");
+            let value = if metadata.is_symlink() {
+                format!("link:{}", std::fs::read_link(path).unwrap().display()).into_bytes()
+            } else if metadata.is_file() {
+                std::fs::read(path).expect("snapshot file")
+            } else {
+                b"directory".to_vec()
+            };
+            entries.insert(path.to_path_buf(), value);
+            if metadata.is_dir() {
+                for entry in std::fs::read_dir(path).expect("snapshot directory") {
+                    walk(&entry.unwrap().path(), entries);
+                }
+            }
         }
+        let mut snapshot = Self::default();
+        let path = dirs::home_dir().expect("real home").join(".darius");
+        if path.exists() {
+            walk(&path, &mut snapshot.entries);
+        }
+        snapshot
+    }
+    pub fn assert_unchanged(&self, label: &str) {
+        // Avoid dumping private home contents in assertion diagnostics.
+        assert!(self == &Self::capture(), "{label}: real ~/.darius changed");
     }
 }

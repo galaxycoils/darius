@@ -58,10 +58,10 @@ pub fn load_dotenv_if_present(dir: Option<&std::path::Path>) {
     if let Some(dir) = dir {
         search_dirs.push(dir.to_path_buf());
     }
-    if let Ok(current) = std::env::current_dir() {
-        if !search_dirs.contains(&current) {
-            search_dirs.push(current);
-        }
+    if let Ok(current) = std::env::current_dir()
+        && !search_dirs.contains(&current)
+    {
+        search_dirs.push(current);
     }
     for dir in search_dirs {
         let env_path = dir.join(".env");
@@ -83,12 +83,11 @@ pub fn parse_and_apply_dotenv(content: &str) {
         };
         let key = key.trim();
         let mut val = val.trim();
-        if (val.starts_with('"') && val.ends_with('"'))
-            || (val.starts_with('\'') && val.ends_with('\''))
+        if val.len() >= 2
+            && ((val.starts_with('"') && val.ends_with('"'))
+                || (val.starts_with('\'') && val.ends_with('\'')))
         {
-            if val.len() >= 2 {
-                val = &val[1..val.len() - 1];
-            }
+            val = &val[1..val.len() - 1];
         }
         if std::env::var(key).is_err() && !val.is_empty() {
             unsafe {

@@ -8,7 +8,7 @@ pub fn denial(
         (
             ExecutionPolicy::Plan,
             Some(darius_tools::ToolRisk::Mutating | darius_tools::ToolRisk::Shell),
-        ) => Some("Plan mode denies mutation and shell execution; use Auto with approval"),
+        ) => Some("Plan mode denied: mutation and shell execution; use Auto with approval"),
         _ => None,
     }
 }

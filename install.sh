@@ -92,11 +92,23 @@ case "$RAW_ARCH" in
         ;;
 esac
 
+case "$OS-$ARCH" in
+    linux-x86_64|macos-aarch64|macos-x86_64) ;;
+    *) echo "Error: Unsupported release target: $OS-$ARCH" >&2; exit 1 ;;
+esac
+
 ASSET_STEM="darius-${OS}-${ARCH}"
 ASSET="${ASSET_STEM}.tar.gz"
 
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+STAGE_TARGET=""
+cleanup() {
+    if [ -n "$STAGE_TARGET" ]; then rm -f -- "$STAGE_TARGET"; fi
+    rm -rf -- "$TMPDIR"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 compute_sha256() {
     local target="$1"
@@ -148,8 +160,9 @@ else
     fi
 
     echo "Release tag: $TAG"
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
-    CHECKSUM_URL="https://github.com/$REPO/releases/download/$TAG/${ASSET_STEM}.sha256"
+    RELEASE_BASE="${DARIUS_RELEASE_BASE_URL:-https://github.com/$REPO/releases/download}"
+    DOWNLOAD_URL="${RELEASE_BASE%/}/$TAG/$ASSET"
+    CHECKSUM_URL="${RELEASE_BASE%/}/$TAG/${ASSET_STEM}.sha256"
 
     echo "Downloading $ASSET..."
     if ! curl -sSfL "$DOWNLOAD_URL" -o "$TMPDIR/$ASSET"; then
@@ -202,7 +215,7 @@ BIN_VERSION_OUTPUT=$("$EXTRACTED_BIN" --version 2>&1) || {
 
 if [ -n "$VERSION" ]; then
     CLEAN_VERSION="${VERSION#v}"
-    if [[ "$BIN_VERSION_OUTPUT" != *"$CLEAN_VERSION"* ]]; then
+    if [ "$BIN_VERSION_OUTPUT" != "$BIN_NAME $CLEAN_VERSION" ]; then
         echo "Error: Binary version mismatch! Expected version $CLEAN_VERSION, got: $BIN_VERSION_OUTPUT" >&2
         exit 1
     fi
@@ -212,10 +225,16 @@ echo "✓ Binary validated: $BIN_VERSION_OUTPUT"
 echo "Installing to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 
-STAGE_TARGET="$INSTALL_DIR/.${BIN_NAME}.tmp.$$"
+# Reject directory destinations: mv would otherwise install *inside* them.
+if [ -d "$INSTALL_DIR/$BIN_NAME" ]; then
+    echo "Error: Install destination is a directory." >&2
+    exit 1
+fi
+STAGE_TARGET=$(mktemp "$INSTALL_DIR/.${BIN_NAME}.tmp.XXXXXXXX")
 cp "$EXTRACTED_BIN" "$STAGE_TARGET"
-chmod +x "$STAGE_TARGET"
+chmod 755 "$STAGE_TARGET"
 mv -f "$STAGE_TARGET" "$INSTALL_DIR/$BIN_NAME"
+STAGE_TARGET=""
 
 echo ""
 echo "✓ Darius installed to $INSTALL_DIR/$BIN_NAME"

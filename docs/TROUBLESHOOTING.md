@@ -1,116 +1,53 @@
-# Darius Troubleshooting and Operational Guide
+# Setup and troubleshooting
 
-This guide explains setup modes, provider configuration, runtime permissions, execution policies, diagnostics, and retained commands in Darius.
+## Setup, live, and offline-demo
 
-## 1. First-Run and Setup
+A clean unconfigured launch enters setup. Bare non-TTY invocation prints a setup hint; bare TTY invocation restores the terminal after setup guidance. Neither is proof of analysis. `darius tui` starts the interactive surface.
 
-### Clean-Home Bare Launch
-When launched without an existing profile or configuration (e.g. clean `~/.darius`), Darius detects the unconfigured state:
-- In non-TTY mode: prints a concise setup hint and exits 0 without writing files.
-- In interactive TTY mode: presents the setup screen guiding you through profile initialization.
+Initialize a profile explicitly:
 
-### Initializing a Profile
-To initialize default configuration files:
 ```sh
-darius config init
+darius config init --provider openai_compatible --base-url https://api.openai.com/v1 \
+  --model gpt-4o-mini --key-env DARIUS_API_KEY
+export DARIUS_API_KEY="your-key"
+darius run "inspect the repository"
 ```
-This generates the profile directory structure under `~/.darius/profiles/default/config.toml`.
 
-## 2. Live Provider vs. Offline Mock
+`config init` requires all four fields and refuses overwriting unless `--force` is supplied. It stores a key environment-variable name, not the key. Default storage is `~/.darius/profiles/default`; `DARIUS_HOME` and global `--profile` change it. Use `--cwd` to select the workspace. `config preset openai|openrouter|ollama|groq` writes example settings; it does not test the service.
 
-Darius supports two operational modes for model inference:
+Without configuration, a usable `DARIUS_API_KEY` takes precedence over `OPENAI_API_KEY` for the default OpenAI-compatible configuration. A configured credential-required endpoint with a missing/blank key reports missing-key rather than choosing a mock. Local/no-key configurations may select live without a key; this is not authentication or connectivity verification. Without either, setup is required. Only explicit `darius --offline run "demo"` or `darius --offline tui` selects the labelled MockModel demo. Demo output is not successful analysis or completed work.
 
-### Offline Mock Model (Default)
-When no API key or provider is configured, Darius runs with a local `MockModel`. This allows testing the full agent loop, tool execution, memory, and permissions completely offline with zero API keys or network access.
+A `live` state means a provider configuration/key was selected; it does not establish network availability. Hosted credentials and model availability must be validated separately. HTTP 401 suggests key/auth problems; 429 suggests provider limits; connection errors require checking the endpoint. Native Anthropic requests and automatic provider failover are unavailable.
 
-### Configured OpenAI-Compatible Provider
-To use a real model:
-1. Configure `~/.darius/profiles/default/config.toml`:
-```toml
-[model]
-provider = "openai_compatible"
-base_url = "https://api.openai.com/v1"
-model = "gpt-4o-mini"
-api_key_env = "DARIUS_API_KEY"
-```
-2. Set the corresponding environment variable:
-```sh
-export DARIUS_API_KEY="sk-..."
-```
-3. Test your configuration:
+## Auto, Plan and permissions
+
+Auto executes read-only tools and prompts before mutating or shell tools. Plan denies mutating and shell tools at the tool-policy boundary; session/memory bookkeeping may still write local state. Approved shell commands are not OS-sandboxed.
+
+Use Shift+Tab or `/mode auto` / `/mode plan`. Permission dialogs offer Allow Once, Allow for Session and Deny. Session approval is scoped to the tool and target, not every future action. Esc denies the prompt; Ctrl+C interrupts the active turn. Noninteractive `run` denies approval-requiring tools and returns failure with TUI guidance.
+
+## Doctor workflow (not a standalone command)
+
 ```sh
 darius config show
+darius memory stats
 ```
 
-Common issues:
-- **Connection Refused or Timeout:** Ensure `base_url` is accessible and includes protocol (e.g., `https://` or `http://127.0.0.1:11434/v1`).
-- **HTTP 401 Unauthorized:** Verify `DARIUS_API_KEY` is set and valid.
-- **HTTP 429 Rate Limit:** The provider is throttling requests; wait or check quotas.
+`config show` reports runtime state, config parse/path, key presence, memory state and provider URL; it is not a remote health probe. Explicit config/memory operations may create the profile directory and SQLite database. In the TUI use `/status`, `/config`, `/permissions`, and read-only `/model`. Do not paste secret keys into diagnostic reports.
 
-## 3. Execution Policies: Auto vs. Plan
+## Interrupt and terminal recovery
 
-Darius enforces two strict execution policies:
+`/stop` or Ctrl+C interrupts an active turn; `/quit` exits. Ordinary `q` is text, not an exit shortcut. Esc closes the palette or denies a pending permission prompt.
 
-- **Auto Mode:**
-  - Read-only tools (`read_file`, `search_files`, `memory_search`, etc.) execute automatically.
-  - Mutating tools (`write_file`) and shell execution (`shell`) require user permission before execution.
-- **Plan Mode:**
-  - Read-only tools execute normally to gather context.
-  - Mutating tools and shell commands are strictly denied at the runtime policy boundary. No disk modifications or shell commands can be executed in Plan mode.
+Terminal guards attempt restoration on supported normal/error paths. Tests cover selected exit paths, not every signal, external process, or cleanup duration. SIGKILL cannot run cleanup hooks. If a terminal remains corrupted after an unexpected termination, run `reset` in that terminal.
 
-### Toggling Modes
-- In the TUI, press `Shift+Tab` to toggle between Auto and Plan modes.
-- Alternatively, type `/mode auto` or `/mode plan` in the composer or command palette.
+## Supported commands and unavailable surfaces
 
-## 4. Permission Prompts
+CLI: `tui`, `run <goal>`, `config show|init|preset`, `memory search|pack|import|export|stats`. Nested `--help` describes required arguments; `config` and `memory` alone are not successful operations.
 
-When an agent attempts a mutating tool or shell command in Auto mode:
-1. **Interactive Prompt:** An in-terminal dialog presents the tool name, target/arguments, and three choices:
-   - `[1] Allow Once`: Grants execution for this single invocation.
-   - `[2] Allow for Session`: Caches approval for this exact tool and target for the rest of the session.
-   - `[3] Deny`: Denies tool execution; the denial is returned as a correlated tool result to the agent so it can adapt.
-2. **Dismissing Prompts:** Pressing `Esc` defaults to `Deny`. Pressing `Ctrl+C` cancels the entire active turn.
-3. **Noninteractive Denials:** In noninteractive CLI mode (`darius run ...`), any mutating or shell tool request is automatically denied with exit code 1 and guidance to use `darius tui` for interactive authorization.
+Slash commands: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`.
 
-## 5. Doctor and Diagnostics
+Retired/unavailable: `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`, `peer_send`, MCP, subagent orchestration and worktree rollback. Web goal/task/peer routes return unavailable, not synthetic success; the agent card advertises no executable capabilities. There is no public web listener.
 
-To diagnose environment or configuration issues:
-- Check current active configuration:
-  ```sh
-  darius config show
-  ```
-- Check memory database statistics:
-  ```sh
-  darius memory stats
-  ```
-- Check terminal restoration:
-  If the terminal state is corrupted on exit due to an unexpected process termination, run:
-  ```sh
-  reset
-  ```
-  Darius installs RAII `TerminalGuard` and panic hooks to restore raw mode and the alternate screen cleanly upon any exit or signal.
+## Evidence and release limits
 
-## 6. Retained Commands Summary
-
-### CLI Subcommands (4 canonical subcommands):
-- `darius tui [--cwd <path>]`: Launch interactive Claude-Code-style terminal session.
-- `darius run <goal>`: Run agent loop noninteractively (denies mutations without TTY).
-- `darius config [show|init]`: Inspect or initialize profile configuration.
-- `darius memory [search|pack|import|export|stats]`: Manage persistent memory database.
-
-Note: Removed/legacy commands (`daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`) have been retired and exit with code 2.
-
-### TUI Slash Commands (13 canonical commands):
-- `/help`: Display available commands.
-- `/clear`: Clear transcript display.
-- `/compact`: Compact session context window.
-- `/model`: Display active model and provider information.
-- `/mode [auto|plan]`: Switch between Auto and Plan execution modes.
-- `/permissions`: Display session permissions.
-- `/memory`: Inspect memory database.
-- `/pack`: Build and preview bounded memory pack.
-- `/tasks`: Inspect task board.
-- `/status`: Display session status and metrics.
-- `/config`: Display effective profile configuration.
-- `/stop`: Interrupt active model generation or tool execution.
-- `/quit`: Exit TUI session.
+See [CAPABILITIES.md](CAPABILITIES.md) for narrowly scoped named tests and [CHANGELOG.md](../CHANGELOG.md) for corrected v1.1.2 claims. A successful local claims audit does not mean a release has been published, installed on every platform, or tested against a credentialed provider. Run the separate release/installer/PTY gates before making those claims.

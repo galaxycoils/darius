@@ -467,7 +467,7 @@ fn draw_inner<B: ratatui::backend::Backend>(
         let max_scroll = transcript_lines
             .len()
             .saturating_sub(transcript_area.height as usize) as u16;
-        let scroll_y = state.scroll.min(max_scroll);
+        let scroll_y = max_scroll.saturating_sub(state.scroll);
         let transcript_paragraph = Paragraph::new(transcript_lines).scroll((scroll_y, 0));
         transcript_paragraph.render(transcript_area, f.buffer_mut());
         idx += 1;

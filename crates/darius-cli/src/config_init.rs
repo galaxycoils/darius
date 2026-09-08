@@ -29,12 +29,7 @@ impl ProviderMetadata {
                 "anthropic/claude-3.5-sonnet",
                 "OPENROUTER_API_KEY",
             ),
-            Some("ollama") => (
-                "ollama",
-                "http://localhost:11434/v1",
-                "llama3.2",
-                "NONE",
-            ),
+            Some("ollama") => ("ollama", "http://localhost:11434/v1", "llama3.2", "NONE"),
             Some("groq") => (
                 "openai_compatible",
                 "https://api.groq.com/openai/v1",

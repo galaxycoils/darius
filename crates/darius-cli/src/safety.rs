@@ -74,6 +74,31 @@ mod tests {
     }
 
     #[test]
+    fn check_approval_matches_canonical_model_risks() {
+        for (name, expected) in darius_tools::model_tools::MODEL_TOOLS {
+            let (required, risk, _) = crate::check_approval(name, &serde_json::json!({}));
+            assert_eq!(risk, format!("{expected:?}"), "{name}");
+            assert_eq!(
+                required,
+                *expected != darius_tools::ToolRisk::ReadOnly,
+                "{name}"
+            );
+        }
+        for hidden in [
+            "bash",
+            "glob",
+            "grep",
+            "read_spill",
+            "peer_send",
+            "subagent_spawn",
+        ] {
+            let (required, risk, _) = crate::check_approval(hidden, &serde_json::json!({}));
+            assert!(required);
+            assert_eq!(risk, "Unknown", "{hidden}");
+        }
+    }
+
+    #[test]
     fn check_approval_tool_risk() {
         let (required, risk, _) = crate::check_approval("read_file", &serde_json::json!({}));
         assert!(!required);

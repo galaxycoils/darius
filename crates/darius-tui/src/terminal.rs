@@ -171,6 +171,11 @@ pub fn run_tui(mut state: AppState, mut controller: TuiController) -> io::Result
             break Ok(());
         }
 
+        if state.needs_clear {
+            state.needs_clear = false;
+            terminal.clear()?;
+        }
+
         // 2. Draw.
         if let Err(e) = draw(&mut terminal, &state) {
             break Err(e);

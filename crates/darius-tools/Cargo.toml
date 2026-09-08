@@ -25,6 +25,7 @@ darius-memory = { path = "../darius-memory" }
 darius-safety = { path = "../darius-safety" }
 tempfile = "3"
 tokio-util = "0.7"
+similar = "2.7"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -469,6 +469,28 @@ fn blocked_control_successful_conversation_survives_turn_handoff() {
 }
 
 #[test]
+fn slash_command_config_redacts_url_credentials() {
+    let mut h = Harness::new(
+        "http://fixture-user:fixture-password@localhost/v1?token=fixture-query#fixture-fragment",
+        None,
+    );
+    h.commands.send(slash("/config")).unwrap();
+    let events =
+        h.until(|e| matches!(e, UiEvent::Status { line } if line.contains("API key env:")));
+    let displayed = format!("{events:?}");
+    for secret in [
+        "fixture-user",
+        "fixture-password",
+        "fixture-query",
+        "fixture-fragment",
+    ] {
+        assert!(!displayed.contains(secret), "config leaked URL credential");
+    }
+    assert!(displayed.contains("http://localhost/v1"));
+    h.shutdown();
+}
+
+#[test]
 fn slash_command_execution_semantic_table_all_13_commands() {
     let mut h = Harness::new("http://127.0.0.1:1", None);
 

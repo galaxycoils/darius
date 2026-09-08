@@ -7,29 +7,31 @@ pub async fn read_response(
     resp: reqwest::Response,
 ) -> Result<(ModelOutput, Option<ProviderUsage>), CognitiveError> {
     if !resp.status().is_success() {
+        // Never echo provider body content: error pages may reflect
+        // request secrets or control bytes. Report only static guidance.
         let status = resp.status().as_u16();
-        let detail = resp.text().await.ok().and_then(|t| {
-            serde_json::from_str::<Value>(&t).ok().and_then(|v| {
-                v.pointer("/error/message")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-        });
-        let msg = match (status, detail) {
-            (401 | 403, Some(d)) => format!("authentication failed: {d}"),
-            (401 | 403, None) => "authentication failed".into(),
-            (429, Some(d)) => format!("rate limited: {d}"),
-            (429, None) => "rate limited".into(),
-            (500..=599, Some(d)) => format!("provider unavailable ({status}): {d}"),
-            (500..=599, None) => "provider unavailable".into(),
-            (s, Some(d)) => format!("provider error ({s}): {d}"),
-            (s, None) => format!("provider error ({s})"),
+        let msg = match status {
+            401 | 403 => format!(
+                "authentication failed (http {status}): check that the configured api key is set, \
+                 then run `darius config init` to configure the provider"
+            ),
+            429 => format!("rate limited (http {status}): wait a moment, then retry or try again"),
+            500..=599 => format!(
+                "provider unavailable (http {status} server error): try again or retry shortly"
+            ),
+            s => format!("provider error (http {s}): check the endpoint and retry"),
         };
         return Err(CognitiveError::Loop(msg));
     }
     let out = match resp.json().await {
         Ok(v) => v,
-        Err(_) => return Err(CognitiveError::Loop("invalid response".into())),
+        Err(_) => {
+            return Err(CognitiveError::Loop(
+                "invalid response: provider returned an incompatible body; \
+                 check the base_url is an openai-compatible endpoint, then retry"
+                    .into(),
+            ));
+        }
     };
     let output = decode_response(&out).map_err(CognitiveError::InvalidPlan)?;
     Ok((output, usage::parse(&out)))

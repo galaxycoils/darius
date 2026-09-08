@@ -32,7 +32,9 @@ pub(crate) fn handle_slash(actor: &mut SessionActor, inv: &CommandInvocation) {
                 help.push_str(&format!("  {:14} - {}\n", cmd.name, cmd.description));
             }
             help.push_str("\nKeyboard shortcuts:\n");
-            help.push_str("  Enter: Submit | Esc: Palette | Shift+Tab: Cycle Mode | Ctrl+C: Interrupt");
+            help.push_str(
+                "  Enter: Submit | Esc: Palette | Shift+Tab: Cycle Mode | Ctrl+C: Interrupt",
+            );
             actor.status(help);
         }
         CommandId::Clear => {
@@ -212,7 +214,10 @@ pub(crate) fn handle_slash(actor: &mut SessionActor, inv: &CommandInvocation) {
                 if let Some(model) = &runtime.profile_config.model {
                     l.push(format!("Model provider: {}", model.provider));
                     l.push(format!("Model name: {}", model.model));
-                    l.push(format!("Base URL: {}", model.base_url));
+                    l.push(format!(
+                        "Base URL: {}",
+                        crate::diagnostics::strip_url_secrets(&model.base_url)
+                    ));
                     if let Some(env) = &model.api_key_env {
                         l.push(format!(
                             "API key env: {env} (set: {})",

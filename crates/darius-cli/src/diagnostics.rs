@@ -31,12 +31,31 @@ pub(crate) fn lines(
             if memory_open { "open" } else { "unavailable" }
         ),
         format!("Workspace: {}", paths.workspace.display()),
-        format!("Provider URL: {provider_url}"),
+        format!("Provider URL: {}", strip_url_secrets(provider_url)),
     ];
     if let RuntimeState::Live(provider) | RuntimeState::MissingKey(provider) = state {
         output.push(key_line(&provider.key_env));
     }
     output
+}
+
+/// Strip userinfo (user:pass@) and query (?key=...) from a URL for display.
+pub(crate) fn strip_url_secrets(url: &str) -> String {
+    if matches!(url, "not configured" | "offline (no network)") {
+        return url.to_string();
+    }
+    match url::Url::parse(url) {
+        Ok(mut u) => {
+            if u.has_authority() && !u.username().is_empty() {
+                let _ = u.set_username("");
+            }
+            let _ = u.set_password(None);
+            u.set_query(None);
+            u.set_fragment(None);
+            u.to_string()
+        }
+        Err(_) => "[invalid provider URL]".into(),
+    }
 }
 
 fn provider_url(state: &RuntimeState) -> &str {
@@ -54,4 +73,45 @@ fn key_line(name: &str) -> String {
         "missing"
     };
     format!("{name}: {state}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_url_secrets_fails_closed_on_malformed_urls_and_fragments() {
+        for raw in [
+            "not-a-url?token=fixture-secret",
+            "http://[broken?token=fixture-secret",
+            "https://example.com/v1#fixture-secret",
+        ] {
+            assert!(!strip_url_secrets(raw).contains("fixture-secret"));
+        }
+        assert_eq!(strip_url_secrets("not configured"), "not configured");
+        assert_eq!(
+            strip_url_secrets("offline (no network)"),
+            "offline (no network)"
+        );
+    }
+
+    #[test]
+    fn strip_url_secrets_removes_userinfo_and_query() {
+        assert_eq!(
+            strip_url_secrets("https://user:pass@example.com/v1"),
+            "https://example.com/v1"
+        );
+        assert_eq!(
+            strip_url_secrets("https://example.com/v1?api_key=secret123"),
+            "https://example.com/v1"
+        );
+        assert_eq!(
+            strip_url_secrets("https://u:p@host/path?k=v"),
+            "https://host/path"
+        );
+        assert_eq!(
+            strip_url_secrets("https://example.com/v1"),
+            "https://example.com/v1"
+        );
+    }
 }

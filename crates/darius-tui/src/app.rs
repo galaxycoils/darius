@@ -160,6 +160,7 @@ pub struct AppState {
     pub memory_chars: Option<usize>,
     pub running_subagents: usize,
     pub cwd: Option<std::path::PathBuf>,
+    pub needs_clear: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +213,7 @@ impl Default for AppState {
             memory_chars: None,
             running_subagents: 0,
             cwd: None,
+            needs_clear: false,
         }
     }
 }
@@ -220,10 +222,10 @@ impl AppState {
     pub fn display_cwd(&self) -> String {
         if let Some(ref cwd) = self.cwd {
             let path_str = cwd.to_string_lossy();
-            if let Ok(home) = std::env::var("HOME") {
-                if let Some(rel) = path_str.strip_prefix(&home) {
-                    return format!("~{rel}");
-                }
+            if let Ok(home) = std::env::var("HOME")
+                && let Some(rel) = path_str.strip_prefix(&home)
+            {
+                return format!("~{rel}");
             }
             path_str.into_owned()
         } else {
@@ -389,24 +391,31 @@ impl AppState {
                     None
                 }
                 Action::PaletteAccept => {
-                    let filtered = crate::commands::filter(&self.composer.input);
-                    if let Some(cmd) = filtered.get(self.palette.selected) {
-                        self.palette.open = false;
-                        self.palette.selected = 0;
-                        self.composer.input.clear();
-                        self.composer.cursor = 0;
-                        self.composer.slash_mode = false;
-                        match crate::commands::parse_invocation(cmd.name) {
-                            Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
-                            Err(e) => {
-                                self.transcript.push(TranscriptItem::Assistant {
-                                    text: format!("✗ {}", e),
-                                });
-                                None
-                            }
+                    let input = self.composer.input.clone();
+                    let filtered = crate::commands::filter(&input);
+                    self.palette.open = false;
+                    self.palette.selected = 0;
+                    self.composer.input.clear();
+                    self.composer.cursor = 0;
+                    self.composer.slash_mode = false;
+                    // Prefer parsing the raw typed invocation (handles args like
+                    // "/mode plan"); fall back to the palette-selected command.
+                    let invocation =
+                        if input.trim().starts_with('/') || input.trim().starts_with('-') {
+                            crate::commands::parse_invocation(&input)
+                        } else if let Some(cmd) = filtered.get(self.palette.selected) {
+                            crate::commands::parse_invocation(cmd.name)
+                        } else {
+                            Err(format!("unknown command: {input}"))
+                        };
+                    match invocation {
+                        Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
+                        Err(e) => {
+                            self.transcript.push(TranscriptItem::Assistant {
+                                text: format!("✗ {}", e),
+                            });
+                            None
                         }
-                    } else {
-                        None
                     }
                 }
                 Action::Cancel => {
@@ -811,10 +820,17 @@ impl AppState {
             UiEvent::ClearTranscript => {
                 self.transcript.clear();
                 self.scroll = 0;
+                self.needs_clear = true;
             }
             UiEvent::Done => {
                 self.running = false;
-                self.status_line = Some("Done".into());
+                if !matches!(&self.status_line, Some(s) if s.starts_with("Interrupted")) {
+                    self.status_line = Some("Done".into());
+                }
+            }
+            UiEvent::Interrupted { reason } => {
+                self.running = false;
+                self.status_line = Some(format!("Interrupted: {reason}"));
             }
             _ => {}
         }

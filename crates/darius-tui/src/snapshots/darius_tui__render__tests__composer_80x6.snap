@@ -6,4 +6,4 @@ expression: buffer_to_string(&buffer)
 ──────────────────────────────────────────────────────────────────────────────
 ❯ hello world
 ──────────────────────────────────────────────────────────────────────────────
-⏵⏵ auto mode on (shift+tab to cycle) · ? for shortcuts
+⏵⏵ Auto mode on (shift+tab to cycle) · ? for shortcuts

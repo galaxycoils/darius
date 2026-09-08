@@ -1,131 +1,60 @@
-# Darius v1.2.0
+# Darius v1.2.0 (unreleased)
 
-**Open-source lean agent harness** — Claude-Code-style TUI, durable memory, tool ACI, plan–execute–accept loop. Local-first, provider-optional, zero API keys required to get started.
+Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, and SQLite memory. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
 
-## Install
-
-### Option A: Pre-built binary
+## Build and launch
 
 ```sh
-curl -sSL https://github.com/galaxycoils/darius/releases/latest/download/install.sh | bash
-```
-
-### Option B: From source
-
-```sh
-cargo install --git https://github.com/galaxycoils/darius darius-cli
-```
-
-## Quickstart
-
-### 1. View help and subcommands (no API key needed)
-
-```sh
-darius --help
-```
-
-### 2. Launch the TUI
-
-```sh
-darius tui
-```
-
-### 3. Use memory
-
-```sh
-darius memory stats
-```
-
-### 4. Configure a live provider (optional)
-
-```sh
-mkdir -p ~/.darius/profiles/default
-cat > ~/.darius/profiles/default/config.toml << 'EOF'
-[model]
-provider = "openai_compatible"
-base_url = "https://api.openai.com/v1"
-model = "gpt-4o-mini"
-api_key_env = "DARIUS_API_KEY"
-
-[model_overrides]
-planner = "gpt-4o"
-rater = "claude-3-5-sonnet"
-smol = "gpt-4o-mini"
-EOF
-
-export DARIUS_API_KEY="sk-your-key-here"
-```
-
-### 5. Run with a real goal
-
-```sh
-darius run "analyze this codebase and summarize the architecture"
-```
-
-Without `DARIUS_API_KEY`, `darius run` uses the offline `MockModel` — useful for testing the loop without network.
-
-## TUI Keyboard Reference
-
-| Key | Action |
-|-----|--------|
-| `❯ text` + Enter | Send a message |
-| `/` | Open command palette (with fuzzy matching) |
-| `-` at column zero | Also opens command palette |
-| `Shift+Tab` | Cycle mode (auto → plan) |
-| `Esc` | Close palette / interrupt |
-| `q` | Quit |
-
-## TUI Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/clear` | Clear transcript |
-| `/compact` | Compact session context (lean-tail compression) |
-| `/model` | Show current provider/model (read-only) |
-| `/mode [auto|plan]` | Set Auto or Plan mode |
-| `/permissions` | Show the current permission policy |
-| `/memory` | Memory search & stats |
-| `/pack` | Build bounded MemoryPack |
-| `/tasks` | Show task board |
-| `/status` | Session status & live cache/memory metrics |
-| `/config` | Show effective profile config |
-| `/stop` | Stop current operation |
-| `/quit` | Exit TUI |
-
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `darius run "goal"` | Cognitive loop (Mock or live if configured) |
-| `darius tui` | Launch Claude-Code-style TUI |
-| `darius config show` | Show profile config |
-| `darius config init` | Initialize profile configuration |
-| `darius memory search <q>` | FTS5 search |
-| `darius memory pack` | Bounded MemoryPack (≤3500 chars) |
-| `darius memory import <file>` | Deduped JSONL import |
-| `darius memory export <file>` | JSONL export |
-| `darius memory stats` | Record count + DB path |
-
-## What's in v1.2.0
-
-- ✅ **Correlated Multi-Turn Agent Loop**: Full OpenAI-compatible adapter supporting function tool calls with strict ID correlation.
-- ✅ **Async Responsive TUI Runtime**: Decoupled session actor handling interrupts, permission dialogs, and clean terminal exits under 2 seconds.
-- ✅ **Execution Policies & Permissions**: Hard-enforced Auto and Plan modes with interactive AllowOnce/AllowSession/Deny approval prompts.
-- ✅ **Clean-Home Diagnostics & Honest Onboarding**: Detects unconfigured environment with truthful hints, zero home pollution.
-- ✅ **Canonical Command Registry**: Closed-world set of 13 slash commands and 4 CLI subcommands with fuzzy matching and autocomplete.
-- ✅ **Durable SQLite Memory Engine**: FTS5 full-text search, bounded pack generation, and JSONL import/export.
-- ✅ **Safe Sandboxed Tools**: Strictly validated file read/write, file search, and truthfully cancellable shell tool execution.
-- ℹ️ **Note on Prior Version Overclaims**: Unverified features advertised in earlier v1.1.2/v1.2.0 drafts (e.g. MCP thin client, subagent orchestration, A2A hub, cron scheduling, worktree rollback) have been formally retired from the public surface to ensure complete operational truth. See [CAPABILITIES.md](docs/CAPABILITIES.md) and [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
-
-## Build & Test
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
 cargo build --release -p darius-cli
+./target/release/darius --help
+./target/release/darius tui
 ```
+
+An unconfigured launch shows setup guidance, not simulated analysis. Prebuilt assets and the source installer require separate release verification; this checkout does not establish that v1.2.0 has been published. See [capabilities](docs/CAPABILITIES.md).
+
+## Configure a provider
+
+```sh
+./target/release/darius config init --provider openai_compatible \
+  --base-url https://api.openai.com/v1 --model gpt-4o-mini --key-env DARIUS_API_KEY
+export DARIUS_API_KEY="your-key"
+./target/release/darius run "summarize this repository"
+```
+
+Initialization writes `~/.darius/profiles/default/config.toml` and refuses replacement unless `--force` is passed. `--profile`, `--cwd`, and `--offline` are global options. `DARIUS_HOME` relocates profile storage. `config preset <name>` writes example settings, not proof of provider availability. Model identifiers and endpoint compatibility must be checked with your provider.
+
+Missing keys for credential-required configurations cause an error; there is no silent mock fallback. Local/no-key configurations can select live without a key, which is not proof of connectivity. With no configuration, a usable `DARIUS_API_KEY` or `OPENAI_API_KEY` selects the default OpenAI-compatible configuration. Only an explicit `--offline` selects the labelled `MockModel` demo:
+
+```sh
+./target/release/darius --offline run "demo"
+```
+
+Demo output is not repository analysis or completed work. Local fake-provider tests verify the wire contract; they do not verify a hosted service or every model.
+
+## Controls and permissions
+
+Ordinary text (including `q`) is typed into the composer. Enter submits; `/` or a leading `-` opens the palette; Shift+Tab switches Auto/Plan; Ctrl+C interrupts; `/quit` exits. Esc closes the palette or denies a permission prompt.
+
+Auto runs read-only tools and asks before mutating tools or shell execution. Plan denies those tool classes. Noninteractive `run` denies requests needing approval. Shell approval is not an OS sandbox. Cleanup is tested for selected exit paths, not a timing SLA or protection against SIGKILL.
+
+The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, and `/quit`. `/model` is read-only; `/mode auto` and `/mode plan` change policy. See [operating guidance](docs/TROUBLESHOOTING.md).
+
+The CLI exposes `tui`, `run <goal>`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
+
+## Corrected prior claims
+
+Earlier v1.1.2 and v1.2.0 draft claims for MCP, subagent orchestration, cron, approval-check, peer_send, worktree rollback, web execution and A2A are retired and unavailable. The compatibility web router exposes no executable capabilities or active goal controls. Historical corrections are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## Verify this checkout
+
+```sh
+bash scripts/audit-public-claims.sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
+The audit checks claims and local contracts; it is not publication, cross-platform installation, or credentialed provider evidence.
 
 ## License
 

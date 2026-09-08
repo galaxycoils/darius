@@ -8,12 +8,27 @@ on:
 permissions:
   contents: read
 
+env:
+  BASELINE_SHA: de2e37f55038a8c01a47f552c217b70377035f89
+
 jobs:
-  prerequisite:
-    name: Verify Tag and Quality Gates
+  actionlint:
+    name: Lint Workflows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Run pinned actionlint v1.7.12
+        run: bash scripts/release-actionlint.sh
+
+  prerequisite:
+    name: Verify Tag and Quality Gates
+    needs: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -69,6 +84,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -104,6 +121,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -117,56 +136,12 @@ jobs:
           find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} dist/ \;
           cp install.sh dist/
 
-          # Verify all target archives and checksums exist
-          test -f dist/darius-linux-x86_64.tar.gz
-          test -f dist/darius-linux-x86_64.sha256
-          test -f dist/darius-macos-aarch64.tar.gz
-          test -f dist/darius-macos-aarch64.sha256
-          test -f dist/darius-macos-x86_64.tar.gz
-          test -f dist/darius-macos-x86_64.sha256
-          test -f dist/install.sh
-
-          # Verify all checksums match
-          for asset in darius-linux-x86_64 darius-macos-aarch64 darius-macos-x86_64; do
-            EXPECTED=$(awk '{print $1}' dist/${asset}.sha256)
-            ACTUAL=$(sha256sum dist/${asset}.tar.gz | awk '{print $1}')
-            if [ "$EXPECTED" != "$ACTUAL" ]; then
-              echo "Checksum verification failed for ${asset}" >&2
-              exit 1
-            fi
-            echo "Verified checksum for ${asset}: ${ACTUAL}"
-          done
-
-          # Verify host-compatible installed binary --version and help
-          TEST_DIR=$(mktemp -d)
-          bash dist/install.sh --artifact-dir dist --version "${{ github.ref_name }}" --install-dir "$TEST_DIR/bin"
-          "$TEST_DIR/bin/darius" --version
-          "$TEST_DIR/bin/darius" --help
-          rm -rf "$TEST_DIR"
-
-          # Write release-evidence.json
-          TAG="${{ github.ref_name }}"
-          PKG_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="darius-cli") | .version')
-          COMMIT_SHA=$(git rev-parse HEAD)
-          LINUX_SHA=$(awk '{print $1}' dist/darius-linux-x86_64.sha256)
-          MACOS_ARM_SHA=$(awk '{print $1}' dist/darius-macos-aarch64.sha256)
-          MACOS_X86_SHA=$(awk '{print $1}' dist/darius-macos-x86_64.sha256)
-          INSTALLER_SHA=$(sha256sum dist/install.sh | awk '{print $1}')
-
-          cat << EOF > dist/release-evidence.json
-          {
-            "tag": "$TAG",
-            "version": "$PKG_VER",
-            "commit_sha": "$COMMIT_SHA",
-            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "artifacts": {
-              "darius-linux-x86_64.tar.gz": "$LINUX_SHA",
-              "darius-macos-aarch64.tar.gz": "$MACOS_ARM_SHA",
-              "darius-macos-x86_64.tar.gz": "$MACOS_X86_SHA",
-              "install.sh": "$INSTALLER_SHA"
-            }
-          }
-          EOF
+          python3 scripts/release-evidence.py \
+            --repo . \
+            --dist dist \
+            --tag "${{ github.ref_name }}" \
+            --baseline "${{ env.BASELINE_SHA }}" \
+            --out dist/release-evidence.json
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v4
@@ -174,9 +149,38 @@ jobs:
           name: release-bundle
           path: dist/*
 
+  host:
+    name: Exact-Host Release Binary
+    needs: evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release-dist
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Stage host-compatible binary and run gate
+        shell: bash
+        run: |
+          mkdir -p /tmp/darius-release
+          tar -xzf release-dist/darius-linux-x86_64.tar.gz -C /tmp/darius-release
+          chmod +x /tmp/darius-release/darius
+          echo "=== Host binary version ==="
+          /tmp/darius-release/darius --version
+          DARIUS_BIN_UNDER_TEST=/tmp/darius-release/darius bash scripts/release-host.sh
+          rm -rf /tmp/darius-release
+
   release:
     name: Publish Release
-    needs: evidence
+    needs: [evidence, host]
     runs-on: ubuntu-latest
     permissions:
       contents: write

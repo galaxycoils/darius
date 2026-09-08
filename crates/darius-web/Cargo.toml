@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 repository.workspace = true
-description = "Darius status and inspection dashboard"
+description = "Unavailable web compatibility surface for Darius"
 
 [lib]
 name = "darius_web"

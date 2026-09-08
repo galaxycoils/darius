@@ -98,11 +98,13 @@ fn cmd_tui(
         commands: cmd_tx,
         events: event_rx,
     };
-    let mut state = AppState::default();
-    state.profile = initial_profile;
-    state.model = initial_model;
-    state.cwd = Some(initial_workspace);
-    state.mode = initial_mode;
+    let state = AppState {
+        profile: initial_profile,
+        model: initial_model,
+        cwd: Some(initial_workspace),
+        mode: initial_mode,
+        ..Default::default()
+    };
 
     darius_tui::run_tui(state, controller)?;
     let _ = worker_handle.join();
@@ -262,50 +264,35 @@ fn cmd_config(
     Ok(())
 }
 
-/// Evaluates tool risk and approval requirement without execution.
+/// Evaluate the same closed-world risk policy used by model execution.
 pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String, String) {
-    let risk_str;
-    let requires_approval;
-    let reason;
-
-    match tool {
-        "shell" | "bash" => {
-            risk_str = "Mutating".to_string();
-            requires_approval = true;
-            reason = "shell execution requires approval".to_string();
+    use darius_tools::{ToolRisk, model_tools::model_tool_risk};
+    let Some(risk) = model_tool_risk(tool) else {
+        return (
+            true,
+            "Unknown".into(),
+            "unknown or hidden tool; execution denied".into(),
+        );
+    };
+    let reason = match risk {
+        ToolRisk::ReadOnly => "read-only inspection tool",
+        ToolRisk::Shell => "shell execution requires approval",
+        ToolRisk::Mutating
+            if tool == "write_file"
+                && args_val
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|path| {
+                        darius_safety::is_protected_path(std::path::Path::new(path))
+                    }) =>
+        {
+            "protected instruction file; execution denied"
         }
-        "write_file" | "hashline" => {
-            risk_str = "Mutating".to_string();
-            let path_str = args_val.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            if !path_str.is_empty()
-                && darius_safety::is_protected_path(std::path::Path::new(path_str))
-            {
-                requires_approval = true;
-                reason = format!(
-                    "write to protected instruction file '{path_str}' requires explicit approval"
-                );
-            } else {
-                requires_approval = true;
-                reason = "file mutation requires approval".to_string();
-            }
-        }
-        "subagent_spawn" | "peer_send" => {
-            risk_str = "Mutating".to_string();
-            requires_approval = true;
-            reason = "external agent spawn or peer send requires approval".to_string();
-        }
-        "read_file" | "glob" | "grep" | "memory_search" | "memory_pack" | "spill_read"
-        | "read_spill" => {
-            risk_str = "ReadOnly".to_string();
-            requires_approval = false;
-            reason = "read-only inspection tool".to_string();
-        }
-        _ => {
-            risk_str = "Unknown".to_string();
-            requires_approval = true;
-            reason = format!("unrecognized tool '{tool}' defaults to requiring approval");
-        }
-    }
-
-    (requires_approval, risk_str, reason)
+        ToolRisk::Mutating => "mutation requires approval",
+    };
+    (
+        risk != ToolRisk::ReadOnly,
+        format!("{risk:?}"),
+        reason.into(),
+    )
 }

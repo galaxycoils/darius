@@ -5,6 +5,7 @@ use darius_tui::{
     app::{Action, Effect, PermissionChoice},
     input::map_key,
 };
+
 #[test]
 fn mode_composer_hides_effort() {
     let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 100, 8));
@@ -17,8 +18,9 @@ fn mode_composer_hides_effort() {
     let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
     assert!(!text.contains("effort"), "{text}");
     assert!(!text.contains("high"), "{text}");
-    assert!(text.contains("auto"));
+    assert!(text.to_lowercase().contains("auto"), "{text}");
 }
+
 fn chooser() -> AppState {
     let mut state = AppState {
         running: true,
@@ -32,6 +34,7 @@ fn chooser() -> AppState {
     });
     state
 }
+
 #[test]
 fn permission_escape_resolves_deny_instead_of_dropping_prompt() {
     let mut state = chooser();
@@ -46,6 +49,7 @@ fn permission_escape_resolves_deny_instead_of_dropping_prompt() {
     assert!(state.permission.is_none());
     assert!(state.permission_queue.is_empty());
 }
+
 #[test]
 fn permission_escape_ctrl_c_interrupts_active_chooser() {
     let mut state = chooser();
@@ -57,12 +61,14 @@ fn permission_escape_ctrl_c_interrupts_active_chooser() {
     assert_eq!(state.reduce(action.unwrap()), Some(Effect::Interrupt));
     assert!(state.permission.is_none());
 }
+
 #[test]
 fn permission_escape_quit_clears_chooser_and_requests_shutdown() {
     let mut state = chooser();
     assert_eq!(state.reduce(Action::Quit), Some(Effect::Quit));
     assert!(state.permission.is_none());
 }
+
 #[test]
 fn mode_backtab_requests_toggle_and_waits_for_acknowledgement() {
     let mut state = AppState::default();
@@ -84,6 +90,7 @@ fn mode_backtab_requests_toggle_and_waits_for_acknowledgement() {
         assert_eq!(state.mode, expected);
     }
 }
+
 #[test]
 fn mode_rejects_legacy_choices_and_effort_is_hidden() {
     for value in ["manual", "accept-edits", "unknown", "auto extra"] {

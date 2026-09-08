@@ -18,6 +18,9 @@ use tempfile::TempDir;
 /// Helper that spawns `darius` in a PTY with a clean, isolated environment.
 struct PtyTestHarness {
     child: Box<dyn portable_pty::Child + Send>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
+    termios_before: String,
+    transcript: Vec<u8>,
     output: mpsc::Receiver<Result<Vec<u8>, String>>,
     reader_completed: mpsc::Receiver<()>,
     reader_thread: Option<std::thread::JoinHandle<()>>,
@@ -39,6 +42,18 @@ impl PtyTestHarness {
         env_vars: &[(&str, &str)],
         setup: impl FnOnce(&Path, &Path) -> Result<(), Box<dyn std::error::Error>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let home = TempDir::new()?;
+        let workspace = TempDir::new()?;
+        setup(home.path(), workspace.path())?;
+        Self::spawn_in(args, env_vars, home, workspace)
+    }
+
+    fn spawn_in(
+        args: &[&str],
+        env_vars: &[(&str, &str)],
+        darius_home: TempDir,
+        workspace: TempDir,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let bin = std::env::var_os("DARIUS_BIN_UNDER_TEST")
             .or_else(|| std::env::var_os("CARGO_BIN_EXE_darius"))
             .ok_or(
@@ -53,12 +68,6 @@ impl PtyTestHarness {
 
         // Snapshot real ~/.darius before test
         let snapshot = DariusHomeSnapshot::capture();
-
-        // Create isolated temp directories
-        let darius_home = TempDir::new()?;
-        let workspace = TempDir::new()?;
-
-        setup(darius_home.path(), workspace.path())?;
 
         // Build PTY
         let pty_system = native_pty_system();
@@ -76,13 +85,27 @@ impl PtyTestHarness {
         cmd.env("DARIUS_HOME", darius_home.path());
         cmd.env("DARIUS_WORKSPACE", workspace.path());
         cmd.env("HOME", darius_home.path()); // Also redirect HOME so ~/.darius = temp
-        cmd.env_remove("DARIUS_API_KEY"); // Ensure no API key leaks in
+        for key in [
+            "DARIUS_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "DARIUS_BASE_URL",
+            "DARIUS_MODEL",
+            "DARIUS_OFFLINE",
+            "DARIUS_TEST_MISSING_KEY",
+        ] {
+            cmd.env_remove(key);
+        }
         cmd.env_remove("DARIUS_PROFILE"); // No profile preset
 
         for (k, v) in env_vars {
             cmd.env(k, v);
         }
 
+        let termios_before = format!(
+            "{:?}",
+            pair.master.get_termios().expect("PTY termios available")
+        );
         let child = pair.slave.spawn_command(cmd)?;
         let mut reader = pair.master.try_clone_reader()?;
         let (output_tx, output) = mpsc::channel();
@@ -110,6 +133,9 @@ impl PtyTestHarness {
 
         Ok(Self {
             child,
+            master: pair.master,
+            termios_before,
+            transcript: Vec::new(),
             output,
             reader_completed,
             reader_thread: Some(reader_thread),
@@ -133,19 +159,27 @@ impl PtyTestHarness {
     ) -> Result<String, Box<dyn std::error::Error>> {
         let deadline = std::time::Instant::now() + timeout;
         let mut bytes = Vec::new();
+        let initial_screen = support::screen::render(&self.transcript);
 
         while std::time::Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            match self.output.recv_timeout(remaining) {
+            match self
+                .output
+                .recv_timeout(remaining.min(Duration::from_millis(50)))
+            {
                 Ok(Ok(chunk)) => {
+                    self.transcript.extend_from_slice(&chunk);
                     bytes.extend_from_slice(&chunk);
                     let output = String::from_utf8_lossy(&bytes);
-                    if output.contains(needle) {
-                        return Ok(output.into_owned());
+                    let screen = support::screen::render(&self.transcript);
+                    if Self::strip_ansi(&output).contains(needle)
+                        || (screen.contains(needle) && !initial_screen.contains(needle))
+                    {
+                        return Ok(format!("{}\n{screen}", output));
                     }
                 }
                 Ok(Err(error)) => return Err(error.into()),
-                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -153,7 +187,52 @@ impl PtyTestHarness {
         Err(format!(
             "timeout waiting for {:?}; got: {}",
             needle,
-            String::from_utf8_lossy(&bytes)
+            support::screen::render(&self.transcript)
+        )
+        .into())
+    }
+
+    /// Read until any of `needles` appears in output, or timeout.
+    /// Returns the accumulated output up to and including the first match.
+    fn read_until_any(
+        &mut self,
+        needles: &[&str],
+        timeout: Duration,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut bytes = Vec::new();
+        let initial_screen = support::screen::render(&self.transcript);
+
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            match self
+                .output
+                .recv_timeout(remaining.min(Duration::from_millis(50)))
+            {
+                Ok(Ok(chunk)) => {
+                    self.transcript.extend_from_slice(&chunk);
+                    bytes.extend_from_slice(&chunk);
+                    let output = String::from_utf8_lossy(&bytes);
+                    let screen = support::screen::render(&self.transcript);
+                    let stripped = Self::strip_ansi(&output);
+                    for needle in needles {
+                        if stripped.contains(needle)
+                            || (screen.contains(needle) && !initial_screen.contains(needle))
+                        {
+                            return Ok(format!("{}\n{screen}", output));
+                        }
+                    }
+                }
+                Ok(Err(error)) => return Err(error.into()),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        Err(format!(
+            "timeout waiting for any of {:?}; got: {}",
+            needles,
+            support::screen::render(&self.transcript)
         )
         .into())
     }
@@ -211,7 +290,7 @@ impl PtyTestHarness {
                 // Consume CSI sequence: ESC [ ... final_byte
                 chars.next(); // '['
                 for c in chars.by_ref() {
-                    if c.is_ascii_alphabetic() {
+                    if ('@'..='~').contains(&c) {
                         break;
                     }
                 }
@@ -220,6 +299,48 @@ impl PtyTestHarness {
             }
         }
         out
+    }
+
+    fn expect(&mut self, text: &str) -> String {
+        Self::strip_ansi(&self.read_until(text, Duration::from_secs(3)).unwrap())
+    }
+
+    fn command(&mut self, command: &str, expected: &str) -> String {
+        self.write_bytes(format!("{command}\r").as_bytes()).unwrap();
+        self.expect(expected)
+    }
+
+    fn finish_turn(&mut self, marker: &str) -> String {
+        let mut output = self.expect(marker);
+        if !output.contains("Done") {
+            output.push_str(&self.expect("Done"));
+        }
+        output
+    }
+
+    fn quit_restored(&mut self) {
+        self.write_bytes(b"/quit\r").unwrap();
+        assert_eq!(
+            self.wait_with_timeout(Duration::from_secs(3)).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                self.master.get_termios().expect("termios after exit")
+            ),
+            self.termios_before,
+            "raw terminal mode not restored"
+        );
+        self.wait_for_reader(Duration::from_secs(1)).unwrap();
+        for chunk in self.output.try_iter().flatten() {
+            self.transcript.extend(chunk);
+        }
+        assert!(
+            String::from_utf8_lossy(&self.transcript).contains("\x1b[?1049l"),
+            "alternate screen not restored"
+        );
+        self.assert_home_unchanged("journey");
     }
 
     /// Verify ~/.darius was not modified.
@@ -327,151 +448,439 @@ fn cleanup_path_eof() {
 #[test]
 fn first_run_setup_journey() {
     let mut harness = PtyTestHarness::spawn(&[]).expect("spawn failed");
-    harness
-        .read_until("Welcome back", Duration::from_secs(5))
-        .expect("bare PTY invocation should render the TUI");
+    let welcome = harness.expect("Welcome back");
+    assert!(!welcome.contains("Default fake provider response"));
+    let guidance = harness.command("hello", "No goal was run; no completion was claimed.");
+    assert!(
+        guidance.contains("Setup required") && guidance.contains("config init"),
+        "{guidance}"
+    );
+    harness.command("/config", "Model: not configured");
+    let status = harness.command("/status", "Running: false");
+    assert!(status.contains("Runtime state: setup"), "{status}");
+    harness.command("/help", "Keyboard shortcuts:");
+    harness.quit_restored();
 
-    // Submit a goal on first-run without configured API key
-    harness.write_bytes(b"hello\r").expect("submit goal");
-    harness
-        .read_until("Setup required", Duration::from_secs(5))
-        .expect("should display setup guidance");
+    let bin = std::env::var_os("DARIUS_BIN_UNDER_TEST")
+        .or_else(|| std::env::var_os("CARGO_BIN_EXE_darius"))
+        .unwrap();
+    let init = std::process::Command::new(bin)
+        .args([
+            "config",
+            "init",
+            "--provider",
+            "custom-provider",
+            "--base-url",
+            "https://provider.invalid/v1",
+            "--model",
+            "custom-model",
+            "--key-env",
+            "DARIUS_TEST_MISSING_KEY",
+        ])
+        .current_dir(harness.workspace_path())
+        .env("DARIUS_HOME", harness._darius_home.path())
+        .env("HOME", harness._darius_home.path())
+        .env_remove("DARIUS_PROFILE")
+        .env_remove("DARIUS_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env("DARIUS_TEST_MISSING_KEY", "first-run-secret-sentinel")
+        .output()
+        .unwrap();
+    assert!(init.status.success(), "config init failed: {:?}", init);
+    let config = std::fs::read_to_string(
+        harness
+            ._darius_home
+            .path()
+            .join("profiles/default/config.toml"),
+    )
+    .unwrap();
+    assert!(config.contains("DARIUS_TEST_MISSING_KEY"));
+    assert!(!config.contains("first-run-secret-sentinel"));
+    let home = std::mem::replace(&mut harness._darius_home, TempDir::new().unwrap());
+    let workspace = std::mem::replace(&mut harness._workspace, TempDir::new().unwrap());
+    let mut restarted = PtyTestHarness::spawn_in(&[], &[], home, workspace).unwrap();
+    let missing = restarted.expect("DARIUS_TEST_MISSING_KEY");
+    assert!(
+        missing.to_lowercase().contains("missing") || missing.contains("not set"),
+        "{missing}"
+    );
+    assert!(!missing.contains("first-run-secret-sentinel"));
+    assert_eq!(
+        restarted.wait_with_timeout(Duration::from_secs(3)).unwrap(),
+        Some(1),
+        "missing key must fail honestly"
+    );
+    assert_eq!(
+        format!("{:?}", restarted.master.get_termios().unwrap()),
+        restarted.termios_before
+    );
+    restarted.wait_for_reader(Duration::from_secs(1)).unwrap();
+    restarted.assert_home_unchanged("first-run restart");
+}
 
-    // Check /config command
-    harness.write_bytes(b"/config\r").expect("send /config");
+fn live_harness(provider: &FakeProvider) -> PtyTestHarness {
+    let mut harness = PtyTestHarness::spawn_with_options(
+        &[],
+        &[("DARIUS_TEST_JOURNEY_KEY", "secret-key-123")],
+        |home, workspace| {
+            provider
+                .write_profile_config(&home.join("profiles/default"), "DARIUS_TEST_JOURNEY_KEY")?;
+            std::fs::write(workspace.join("a.txt"), "alpha-read-sentinel")?;
+            std::fs::write(workspace.join("b.txt"), "beta-read-sentinel")?;
+            std::fs::write(workspace.join("greeting.txt"), "original")?;
+            Ok(())
+        },
+    )
+    .unwrap();
+    harness.expect("Welcome back");
     harness
-        .read_until("Profile: default", Duration::from_secs(5))
-        .expect("should display config status");
+}
 
-    // Exit cleanly with /quit
-    harness.write_bytes(b"/quit\r").expect("send /quit");
-    let exit_code = harness
-        .wait_with_timeout(Duration::from_secs(5))
-        .expect("wait failed")
-        .expect("process should exit within 5s");
-    assert_eq!(exit_code, 0, "first_run_setup_journey should exit 0");
-    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
-    harness.assert_home_unchanged("first_run_setup_journey");
+fn assert_result(provider: &FakeProvider, id: &str, expected: &str) {
+    let requests = provider.recorded_requests();
+    let result = requests
+        .iter()
+        .rev()
+        .flat_map(|r| r.body["messages"].as_array().unwrap())
+        .find(|m| m["role"] == "tool" && m["tool_call_id"] == id)
+        .unwrap_or_else(|| panic!("missing result {id}; requests: {requests:?}"));
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains(&expected.to_lowercase()),
+        "{id}: {result}"
+    );
+}
+
+fn wait_request(provider: &FakeProvider, before: usize) {
+    let start = std::time::Instant::now();
+    while provider.request_count() == before {
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "provider request never started"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn interrupt_provider(h: &mut PtyTestHarness, provider: &FakeProvider, key: &[u8], marker: &str) {
+    provider.push_delay(
+        Duration::from_secs(5),
+        ScriptedResponse::text("must-never-finish"),
+    );
+    let before = provider.request_count();
+    h.write_bytes(b"delayed goal\r").unwrap();
+    wait_request(provider, before);
+    let start = std::time::Instant::now();
+    h.write_bytes(key).unwrap();
+    // Wait for either Done (normal completion) or Interrupted (cancellation)
+    let out = h
+        .read_until_any(&["Done", "Interrupted"], Duration::from_secs(2))
+        .unwrap();
+    let interrupted = PtyTestHarness::strip_ansi(&out).contains("Interrupted");
+    assert!(start.elapsed() < Duration::from_secs(2));
+    provider.push_text(marker);
+    h.write_bytes(b"recover after cancellation\r").unwrap();
+    h.finish_turn(marker);
+    assert!(
+        interrupted,
+        "missing Interrupted despite Done + successful recovery"
+    );
+}
+
+fn process_alive(pid: i32) -> bool {
+    assert!(pid > 1, "must observe a valid shell PID");
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .unwrap()
+        .status
+        .success()
+}
+
+fn interrupt_shell(h: &mut PtyTestHarness, provider: &FakeProvider) {
+    provider.push_tool_call(
+        "shell-cancel",
+        "shell",
+        serde_json::json!({"command":"echo $$ > shell.pid; sleep 30 & echo $! > child.pid; wait"}),
+    );
+    h.write_bytes(b"long shell\r").unwrap();
+    h.expect("Permission Required");
+    h.write_bytes(b"\r").unwrap();
+    let start = std::time::Instant::now();
+    let pids: Vec<i32> = loop {
+        let pids: Option<Vec<i32>> = ["shell.pid", "child.pid"]
+            .iter()
+            .map(|p| {
+                std::fs::read_to_string(h.workspace_path().join(p))
+                    .ok()?
+                    .trim()
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        if let Some(pids) = pids {
+            break pids;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "shell never wrote valid PIDs"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(
+        pids.iter().all(|pid| process_alive(*pid)),
+        "shell and child must be alive before Ctrl+C"
+    );
+    let start = std::time::Instant::now();
+    h.write_bytes(&[3]).unwrap();
+    let out = h
+        .read_until_any(&["Done", "Interrupted"], Duration::from_secs(2))
+        .unwrap();
+    let interrupted = PtyTestHarness::strip_ansi(&out).contains("Interrupted");
+    while pids.iter().any(|pid| process_alive(*pid)) {
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "shell or child not killed/reaped: {pids:?}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(start.elapsed() < Duration::from_secs(2));
+    provider.push_text("shell-recovered");
+    h.write_bytes(b"recover shell\r").unwrap();
+    h.finish_turn("shell-recovered");
+    assert!(
+        interrupted,
+        "missing Interrupted despite Done + reaped shell/child + successful recovery"
+    );
 }
 
 #[test]
 fn full_agent_journey() {
-    let provider = FakeProvider::start();
-    let provider_url = provider.url().to_string();
-
-    // Turn 1: model executes write_file tool call requiring permission
-    provider.push_tool_call(
-        "call-1",
-        "write_file",
-        serde_json::json!({
-            "path": "greeting.txt",
-            "content": "hello from darius agent journey\n"
-        }),
+    let start = std::time::Instant::now();
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    let config = h.command(
+        "/config",
+        "API key env: DARIUS_TEST_JOURNEY_KEY (set: true)",
     );
-    // After tool completes, model provides final text
-    provider.push_text("Successfully wrote greeting.txt!");
-
-    // Turn 2: model execution that we will interrupt with Ctrl-C
-    provider.push_delay(
-        Duration::from_secs(5),
-        ScriptedResponse::text("this delayed response should not finish"),
-    );
-
-    let key_env = "DARIUS_TEST_JOURNEY_KEY";
-    let key_val = "secret-key-123";
-
-    let mut harness = PtyTestHarness::spawn_with_options(
-        &[],
-        &[(key_env, key_val)],
-        |home, _ws| {
-            let profile_dir = home.join("profiles/default");
-            std::fs::create_dir_all(&profile_dir)?;
-            let config = format!(
-                "[model]\nprovider = \"custom-provider\"\nbase_url = \"{provider_url}/v1\"\nmodel = \"custom-model\"\napi_key_env = \"{key_env}\"\n"
-            );
-            std::fs::write(profile_dir.join("config.toml"), config)?;
-            Ok(())
-        },
-    )
-    .expect("spawn failed");
-
-    harness
-        .read_until("Welcome back", Duration::from_secs(5))
-        .expect("PTY should render welcome card");
-
-    // Turn 1: Submit goal that invokes write_file tool
-    harness
-        .write_bytes(b"write greeting file\r")
-        .expect("send goal");
-
-    // Wait for permission prompt to appear
-    harness
-        .read_until("Permission Required", Duration::from_secs(5))
-        .expect("permission prompt should appear");
-
-    // Press Enter to accept "Allow once"
-    harness.write_bytes(b"\r").expect("accept permission");
-
-    // Wait for model completion and turn 1 Done
-    let turn1_out = harness
-        .read_until("Successfully wrote greeting.txt!", Duration::from_secs(5))
-        .expect("agent should finish writing file");
-
-    if !turn1_out.contains("Done") {
-        harness
-            .read_until("Done", Duration::from_secs(2))
-            .expect("turn 1 should complete to Done");
-    }
-
-    // Verify workspace artifact was actually written
-    let created_file = harness.workspace_path().join("greeting.txt");
     assert!(
-        created_file.exists(),
-        "greeting.txt should have been created"
+        config.contains("Profile: default") && config.contains("Model name: custom-model"),
+        "{config}"
     );
-    let content = std::fs::read_to_string(&created_file).expect("read greeting.txt");
-    assert_eq!(content, "hello from darius agent journey\n");
+    assert!(
+        config.contains(&h.workspace_path().display().to_string()),
+        "wrong external workspace: {config}"
+    );
+    h.command("/model", "custom-provider/custom-model");
+    provider.push_text("hello-live-sentinel");
+    h.write_bytes(b"say hello\r").unwrap();
+    h.finish_turn("hello-live-sentinel");
+    provider.push_response(ScriptedResponse::ToolCalls(vec![
+        (
+            "read-a".into(),
+            "read_file".into(),
+            serde_json::json!({"path":"a.txt"}),
+        ),
+        (
+            "read-b".into(),
+            "read_file".into(),
+            serde_json::json!({"path":"b.txt"}),
+        ),
+    ]));
+    provider.push_text("both-reads-correlated");
+    h.write_bytes(b"read both files\r").unwrap();
+    h.finish_turn("both-reads-correlated");
+    assert_result(&provider, "read-a", "alpha-read-sentinel");
+    assert_result(&provider, "read-b", "beta-read-sentinel");
 
-    let initial_count = provider.request_count();
+    provider.push_tool_call(
+        "write-denied",
+        "write_file",
+        serde_json::json!({"path":"greeting.txt","content":"denied"}),
+    );
+    provider.push_text("denial-recovered");
+    h.write_bytes(b"deny this write\r").unwrap();
+    h.expect("Permission Required");
+    h.write_bytes(&[27]).unwrap();
+    h.finish_turn("denial-recovered");
+    assert_eq!(
+        std::fs::read_to_string(h.workspace_path().join("greeting.txt")).unwrap(),
+        "original"
+    );
+    assert_result(&provider, "write-denied", "denied");
+    provider.push_text("next-after-denial");
+    h.write_bytes(b"next after denial\r").unwrap();
+    h.finish_turn("next-after-denial");
 
-    // Turn 2: Submit long goal and interrupt with Ctrl-C
-    harness
-        .write_bytes(b"long task to interrupt\r")
-        .expect("send long goal");
-
-    // Wait until goal appears in transcript (confirming turn has started in TUI)
-    harness
-        .read_until("long task to interrupt", Duration::from_secs(5))
-        .expect("turn 2 goal should appear in transcript");
-
-    // Wait until fake provider receives the request
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    let mut started = false;
-    while std::time::Instant::now() < deadline {
-        if provider.request_count() > initial_count {
-            started = true;
-            break;
+    let mut diff_visible = false;
+    for (id, path, content, approval) in [
+        (
+            "write-approved",
+            "greeting.txt",
+            "approved-diff-sentinel",
+            Some(b"\x1b[A".as_slice()),
+        ),
+        (
+            "write-reused",
+            "greeting.txt",
+            "reused-session-sentinel",
+            None,
+        ),
+        (
+            "write-other",
+            "different.txt",
+            "not-authorized",
+            Some(b"\x1b".as_slice()),
+        ),
+    ] {
+        provider.push_tool_call(
+            id,
+            "write_file",
+            serde_json::json!({"path":path,"content":content}),
+        );
+        provider.push_text(format!("completed-{id}"));
+        h.write_bytes(format!("request {id}\r").as_bytes()).unwrap();
+        if let Some(key) = approval {
+            h.expect("Permission Required");
+            h.write_bytes(key).unwrap();
+            if id == "write-approved" {
+                h.expect("❯ Yes, and don't ask again this session");
+                h.write_bytes(b"\r").unwrap();
+            }
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let out = h.finish_turn(&format!("completed-{id}"));
+        if id == "write-approved" {
+            diff_visible = (out.contains("+approved-diff-sentinel")
+                || out.contains("+ approved-diff-sentinel"))
+                && (out.contains("-original") || out.contains("- original"));
+        }
+        if id == "write-reused" {
+            assert!(
+                !out.contains("Permission Required"),
+                "session grant not reused"
+            );
+        }
+        if id == "write-other" {
+            assert!(!h.workspace_path().join(path).exists());
+            assert_result(&provider, id, "denied");
+        } else {
+            assert_eq!(
+                std::fs::read_to_string(h.workspace_path().join(path)).unwrap(),
+                content
+            );
+        }
     }
-    assert!(started, "Turn 2 should have reached the provider");
+    h.command("/permissions", "Session permissions: 1 approved");
+    assert!(
+        diff_visible,
+        "approved file changed and session grant reused, but no added/deleted diff lines rendered"
+    );
+    h.command("/mode plan", "Plan");
+    provider.push_response(ScriptedResponse::ToolCalls(vec![
+        (
+            "plan-write".into(),
+            "write_file".into(),
+            serde_json::json!({"path":"greeting.txt","content":"plan must not write"}),
+        ),
+        (
+            "plan-shell".into(),
+            "shell".into(),
+            serde_json::json!({"command":"touch forbidden-plan-shell"}),
+        ),
+    ]));
+    provider.push_text("plan-denied-both");
+    h.write_bytes(b"plan cannot mutate\r").unwrap();
+    let plan = h.finish_turn("plan-denied-both");
+    assert!(
+        !plan.contains("Permission Required"),
+        "Plan should deny without asking"
+    );
+    assert_result(&provider, "plan-write", "denied");
+    assert_result(&provider, "plan-shell", "denied");
+    assert_eq!(
+        std::fs::read_to_string(h.workspace_path().join("greeting.txt")).unwrap(),
+        "reused-session-sentinel"
+    );
+    assert!(!h.workspace_path().join("forbidden-plan-shell").exists());
+    h.command("/mode auto", "Auto");
+    interrupt_provider(&mut h, &provider, &[3], "http-recovered");
+    interrupt_provider(&mut h, &provider, b"/stop\r", "stop-recovered");
+    interrupt_shell(&mut h, &provider);
+    h.command("/compact", "Compacted conversation:");
+    let memory = h.command("/memory", "Durable memory:");
+    assert!(
+        !memory.contains("Durable memory: 0 records"),
+        "compaction did not persist memory: {memory}"
+    );
+    h.command("/clear", "Welcome back");
+    assert!(
+        !support::screen::render(&h.transcript).contains("shell-recovered"),
+        "clear left transcript visible"
+    );
+    h.quit_restored();
+    assert!(!String::from_utf8_lossy(&h.transcript).contains("secret-key-123"));
+    provider.assert_clean();
+    assert!(
+        start.elapsed() < Duration::from_secs(45),
+        "journey exceeded 45 seconds"
+    );
+}
 
-    // Send Ctrl-C to interrupt the turn
-    harness.write_bytes(&[0x03]).expect("send Ctrl-C interrupt");
+#[test]
+fn full_agent_journey_mode_command() {
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    h.command("/mode plan", "Plan");
+    h.command("/mode auto", "Auto");
+    h.quit_restored();
+    provider.assert_clean();
+}
 
-    // Wait for turn to be cancelled and return to Done
-    harness
-        .read_until("Done", Duration::from_secs(5))
-        .expect("should return to Done state after interrupt");
+#[test]
+fn full_agent_journey_stop_command() {
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    interrupt_provider(&mut h, &provider, b"/stop\r", "stop-recovered");
+    h.quit_restored();
+    provider.assert_clean();
+}
 
-    // Send /quit to exit TUI
-    harness.write_bytes(b"/quit\r").expect("send /quit");
-    let exit_code = harness
-        .wait_with_timeout(Duration::from_secs(5))
-        .expect("wait failed")
-        .expect("process should exit within 5s");
-    assert_eq!(exit_code, 0, "full_agent_journey should exit 0");
+#[test]
+fn full_agent_journey_visible_commands() {
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    h.command("/status", "Running: false");
+    h.command("/help", "Keyboard shortcuts:");
+    h.command("/permissions", "Session permissions: 0 approved");
+    h.command("/tasks", "Task board is empty");
+    h.command("/memory", "Durable memory: 0 records");
+    h.command(
+        "/memory nonexistent-journey-query",
+        "No memory records matching",
+    );
+    h.command("/pack", "MemoryPack: 0 chars across 0 records");
 
-    harness.wait_for_reader(Duration::from_secs(1)).unwrap();
-    harness.assert_home_unchanged("full_agent_journey");
+    h.quit_restored();
+    provider.assert_clean();
+}
+
+#[test]
+fn full_agent_journey_provider_cancellation() {
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    interrupt_provider(&mut h, &provider, &[3], "http-recovered");
+    h.quit_restored();
+    provider.assert_clean();
+}
+
+#[test]
+fn full_agent_journey_shell_cancellation() {
+    let provider = FakeProvider::start_strict("secret-key-123");
+    let mut h = live_harness(&provider);
+    interrupt_shell(&mut h, &provider);
+    h.quit_restored();
+    provider.assert_clean();
 }

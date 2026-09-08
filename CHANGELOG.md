@@ -1,68 +1,47 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [1.2.1] - 2026-09-08
 
-## [1.2.0] - 2026-09-07
+### Fixed
+- Fixed cargo fmt and clippy issues across workspace.
+- Fixed SQLite FTS5 query token quoting for hyphenated terms in durable memory search.
+- Fixed TUI auto-tail transcript scrolling to keep viewport at the conversation bottom.
+- Fixed TUI screen clearing on `/clear` command via `terminal.clear()`.
+- Persisted conversation session context to durable memory during `/compact`.
+
+## [1.2.0] - Unreleased
 
 ### Added
-- **Correlated Multi-Turn Agent Loop**: Implemented exact OpenAI-compatible adapter supporting function tool calls with strict ID correlation, cancellation tokens, and request deadlines.
-- **Responsive Async Session Actor**: Replaced blocked synchronous loop with decoupled async session actor (`actor.rs`), keeping TUI controls responsive during provider latency and long-running tools.
-- **Runtime Enforced Execution Policies**: Hard-enforced Auto and Plan modes. In Plan mode, mutating tool calls (`write_file`) and shell execution are strictly denied before execution.
-- **Session Permission Management**: Interactive AllowOnce / AllowSession / Deny prompts for mutating and shell tools; noninteractive `darius run` rejects mutations with exit code 1 and guidance.
-- **Canonical Command Registry**: Closed-world set of 13 slash commands and 4 CLI subcommands (`tui`, `run`, `config`, `memory`), with complete Clap argument parsing and help output.
-- **Terminal Guard & Cleanup**: Guaranteed raw mode restoration, alternate screen exit, and cursor visibility across all normal and abnormal exits via RAII `TerminalGuard` and panic hook.
-- **Robust Installer & Release Pipeline**: Aligned asset target naming (`darius-{macos|linux}-{aarch64|x86_64}.tar.gz`), local `--artifact-dir` install staging, sha256 checksum verification, and atomic binary replacement.
+- OpenAI-compatible multi-turn tool protocol with correlated responses, deadlines and cancellation.
+- Async terminal session actor, Auto/Plan tool policies, and interactive approval prompts; noninteractive mutation requests are denied.
+- Generated CLI help for `tui`, `run`, `config`, and `memory`; thirteen canonical slash commands.
+- Explicit `--offline` demo, setup guidance, provider configuration and secret-safe diagnostics.
+- Local installer staging with checksum verification and atomic replacement. Release assets and platform success still require release-job evidence.
 
 ### Corrected
-- **Retired Public Overclaims**: Formally retired unverified or non-working features from public exposure:
-  - Retired unverified subagent orchestration (`subagent_steer`, `subagent_list`, `subagent_stop`).
-  - Retired unverified cron job scheduling and persistence (`darius cron`).
-  - Retired unverified MCP thin client registry.
-  - Retired unverified A2A hub and peer messaging (`darius a2a`, `/a2a`, `/serve`).
-  - Retired unverified worktree rollback and dry-run CLI (`darius approval-check`).
-  - Corrected legacy commands (`daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`).
+- Removed the silent MockModel fallback claim: missing configured credentials are errors; only explicit `--offline` selects the demo.
+- Removed unconditional terminal cleanup timing and restoration promises. Terminal guards cover tested paths; SIGKILL and failures outside those paths are not covered.
+- Retired unverified MCP, subagent orchestration, cron, approval-check, peer_send, worktree rollback and A2A claims from public support.
+- Disabled legacy web work submission, task delivery and event routes. Compatibility metadata has no executable capabilities; the dashboard states unavailable and has no active controls.
+- Replaced stale capability links with named existing test functions. Test coverage is not proof of public release or third-party service availability.
 
 ## [1.1.2] - 2026-08-31
 
-### Added
-- Functional Claude-Code-style TUI with proper terminal interaction
-- Ordinary text submission (q/j/k type normally, not shortcuts)
-- Command palette with `/` and `-` aliases
-- Permission gating for mutating/shell tools with AllowOnce/AllowSession/Deny
-- Live cognitive events streamed to TUI via broadcast channels
-- Reusable model across multiple TUI turns
-- Cancellation support (Ctrl+C interrupts active turns)
-- TuiWorker with ChannelRunControl for safe tool execution
-- Tool risk classification (ReadOnly/Mutating/Shell)
-- Darius web dashboard (Axum + SSE)
-- A2A agent card + task server
-- Real OpenAI-compatible provider HTTP client with wiremock tests
-- IPyKernel RLM backend (feature-gated)
-- Terminal lifecycle guard with drop-order test
-- CI workflow for continuous integration
+### Historical additions (not current capability proof)
+- Terminal composer, palette, permission dialogs and event rendering were introduced.
+- Provider HTTP client and localhost scaffolding were introduced with tests.
+- Terminal guard, cancellation support and CI scaffolding were introduced.
 
-### Fixed
-- TUI reducer now handles all action variants
-- AppState uses structured transcript/tasks instead of raw strings
-- CognitiveLoop exposes EventSink/RunControl traits
-- Terminal event loop polls crossterm without blocking indefinitely
-- Unified UiEvent/runtime across CLI, TUI, web, and A2A
-- Real OpenAI-compatible provider requests and localhost server startup
+### Corrected historical overclaims
+- The advertised working web dashboard and A2A task server were unverified: goal submission only emitted synthetic events and task submission only stored pending records. These routes are now unavailable.
+- Earlier claims of complete TUI safety and universal cleanup overstated the evidence. Current support is limited to the tested paths in the capability matrix.
+- The prior live-provider wording meant OpenAI-compatible source/client tests, not verification of a deployed service. Native Anthropic support is unavailable.
+- Internal web/A2A event types remain implementation details, not supported public features; A2A is unavailable.
 
 ## [1.1.0] - 2026-08-18
 
-### Added
-- FTS5-backed memory search
-- Extended tool registry (shell, file read/write, glob)
-- Live ModelRouter for `darius run`
+Historical work: FTS5 search, tool registry and model-router implementations. Source presence alone was not end-to-end evidence.
 
 ## [1.0.0] - 2026-08-18
 
-### Added
-- Initial release
-- Offline MockModel (no network)
-- Live provider when configured
-- Durable SQLite memory with FTS5 search
-- Plan–execute–accept cognitive loop
-- CLI with memory operations
-- Session handoff + event replay
+Historical initial release: mock model, provider adapter, SQLite memory, cognitive-loop and session/event scaffolding. The old automatic offline fallback and broad live-completion claims are superseded by the explicit setup/live/offline-demo contract above.

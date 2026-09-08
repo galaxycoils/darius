@@ -3,7 +3,7 @@ name = "darius-eval"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Evaluation flywheel: fixtures, rubrics, AutoRater"
+description = "Internal evaluation fixtures and rubrics; public evaluation command unavailable"
 
 [lib]
 name = "darius_eval"

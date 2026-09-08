@@ -142,10 +142,15 @@ MODE="${1:-all}"
 case "$MODE" in
     release_matrix)
         test_release_matrix
+        python3 "$REPO_ROOT/tests/release_contract_test.py" -v
+        python3 "$REPO_ROOT/tests/release_provenance_test.py" -v
         ;;
     all)
         test_release_matrix
         test_local_installer
+        python3 "$REPO_ROOT/tests/install_hardening_test.py" -v
+        python3 "$REPO_ROOT/tests/release_contract_test.py" -v
+        python3 "$REPO_ROOT/tests/release_provenance_test.py" -v
         ;;
     *)
         echo "Unknown mode: $MODE" >&2

@@ -7,6 +7,7 @@ pub mod model_schemas;
 pub mod model_tools;
 pub mod path_policy;
 pub mod process_group;
+mod process_guard;
 pub mod read_file;
 mod schema_builder;
 mod schema_memory;
@@ -621,19 +622,35 @@ pub fn register_coding_builtins(registry: &mut ToolRegistry) {
             )));
         }
 
-        let bytes = write_file::write_atomic(&policy_write, path_str, content)?;
-        Ok(ToolOutcome::Ok {
-            preview: format!("wrote {bytes} bytes to {}", path.display()),
-            spilled_path: None,
-        })
+        let outcome = write_file::write_atomic(&policy_write, path_str, content)?;
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => Ok(ToolOutcome::Ok {
+                preview,
+                spilled_path: None,
+            }),
+            ToolOutcome::Err { message } => Err(ToolError::InvalidArgs(message)),
+            ToolOutcome::Interrupted => Err(ToolError::InvalidArgs("interrupted".into())),
+            ToolOutcome::TimedOut => Err(ToolError::InvalidArgs("timed out".into())),
+        }
     });
 }
 
 /// Register the contained spill-recall tool (`spill_read` only).
 /// The legacy `read_spill` alias is intentionally not registered: model
 /// calls must use the single canonical `spill_read` name.
+///
+/// Containment is bound once here at registration, never re-derived per
+/// call: the stored root is already canonical (`new_with_roots`
+/// canonicalizes after creating it), so replacing the spill directory
+/// with an outside symlink after registration cannot redefine the
+/// boundary. Opens use `O_NOFOLLOW` and the containment check runs
+/// against the opened descriptor's kernel-resolved path, so a symlink
+/// planted between check and open is refused at open instead of followed.
 pub fn register_spill_read(registry: &mut ToolRegistry) {
-    let spill_dir = registry.spill_dir.clone();
+    let canonical_spill = registry
+        .spill_dir
+        .canonicalize()
+        .unwrap_or_else(|_| registry.spill_dir.clone());
     registry.register_with_risk("spill_read", ToolRisk::ReadOnly, move |call| {
         let path_str = call
             .arguments
@@ -645,30 +662,7 @@ pub fn register_spill_read(registry: &mut ToolRegistry) {
         }
 
         let path = PathBuf::from(path_str);
-        let canonical_spill = spill_dir
-            .canonicalize()
-            .unwrap_or_else(|_| spill_dir.clone());
-        let canonical_target = match path.canonicalize() {
-            Ok(p) => p,
-            Err(_) => {
-                if !path.starts_with(&spill_dir) {
-                    return Err(ToolError::InvalidArgs(
-                        "path must be inside tool_results/".into(),
-                    ));
-                }
-                path.clone()
-            }
-        };
-
-        if !canonical_target.starts_with(&canonical_spill) && !path.starts_with(&spill_dir) {
-            return Err(ToolError::InvalidArgs(
-                "path must be inside tool_results/".into(),
-            ));
-        }
-
-        let content = std::fs::read_to_string(&canonical_target)
-            .or_else(|_| std::fs::read_to_string(&path))
-            .map_err(ToolError::Io)?;
+        let content = read_contained(&canonical_spill, &path)?;
 
         let offset = call
             .arguments
@@ -692,6 +686,82 @@ pub fn register_spill_read(registry: &mut ToolRegistry) {
             spilled_path: None,
         })
     });
+}
+
+/// Read `path` only if it names a regular file inside `canonical_spill`.
+/// On Unix the open itself refuses symlinks and containment is verified
+/// against the opened descriptor, closing check-then-open races.
+#[cfg(unix)]
+fn read_contained(canonical_spill: &Path, path: &Path) -> Result<String, ToolError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| ToolError::InvalidArgs("path must be inside tool_results/".into()))?;
+    if !file.metadata().map(|meta| meta.is_file()).unwrap_or(false) {
+        return Err(ToolError::InvalidArgs(
+            "path must be inside tool_results/".into(),
+        ));
+    }
+    let canonical_target = opened_fd_path(&file)
+        .ok_or_else(|| ToolError::InvalidArgs("path must be inside tool_results/".into()))?;
+    if !canonical_target.starts_with(canonical_spill) {
+        return Err(ToolError::InvalidArgs(
+            "path must be inside tool_results/".into(),
+        ));
+    }
+    std::io::read_to_string(&file).map_err(ToolError::Io)
+}
+
+/// Kernel-resolved path of an opened descriptor: `/proc/self/fd` on
+/// Linux, `F_GETPATH` on macOS. `None` when unresolvable (fail closed).
+#[cfg(unix)]
+fn opened_fd_path(file: &std::fs::File) -> Option<PathBuf> {
+    use std::os::unix::io::AsRawFd;
+
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut buf = vec![0 as libc::c_char; libc::MAXPATHLEN as usize];
+        let rc = unsafe {
+            libc::fcntl(
+                file.as_raw_fd(),
+                libc::F_GETPATH,
+                buf.as_mut_ptr() as *mut libc::c_void,
+            )
+        };
+        if rc != 0 {
+            return None;
+        }
+        let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
+        Some(PathBuf::from(cstr.to_string_lossy().into_owned()))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = file;
+        None
+    }
+}
+
+/// Non-Unix fallback: no `O_NOFOLLOW`/fd-path support; canonicalize both
+/// sides per call. Shell execution is unavailable there, narrowing the
+/// concurrent-writer threat to out-of-process actors.
+#[cfg(not(unix))]
+fn read_contained(canonical_spill: &Path, path: &Path) -> Result<String, ToolError> {
+    let canonical_target = path
+        .canonicalize()
+        .map_err(|_| ToolError::InvalidArgs("path must be inside tool_results/".into()))?;
+    if !canonical_target.starts_with(canonical_spill) {
+        return Err(ToolError::InvalidArgs(
+            "path must be inside tool_results/".into(),
+        ));
+    }
+    std::fs::read_to_string(&canonical_target).map_err(ToolError::Io)
 }
 
 #[cfg(test)]
@@ -776,6 +846,48 @@ mod tests {
 
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "hello from write_file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_file_diff_output_on_overwrite() {
+        let dir = std::env::temp_dir().join(format!("darius_tools_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write initial content
+        let file_path = dir.join("test.txt");
+        std::fs::write(&file_path, "original\ncontent\nhere").unwrap();
+
+        let mut registry = ToolRegistry::new_with_roots(&dir, &dir.join("tool_results")).unwrap();
+        register_coding_builtins(&mut registry);
+
+        // Overwrite with new content
+        let call = ToolCall {
+            id: "test-diff".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "test.txt", "content": "new\ncontent\nhere"}),
+        };
+
+        let outcome = registry.execute(&call);
+        match outcome {
+            ToolOutcome::Ok { preview, .. } => {
+                assert!(
+                    preview.contains("+new"),
+                    "Expected +new in diff: {}",
+                    preview
+                );
+                assert!(
+                    preview.contains("-original"),
+                    "Expected -original in diff: {}",
+                    preview
+                );
+            }
+            ToolOutcome::Err { message } => panic!("unexpected error: {}", message),
+            ToolOutcome::Interrupted | ToolOutcome::TimedOut => {
+                panic!("unexpected terminal outcome")
+            }
+        }
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2156,6 +2268,146 @@ TOOL {"name":"memory_remember","arguments":{"body":"important fact"}}
             start.elapsed() < std::time::Duration::from_secs(5),
             "kill too slow"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn spill_read_rejects_traversal_and_symlink_escape() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_spill_containment_{}", uuid::Uuid::new_v4()));
+        let spill = dir.join("tool_results");
+        std::fs::create_dir_all(&spill).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &spill).unwrap();
+        register_spill_read(&mut registry);
+
+        // Create a file outside the spill directory
+        let outside = dir.join("outside.txt");
+        std::fs::write(&outside, "outside_marker").unwrap();
+
+        // Test 1: Path traversal with ..
+        let traversal_path = format!("{}/../outside.txt", spill.display());
+        let call = ToolCall {
+            id: "traversal".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": traversal_path}),
+        };
+        assert!(
+            matches!(registry.execute(&call), ToolOutcome::Err { .. }),
+            "spill_read must reject path traversal"
+        );
+
+        // Test 2: Symlink pointing outside spill directory
+        let symlink_path = spill.join("escape_link");
+        std::os::unix::fs::symlink(&outside, &symlink_path).unwrap();
+        let call = ToolCall {
+            id: "symlink".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": symlink_path.to_str().unwrap()}),
+        };
+        assert!(
+            matches!(registry.execute(&call), ToolOutcome::Err { .. }),
+            "spill_read must reject symlink escape"
+        );
+
+        // Test 3: Valid path inside spill still works
+        let valid_file = spill.join("valid.txt");
+        std::fs::write(&valid_file, "inside_content").unwrap();
+        let call = ToolCall {
+            id: "valid".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": valid_file.to_str().unwrap()}),
+        };
+        assert!(
+            matches!(registry.execute(&call), ToolOutcome::Ok { .. }),
+            "spill_read must accept valid paths inside spill"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn spill_read_never_leaks_outside_content() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_spill_noleak_{}", uuid::Uuid::new_v4()));
+        let spill = dir.join("tool_results");
+        std::fs::create_dir_all(&spill).unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &spill).unwrap();
+        register_spill_read(&mut registry);
+
+        let outside = dir.join("secret.txt");
+        std::fs::write(&outside, "marker OUTSIDE-9f31 must never surface").unwrap();
+        std::os::unix::fs::symlink(&outside, spill.join("link")).unwrap();
+        for (id, path) in [
+            ("link", spill.join("link").to_string_lossy().to_string()),
+            ("traversal", format!("{}/../secret.txt", spill.display())),
+            ("absolute", outside.to_string_lossy().to_string()),
+        ] {
+            let call = ToolCall {
+                id: id.into(),
+                name: "spill_read".into(),
+                arguments: serde_json::json!({"path": path}),
+            };
+            match registry.execute(&call) {
+                ToolOutcome::Err { message } => {
+                    assert!(
+                        !message.contains("OUTSIDE-9f31"),
+                        "denial must not echo outside content"
+                    );
+                }
+                other => panic!("{id} must be denied, got {other:?}"),
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn spill_read_root_replacement_keeps_original_boundary() {
+        let dir =
+            std::env::temp_dir().join(format!("darius_spill_rootswap_{}", uuid::Uuid::new_v4()));
+        let spill = dir.join("tool_results");
+        std::fs::create_dir_all(&spill).unwrap();
+        std::fs::write(spill.join("real.txt"), "inside").unwrap();
+        let mut registry = ToolRegistry::new_with_roots(&dir, &spill).unwrap();
+        register_spill_read(&mut registry);
+
+        // Sanity: reads inside the original boundary work.
+        let call = ToolCall {
+            id: "before".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": spill.join("real.txt").to_str().unwrap()}),
+        };
+        assert!(matches!(registry.execute(&call), ToolOutcome::Ok { .. }));
+
+        // Attacker swaps the spill directory for a symlink to an outside dir.
+        let outside = dir.join("outside_root");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(
+            outside.join("marker.txt"),
+            "marker SWAPPED-4d77 must never surface",
+        )
+        .unwrap();
+        std::fs::remove_dir_all(&spill).unwrap();
+        std::os::unix::fs::symlink(&outside, &spill).unwrap();
+
+        let call = ToolCall {
+            id: "swapped".into(),
+            name: "spill_read".into(),
+            arguments: serde_json::json!({"path": spill.join("marker.txt").to_str().unwrap()}),
+        };
+        match registry.execute(&call) {
+            ToolOutcome::Err { message } => {
+                assert!(
+                    message.contains("inside tool_results") && !message.contains("SWAPPED-4d77"),
+                    "swapped-root read must be denied without leaking: {message}"
+                );
+            }
+            other => panic!("swapped-root read must be denied, got {other:?}"),
+        }
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

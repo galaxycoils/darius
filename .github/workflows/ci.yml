@@ -2,14 +2,23 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [master]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  actionlint:
+    name: Lint Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run pinned actionlint v1.7.12
+        run: bash scripts/release-actionlint.sh
+
   rust:
+    needs: actionlint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

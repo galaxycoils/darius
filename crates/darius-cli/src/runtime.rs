@@ -219,7 +219,34 @@ impl SessionRuntime {
 
     pub fn compact_conversation(&mut self) -> Result<(), darius_cognitive::CognitiveError> {
         self.conversation
-            .compact(self.policy.compress_opts.max_chars)
+            .compact(self.policy.compress_opts.max_chars)?;
+        if !self.conversation.is_empty() {
+            let summary = self
+                .conversation
+                .messages()
+                .iter()
+                .filter_map(|m| match m {
+                    darius_cognitive::Message::User { content } => Some(format!("User: {content}")),
+                    darius_cognitive::Message::Assistant {
+                        content: Some(content),
+                        ..
+                    } => Some(format!("Assistant: {content}")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !summary.is_empty() {
+                let _ = self.memory.upsert(darius_memory::NewRecord {
+                    kind: darius_memory::RecordKind::Episode,
+                    title: Some("compacted conversation session".into()),
+                    body: summary.chars().take(4000).collect(),
+                    tags: vec!["compaction".into()],
+                    importance: 0.8,
+                    source: Some("compact_conversation".into()),
+                });
+            }
+        }
+        Ok(())
     }
 }
 

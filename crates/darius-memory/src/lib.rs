@@ -241,7 +241,15 @@ impl MemoryEngine {
     }
 
     pub fn search(&self, query: &SearchQuery) -> Result<Vec<Record>, MemoryError> {
-        if let Some(ref text) = query.text {
+        if let Some(text) = &query.text {
+            let sanitized: String = text
+                .split_whitespace()
+                .map(|token| format!("\"{}\"", token.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if sanitized.is_empty() {
+                return Ok(Vec::new());
+            }
             let kind_filter = if query.kinds.is_empty() {
                 String::new()
             } else {
@@ -266,7 +274,8 @@ impl MemoryEngine {
                 kind_filter
             );
             let mut stmt = self.conn.prepare(&sql)?;
-            let records = stmt.query_map(rusqlite::params![text, query.limit as i64], parse_row)?;
+            let records =
+                stmt.query_map(rusqlite::params![sanitized, query.limit as i64], parse_row)?;
             let mut results = Vec::new();
             for record in records {
                 results.push(record?);

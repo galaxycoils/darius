@@ -23,25 +23,20 @@ pub(crate) fn run_process_group(cmd: &str, cwd: &Path, ctx: &ExecutionContext) -
             Ok(())
         })
     };
-    let mut child = spawn.spawn().map_err(|e| e.to_string())?;
+    let mut child =
+        crate::process_guard::ProcessGuard(spawn.spawn().map_err(|e| e.to_string())?, false);
     let outputs = || {
         let o = std::fs::read(&out_path).unwrap_or_default();
         (o, std::fs::read(&err_path).unwrap_or_default())
     };
     loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+        if let Some(status) = child.0.try_wait().map_err(|e| e.to_string())? {
+            child.terminate()?;
             let (o, e) = outputs();
             return Ok(RunEnd::Done(status.code(), o, e));
         }
         if ctx.cancel.is_cancelled() || Instant::now() >= ctx.deadline {
-            let rc = unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL) };
-            let gone =
-                rc != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
-            let status = child.wait().map_err(|e| e.to_string())?;
-            if gone {
-                let (o, e) = outputs();
-                return Ok(RunEnd::Done(status.code(), o, e));
-            }
+            child.terminate()?;
             if ctx.cancel.is_cancelled() {
                 return Ok(RunEnd::Interrupted);
             }

@@ -493,8 +493,9 @@ fn runtime_selection_config_show_exposes_secret_safe_diagnostics() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let version_str = format!("Version: {}", env!("CARGO_PKG_VERSION"));
     for expected in [
-        "Version: 1.2.0",
+        version_str.as_str(),
         "Home:",
         "Profile path:",
         "Config path:",
@@ -535,7 +536,10 @@ fn runtime_selection_status_exposes_diagnostics_without_done() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(lines.contains("Version: 1.2.0"), "{lines}");
+    assert!(
+        lines.contains(&format!("Version: {}", env!("CARGO_PKG_VERSION"))),
+        "{lines}"
+    );
     assert!(lines.contains("Runtime state: setup"), "{lines}");
     assert!(lines.contains("Memory: open"), "{lines}");
     assert!(

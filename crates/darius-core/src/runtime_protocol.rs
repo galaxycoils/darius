@@ -15,8 +15,8 @@ impl Mode {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::Auto => "⏵⏵ auto mode on",
-            Self::Plan => "⏸ plan mode on",
+            Self::Auto => "⏵⏵ Auto mode on",
+            Self::Plan => "⏸ Plan mode on",
         }
     }
 }

@@ -560,8 +560,9 @@ mod tests {
         let (state, _) = darius_web::ServerState::new();
         let _router = darius_web::create_router(state);
 
-        // Verify card has agent_loop
+        // Verify card indicates web execution/A2A are unavailable
         let card = darius_web::agent_card();
-        assert!(card.capabilities.contains(&"agent_loop".into()));
+        assert!(card.capabilities.is_empty());
+        assert!(card.description.contains("Unavailable"));
     }
 }
