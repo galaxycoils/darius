@@ -449,8 +449,7 @@ mod tests {
             && !key.is_empty()
         {
             let temp = TempDir::new().unwrap();
-            let mut runtime =
-                SessionRuntime::from_profile(&paths(&temp), "live_smoke").unwrap();
+            let mut runtime = SessionRuntime::from_profile(&paths(&temp), "live_smoke").unwrap();
             let cfg = darius_core::config::ModelConfig {
                 provider: "openai".into(),
                 base_url: "https://api.openai.com/v1".into(),
