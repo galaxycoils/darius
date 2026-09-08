@@ -2,6 +2,9 @@ use crate::commands::CommandInvocation;
 use darius_cognitive::UiEvent;
 pub use darius_core::runtime_protocol::{Mode, PermissionChoice, TurnId};
 
+use darius_core::config::{
+    ModelCatalogEntry, ModelConfig, catalog_entry_to_config, default_model_catalog,
+};
 // ── View types for rendering transcript items ──────────────────────────
 
 /// A tool call view with its result.
@@ -74,6 +77,7 @@ pub enum Effect {
         id: String,
         choice: PermissionChoice,
     },
+    SelectModel(ModelConfig),
     Quit,
 }
 
@@ -82,6 +86,73 @@ pub enum Effect {
 pub struct PaletteState {
     pub open: bool,
     pub selected: usize,
+}
+
+/// State for the interactive model picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPickerState {
+    pub filter: String,
+    pub cursor: usize,
+    pub entries: Vec<ModelCatalogEntry>,
+}
+
+impl ModelPickerState {
+    pub fn new() -> Self {
+        Self::with_filter("")
+    }
+
+    pub fn with_filter(filter: &str) -> Self {
+        Self {
+            filter: filter.to_string(),
+            cursor: 0,
+            entries: default_model_catalog(),
+        }
+    }
+
+    pub fn filtered_entries(&self) -> Vec<&ModelCatalogEntry> {
+        if self.filter.is_empty() {
+            self.entries.iter().collect()
+        } else {
+            let q = self.filter.to_lowercase();
+            self.entries
+                .iter()
+                .filter(|e| {
+                    e.id.to_lowercase().contains(&q)
+                        || e.label.to_lowercase().contains(&q)
+                        || e.model.to_lowercase().contains(&q)
+                        || e.provider.to_lowercase().contains(&q)
+                })
+                .collect()
+        }
+    }
+
+    pub fn next(&mut self) {
+        let count = self.filtered_entries().len();
+        if count > 0 {
+            self.cursor = (self.cursor + 1) % count;
+        }
+    }
+
+    pub fn prev(&mut self) {
+        let count = self.filtered_entries().len();
+        if count > 0 {
+            if self.cursor == 0 {
+                self.cursor = count - 1;
+            } else {
+                self.cursor -= 1;
+            }
+        }
+    }
+
+    pub fn selected_entry(&self) -> Option<&ModelCatalogEntry> {
+        self.filtered_entries().get(self.cursor).copied()
+    }
+}
+
+impl Default for ModelPickerState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Active permission chooser state with selection.
@@ -161,6 +232,8 @@ pub struct AppState {
     pub running_subagents: usize,
     pub cwd: Option<std::path::PathBuf>,
     pub needs_clear: bool,
+    pub model_picker: Option<ModelPickerState>,
+    pub active_model: ModelConfig,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,7 +260,11 @@ pub enum Action {
     PermissionNext,
     PermissionPrev,
     PermissionChoose,
+    PermissionDirect(PermissionChoice),
     ToggleTool(Option<usize>),
+    ModelPickerNext,
+    ModelPickerPrev,
+    ModelPickerSelect,
 }
 
 impl Default for AppState {
@@ -214,6 +291,8 @@ impl Default for AppState {
             running_subagents: 0,
             cwd: None,
             needs_clear: false,
+            model_picker: None,
+            active_model: catalog_entry_to_config(&default_model_catalog()[0]),
         }
     }
 }
@@ -231,6 +310,44 @@ impl AppState {
         } else {
             ".".into()
         }
+    }
+
+    pub fn handle_command_invocation(
+        &mut self,
+        invocation: crate::commands::CommandInvocation,
+    ) -> Option<Effect> {
+        if invocation.id == crate::commands::CommandId::Model {
+            let arg = invocation.args.trim();
+            if arg.is_empty() {
+                self.model_picker = Some(ModelPickerState::new());
+                return Some(Effect::ExecuteCommand(invocation));
+            } else {
+                let catalog = default_model_catalog();
+                let q = arg.to_lowercase();
+                let matches: Vec<_> = catalog
+                    .iter()
+                    .filter(|e| {
+                        e.id.to_lowercase() == q
+                            || e.model.to_lowercase() == q
+                            || e.id.to_lowercase().starts_with(&q)
+                            || e.model.to_lowercase().starts_with(&q)
+                    })
+                    .collect();
+                if matches.len() == 1 {
+                    let config = catalog_entry_to_config(matches[0]);
+                    self.active_model = config.clone();
+                    self.model = config.model.clone();
+                    self.transcript.push(TranscriptItem::Assistant {
+                        text: format!("Selected model: {} ({})", config.model, config.provider),
+                    });
+                    return Some(Effect::SelectModel(config));
+                } else {
+                    self.model_picker = Some(ModelPickerState::with_filter(arg));
+                    return None;
+                }
+            }
+        }
+        Some(Effect::ExecuteCommand(invocation))
     }
 
     pub fn push_message(&mut self, msg: impl Into<String>) {
@@ -331,6 +448,17 @@ impl AppState {
                         None
                     }
                 }
+                Action::PermissionDirect(choice) => {
+                    if let Some(perm) = self.permission.take() {
+                        self.permission_queue.retain(|p| p.id != perm.id);
+                        Some(Effect::ResolvePermission {
+                            id: perm.id,
+                            choice,
+                        })
+                    } else {
+                        None
+                    }
+                }
                 Action::Cancel => {
                     if let Some(perm) = self.permission.take() {
                         self.permission_queue.retain(|p| p.id != perm.id);
@@ -353,6 +481,50 @@ impl AppState {
                     self.permission_queue.clear();
                     self.exit_requested = true;
                     Some(Effect::Quit)
+                }
+                _ => None,
+            };
+        }
+
+        // Model picker takes priority when open
+        if let Some(picker) = &mut self.model_picker {
+            return match action {
+                Action::Cancel => {
+                    self.model_picker = None;
+                    None
+                }
+                Action::ModelPickerNext => {
+                    picker.next();
+                    None
+                }
+                Action::ModelPickerPrev => {
+                    picker.prev();
+                    None
+                }
+                Action::ModelPickerSelect => {
+                    if let Some(entry) = picker.selected_entry() {
+                        let config = catalog_entry_to_config(entry);
+                        self.active_model = config.clone();
+                        self.model = config.model.clone();
+                        self.model_picker = None;
+                        self.transcript.push(TranscriptItem::Assistant {
+                            text: format!("Selected model: {} ({})", config.model, config.provider),
+                        });
+                        Some(Effect::SelectModel(config))
+                    } else {
+                        self.model_picker = None;
+                        None
+                    }
+                }
+                Action::Insert(c) => {
+                    picker.filter.push(c);
+                    picker.cursor = 0;
+                    None
+                }
+                Action::Backspace => {
+                    picker.filter.pop();
+                    picker.cursor = 0;
+                    None
                 }
                 _ => None,
             };
@@ -409,7 +581,7 @@ impl AppState {
                             Err(format!("unknown command: {input}"))
                         };
                     match invocation {
-                        Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
+                        Ok(invocation) => self.handle_command_invocation(invocation),
                         Err(e) => {
                             self.transcript.push(TranscriptItem::Assistant {
                                 text: format!("✗ {}", e),
@@ -618,7 +790,7 @@ impl AppState {
                 // Check if it's a command (starts with / or -)
                 if input.starts_with('/') || input.starts_with('-') {
                     match crate::commands::parse_invocation(&input) {
-                        Ok(invocation) => Some(Effect::ExecuteCommand(invocation)),
+                        Ok(invocation) => self.handle_command_invocation(invocation),
                         Err(e) => {
                             self.transcript.push(TranscriptItem::Assistant {
                                 text: format!("✗ {}", e),
@@ -691,6 +863,9 @@ impl AppState {
             | Action::PalettePrev
             | Action::PaletteAccept
             | Action::PaletteComplete => None,
+            // Model picker actions handled above when picker is open
+            Action::ModelPickerNext | Action::ModelPickerPrev | Action::ModelPickerSelect => None,
+            Action::PermissionDirect(_) => None,
         }
     }
 
@@ -1421,5 +1596,91 @@ mod tests {
         state.permission.as_mut().unwrap().next(); // AllowSession
         let choice = state.apply_action(Action::PermissionChoose);
         assert_eq!(choice, Some(PermissionChoice::AllowSession));
+    }
+
+    #[test]
+    fn model_command_opens_picker_when_no_args() {
+        let mut state = AppState::default();
+        state.composer.input = "/model".into();
+        state.reduce(Action::Submit);
+        assert!(state.model_picker.is_some());
+    }
+
+    #[test]
+    fn model_command_with_unique_arg_selects_without_picker() {
+        let mut state = AppState::default();
+        state.composer.input = "/model gpt-4o-mini".into();
+        let effect = state.reduce(Action::Submit);
+        assert!(state.model_picker.is_none());
+        assert_eq!(state.model, "gpt-4o-mini");
+        assert!(matches!(effect, Some(Effect::SelectModel(cfg)) if cfg.model == "gpt-4o-mini"));
+    }
+
+    #[test]
+    fn model_command_with_ambiguous_arg_opens_picker_with_filter() {
+        let mut state = AppState::default();
+        state.composer.input = "/model gpt".into();
+        state.reduce(Action::Submit);
+        assert!(state.model_picker.is_some());
+        assert_eq!(state.model_picker.unwrap().filter, "gpt");
+    }
+
+    #[test]
+    fn model_picker_keyboard_navigation_and_selection() {
+        let mut state = AppState::default();
+        state.model_picker = Some(ModelPickerState::new());
+        assert_eq!(state.model_picker.as_ref().unwrap().cursor, 0);
+
+        state.reduce(Action::ModelPickerNext);
+        assert_eq!(state.model_picker.as_ref().unwrap().cursor, 1);
+
+        state.reduce(Action::ModelPickerPrev);
+        assert_eq!(state.model_picker.as_ref().unwrap().cursor, 0);
+
+        let effect = state.reduce(Action::ModelPickerSelect);
+        assert!(state.model_picker.is_none());
+        assert!(matches!(effect, Some(Effect::SelectModel(_))));
+    }
+
+    #[test]
+    fn model_picker_escape_cancels_without_selection() {
+        let mut state = AppState::default();
+        state.model_picker = Some(ModelPickerState::new());
+        let effect = state.reduce(Action::Cancel);
+        assert!(state.model_picker.is_none());
+        assert_eq!(effect, None);
+    }
+
+    #[test]
+    fn tool_events_appear_in_session_transcript() {
+        let mut state = AppState::default();
+        state.apply_event(UiEvent::ToolStart {
+            id: "call-1".into(),
+            name: "task_list".into(),
+            args_preview: "{}".into(),
+        });
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::Tool { tool, .. } => {
+                assert_eq!(tool.name, "task_list");
+                assert_eq!(tool.args_preview, "{}");
+            }
+            _ => panic!("expected Tool transcript item"),
+        }
+
+        state.apply_event(UiEvent::ToolEnd {
+            id: "call-1".into(),
+            ok: true,
+            preview: "0 tasks".into(),
+            spilled: None,
+        });
+        assert_eq!(state.transcript.len(), 1);
+        match &state.transcript[0] {
+            TranscriptItem::Tool { tool, .. } => {
+                assert!(tool.ok);
+                assert_eq!(tool.result, "0 tasks");
+            }
+            _ => panic!("expected Tool transcript item"),
+        }
     }
 }

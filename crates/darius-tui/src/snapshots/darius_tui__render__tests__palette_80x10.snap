@@ -4,7 +4,7 @@ expression: buffer_to_string(&buffer)
 ---
 ╭ Slash Commands ──────────────────────────────────────────────────────────────╮
 │Commands                                                                      │
-│❯ /model              Show current provider/model (read-only)                 │
+│❯ /model              Show or select provider/model                           │
 │  /mode               Cycle or select auto/plan                               │
 │  /permissions        Show the current permission policy                      │
 │  /memory             Search durable memory                                   │

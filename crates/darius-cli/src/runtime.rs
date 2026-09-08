@@ -248,6 +248,49 @@ impl SessionRuntime {
         }
         Ok(())
     }
+
+    pub fn model_id(&self) -> &str {
+        &self.metadata.model
+    }
+
+    pub fn apply_model_config(
+        &mut self,
+        cfg: &darius_core::config::ModelConfig,
+    ) -> Result<Option<String>, String> {
+        let _ = darius_core::config::save_model_config(&self.config.profile_dir, cfg);
+        self.metadata.model = cfg.model.clone();
+
+        if cfg.provider == "mock" || cfg.provider == "offline" {
+            self.model = Box::new(darius_cognitive::MockModel::new(vec![]));
+            return Ok(None);
+        }
+
+        let is_local = cfg.base_url.contains("localhost")
+            || cfg.base_url.contains("127.0.0.1")
+            || cfg.api_key_env.eq_ignore_ascii_case("none");
+        let has_key = std::env::var(&cfg.api_key_env).is_ok();
+
+        if !is_local && !has_key {
+            self.model = Box::new(darius_cognitive::MockModel::new(vec![]));
+            let warning = format!(
+                "API key env '{}' is not set; using mock model for safety",
+                cfg.api_key_env
+            );
+            return Ok(Some(warning));
+        }
+
+        let model = darius_daemon::LiveModel::for_provider(darius_daemon::Provider {
+            name: cfg.provider.clone(),
+            model: cfg.model.clone(),
+            base_url: cfg.base_url.clone(),
+            enabled: true,
+            api_key_env: cfg.api_key_env.clone(),
+        })
+        .map_err(|e| e.to_string())?;
+
+        self.model = Box::new(model);
+        Ok(None)
+    }
 }
 
 fn model_for(state: &RuntimeState) -> Result<Box<dyn AsyncModel>, String> {
@@ -352,6 +395,71 @@ mod tests {
             darius_tools::ToolOutcome::Interrupted | darius_tools::ToolOutcome::TimedOut => {
                 panic!("unexpected terminal outcome")
             }
+        }
+    }
+
+    #[test]
+    fn apply_mock_catalog_entry_updates_model_id() {
+        let temp = TempDir::new().unwrap();
+        let mut runtime = SessionRuntime::from_profile(&paths(&temp), "model_test").unwrap();
+        let entry = &darius_core::config::default_model_catalog()[0];
+        let cfg = darius_core::config::catalog_entry_to_config(entry);
+        let res = runtime.apply_model_config(&cfg).unwrap();
+        assert_eq!(res, None);
+        assert_eq!(runtime.model_id(), "mock");
+    }
+
+    #[test]
+    fn apply_openai_entry_without_key_falls_back_with_warning() {
+        let temp = TempDir::new().unwrap();
+        let mut runtime = SessionRuntime::from_profile(&paths(&temp), "model_test2").unwrap();
+        let cfg = darius_core::config::ModelConfig {
+            provider: "openai".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            model: "gpt-4o-mini".into(),
+            api_key_env: "DARIUS_UNSET_KEY_FOR_TEST_12345".into(),
+        };
+        let warning = runtime.apply_model_config(&cfg).unwrap();
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("DARIUS_UNSET_KEY_FOR_TEST_12345"));
+        assert_eq!(runtime.model_id(), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn apply_openai_entry_with_key_sets_live_model() {
+        let temp = TempDir::new().unwrap();
+        let mut runtime = SessionRuntime::from_profile(&paths(&temp), "model_test3").unwrap();
+        unsafe { std::env::set_var("DARIUS_TEST_LIVE_KEY_ENV", "test-live-key") };
+        let cfg = darius_core::config::ModelConfig {
+            provider: "openai".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            model: "gpt-4o-mini".into(),
+            api_key_env: "DARIUS_TEST_LIVE_KEY_ENV".into(),
+        };
+        let res = runtime.apply_model_config(&cfg).unwrap();
+        assert_eq!(res, None);
+        assert_eq!(runtime.model_id(), "gpt-4o-mini");
+        unsafe { std::env::remove_var("DARIUS_TEST_LIVE_KEY_ENV") };
+    }
+
+    #[test]
+    #[ignore]
+    fn live_key_smoke() {
+        if let Ok(key) = std::env::var("OPENAI_API_KEY")
+            && !key.is_empty()
+        {
+            let temp = TempDir::new().unwrap();
+            let mut runtime =
+                SessionRuntime::from_profile(&paths(&temp), "live_smoke").unwrap();
+            let cfg = darius_core::config::ModelConfig {
+                provider: "openai".into(),
+                base_url: "https://api.openai.com/v1".into(),
+                model: "gpt-4o-mini".into(),
+                api_key_env: "OPENAI_API_KEY".into(),
+            };
+            let res = runtime.apply_model_config(&cfg).unwrap();
+            assert_eq!(res, None);
+            assert_eq!(runtime.model_id(), "gpt-4o-mini");
         }
     }
 }

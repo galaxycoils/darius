@@ -21,6 +21,7 @@ pub enum RuntimeCommand {
         id: String,
         choice: crate::app::PermissionChoice,
     },
+    SelectModel(darius_core::config::ModelConfig),
     Interrupt,
     Shutdown,
 }
@@ -53,6 +54,26 @@ impl TuiController {
     }
 }
 
+/// Returns true if the TUI/runtime controller surface handles this slash command.
+pub fn handles(id: crate::commands::CommandId) -> bool {
+    matches!(
+        id,
+        crate::commands::CommandId::Help
+            | crate::commands::CommandId::Clear
+            | crate::commands::CommandId::Compact
+            | crate::commands::CommandId::Model
+            | crate::commands::CommandId::Mode
+            | crate::commands::CommandId::Permissions
+            | crate::commands::CommandId::Memory
+            | crate::commands::CommandId::Pack
+            | crate::commands::CommandId::Tasks
+            | crate::commands::CommandId::Status
+            | crate::commands::CommandId::Config
+            | crate::commands::CommandId::Stop
+            | crate::commands::CommandId::Quit
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +85,17 @@ mod tests {
             id: CommandId::Help,
             name: "/help".into(),
             args: String::new(),
+        }
+    }
+
+    #[test]
+    fn every_command_id_has_handler() {
+        for spec in darius_core::commands::COMMANDS {
+            assert!(
+                crate::controller::handles(spec.id),
+                "missing handler for {}",
+                spec.name
+            );
         }
     }
 

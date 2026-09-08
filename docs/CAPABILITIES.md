@@ -1,6 +1,6 @@
 # Darius capability inventory
 
-Scope: unreleased v1.2.0 checkout. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
+Scope: v1.2.1 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
 
 ## Verified local contracts
 
@@ -22,13 +22,17 @@ Scope: unreleased v1.2.0 checkout. Verified means the narrowly described local c
 | Local fake-provider multi-turn TUI journey | **Verified** | [`full_agent_journey`](../crates/darius-cli/tests/tui_pty.rs) |
 | Generated slash help and offline status do not claim hidden features or completion | **Verified** | [`generated_slash_help_and_status_are_truthful`](../crates/darius-cli/tests/public_claims.rs) |
 | Closed-world slash palette/registry, not every command outcome | **Verified** | [`generated_slash_palette_has_only_supported_commands`](../crates/darius-core/tests/public_claims.rs) |
+| Interactive model picker opens, filters, selects, and persists to profile | **Verified** | [`model_picker_then_run_mock`](../crates/darius-cli/tests/tui_pty.rs) |
+| Mock model TUI agent journey with truthful offline status | **Verified** | [`full_agent_journey_mock`](../crates/darius-cli/tests/tui_pty.rs) |
+| Exhaustive slash command handling across all 13 canonical commands | **Verified** | [`slash_command_execution_semantic_table_all_13_commands`](../crates/darius-cli/src/tui_runtime/tests.rs) |
+| Tool events paired and rendered in session transcript | **Verified** | [`tool_events_appear_in_session_transcript`](../crates/darius-tui/src/app.rs) |
 | Compatibility web refuses execution and advertises no capabilities | **Verified** | [`unavailable_web_surface_never_claims_execution`](../crates/darius-web/tests/public_claims.rs) |
 
 ## Retained surfaces and policy
 
 CLI: `tui`, `run <goal...>`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable.
 
-Slash registry: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`. `/model` only reports configuration. Auto gates mutating/shell tools on approval; Plan denies them. This is a tool policy, not a process sandbox or a guarantee that session storage is never written.
+Slash registry: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`. `/model` opens an interactive picker or selects from catalog. Auto gates mutating/shell tools on approval; Plan denies them. This is a tool policy, not a process sandbox or a guarantee that session storage is never written.
 
 Tool inventory: `memory_search`, `memory_pack`, `memory_remember`, `task_add`, `task_list`, `task_complete`, `shell`, `read_file`, `search_files`, `write_file`, `spill_read`. Individual registrations are not blanket end-to-end verification. Shell authorization does not confine arbitrary subprocess effects. Cancellation/terminal restoration coverage is path-specific, without a universal latency bound.
 

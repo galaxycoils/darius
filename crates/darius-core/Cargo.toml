@@ -15,7 +15,9 @@ uuid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = "0.12"
+toml = "0.8"
 
 [dev-dependencies]
 darius-rlm = { path = "../darius-rlm" }
 harness_e2e = { path = "../../tests/harness_e2e" }
+tempfile = "3"

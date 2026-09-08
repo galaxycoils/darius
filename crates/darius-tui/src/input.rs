@@ -1,4 +1,4 @@
-use crate::app::{Action, AppState};
+use crate::app::{Action, AppState, PermissionChoice};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Map a keyboard event to a TUI action based on current state.
@@ -9,10 +9,32 @@ pub fn map_key(key: KeyEvent, state: &AppState) -> Option<Action> {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 Some(Action::Interrupt)
             }
+            KeyCode::Char('1') | KeyCode::Char('y') => {
+                Some(Action::PermissionDirect(PermissionChoice::AllowOnce))
+            }
+            KeyCode::Char('2') | KeyCode::Char('a') => {
+                Some(Action::PermissionDirect(PermissionChoice::AllowSession))
+            }
+            KeyCode::Char('3') | KeyCode::Char('n') => {
+                Some(Action::PermissionDirect(PermissionChoice::Deny))
+            }
             KeyCode::Up | KeyCode::Char('k') => Some(Action::PermissionNext),
             KeyCode::Down | KeyCode::Char('j') => Some(Action::PermissionPrev),
             KeyCode::Enter => Some(Action::PermissionChoose),
             KeyCode::Esc => Some(Action::Cancel),
+            _ => None,
+        };
+    }
+
+    // Model picker takes priority when open
+    if state.model_picker.is_some() {
+        return match key.code {
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Enter => Some(Action::ModelPickerSelect),
+            KeyCode::Up | KeyCode::Char('k') => Some(Action::ModelPickerPrev),
+            KeyCode::Down | KeyCode::Char('j') => Some(Action::ModelPickerNext),
+            KeyCode::Backspace => Some(Action::Backspace),
+            KeyCode::Char(c) => Some(Action::Insert(c)),
             _ => None,
         };
     }
@@ -171,6 +193,67 @@ mod tests {
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
             Some(Action::PermissionChoose)
+        );
+    }
+
+    #[test]
+    fn permission_chooser_direct_shortcuts() {
+        let mut state = AppState::default();
+        state.permission = Some(PermissionState::new(
+            "p1".into(),
+            "Write file".into(),
+            "fs::write".into(),
+            "Write to disk".into(),
+        ));
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(Action::PermissionDirect(PermissionChoice::AllowOnce))
+        );
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(Action::PermissionDirect(PermissionChoice::AllowSession))
+        );
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(Action::PermissionDirect(PermissionChoice::Deny))
+        );
+    }
+
+    #[test]
+    fn model_picker_input_routing() {
+        let mut state = AppState::default();
+        state.model_picker = Some(crate::app::ModelPickerState::new());
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &state),
+            Some(Action::ModelPickerPrev)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &state),
+            Some(Action::ModelPickerNext)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
+            Some(Action::ModelPickerSelect)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &state),
+            Some(Action::Cancel)
+        );
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(Action::Insert('g'))
         );
     }
 }

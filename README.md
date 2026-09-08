@@ -1,4 +1,4 @@
-# Darius v1.2.0 (unreleased)
+# Darius v1.2.1
 
 Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, and SQLite memory. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
 
@@ -37,7 +37,7 @@ Ordinary text (including `q`) is typed into the composer. Enter submits; `/` or 
 
 Auto runs read-only tools and asks before mutating tools or shell execution. Plan denies those tool classes. Noninteractive `run` denies requests needing approval. Shell approval is not an OS sandbox. Cleanup is tested for selected exit paths, not a timing SLA or protection against SIGKILL.
 
-The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, and `/quit`. `/model` is read-only; `/mode auto` and `/mode plan` change policy. See [operating guidance](docs/TROUBLESHOOTING.md).
+The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, and `/quit`. `/model` opens an interactive picker or selects from catalog; `/mode auto` and `/mode plan` change policy. See [operating guidance](docs/TROUBLESHOOTING.md).
 
 The CLI exposes `tui`, `run <goal>`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
 

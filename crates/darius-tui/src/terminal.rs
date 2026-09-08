@@ -112,6 +112,7 @@ fn effect_to_command(state: &AppState, effect: crate::app::Effect) -> Option<Run
         crate::app::Effect::ResolvePermission { id, choice } => {
             Some(RuntimeCommand::ResolvePermission { id, choice })
         }
+        crate::app::Effect::SelectModel(cfg) => Some(RuntimeCommand::SelectModel(cfg)),
         crate::app::Effect::Quit => Some(RuntimeCommand::Shutdown),
     }
 }

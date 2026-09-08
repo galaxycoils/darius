@@ -675,6 +675,8 @@ fn full_agent_journey() {
         "wrong external workspace: {config}"
     );
     h.command("/model", "custom-provider/custom-model");
+    h.write_bytes(&[27]).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
     provider.push_text("hello-live-sentinel");
     h.write_bytes(b"say hello\r").unwrap();
     h.finish_turn("hello-live-sentinel");
@@ -883,4 +885,29 @@ fn full_agent_journey_shell_cancellation() {
     interrupt_shell(&mut h, &provider);
     h.quit_restored();
     provider.assert_clean();
+}
+
+#[test]
+fn full_agent_journey_mock() {
+    let mut h = PtyTestHarness::spawn(&["tui", "--offline"]).expect("spawn failed");
+    h.expect("Welcome back");
+    h.command("/status", "Running: false");
+    h.write_bytes(b"mock goal test\r").unwrap();
+    h.expect("Offline demo: no real file analysis or completion was performed.");
+    let status = h.command("/status", "Running: false");
+    assert!(status.contains("Running: false"), "{status}");
+    h.quit_restored();
+}
+
+#[test]
+fn model_picker_then_run_mock() {
+    let mut h = PtyTestHarness::spawn(&["tui", "--offline"]).expect("spawn failed");
+    h.expect("Welcome back");
+    h.write_bytes(b"/model\r").unwrap();
+    h.expect("Select Model");
+    h.write_bytes(b"\r").unwrap();
+    h.expect("Selected model: mock");
+    h.write_bytes(b"hello after picker\r").unwrap();
+    h.expect("Offline demo: no real file analysis or completion was performed.");
+    h.quit_restored();
 }

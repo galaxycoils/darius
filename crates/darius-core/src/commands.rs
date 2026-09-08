@@ -31,8 +31,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::Model,
         name: "/model",
-        description: "Show current provider/model (read-only)",
-        accepts_args: false,
+        description: "Show or select provider/model",
+        accepts_args: true,
     },
     CommandSpec {
         id: CommandId::Mode,
@@ -260,6 +260,12 @@ mod tests {
     fn slash_command_preserves_arguments() {
         assert_eq!(parse_invocation("/mode plan").unwrap().args, "plan");
         assert_eq!(parse_invocation("-memory brakes").unwrap().args, "brakes");
+    }
+    #[test]
+    fn model_accepts_args() {
+        let inv = parse_invocation("/model gpt-4o-mini").unwrap();
+        assert_eq!(inv.id, CommandId::Model);
+        assert_eq!(inv.args, "gpt-4o-mini");
     }
 
     #[test]

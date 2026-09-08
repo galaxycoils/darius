@@ -21,6 +21,26 @@ impl SessionActor {
                 }
                 crate::command_handler::handle_slash(self, &inv);
             }
+            RuntimeCommand::SelectModel(cfg) => {
+                if let State::Idle(runtime) = &mut self.state {
+                    match runtime.apply_model_config(&cfg) {
+                        Ok(Some(warning)) => {
+                            self.status(format!(
+                                "Model active: {} ({}) — {}",
+                                cfg.model, cfg.provider, warning
+                            ));
+                        }
+                        Ok(None) => {
+                            self.status(format!("Model active: {} ({})", cfg.model, cfg.provider));
+                        }
+                        Err(e) => {
+                            self.emit(darius_cognitive::UiEvent::Error {
+                                message: format!("Failed to apply model {}: {e}", cfg.model),
+                            });
+                        }
+                    }
+                }
+            }
         }
         false
     }

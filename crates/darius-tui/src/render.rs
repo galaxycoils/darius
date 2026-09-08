@@ -344,6 +344,71 @@ pub fn render_palette(
     list.render(area, buf);
 }
 
+/// Render the interactive model picker above the composer.
+pub fn render_model_picker(
+    area: Rect,
+    buf: &mut Buffer,
+    picker: &crate::app::ModelPickerState,
+    theme: &Theme,
+) {
+    let filtered = picker.filtered_entries();
+    let mut items: Vec<ListItem> = Vec::new();
+
+    let filter_text = if picker.filter.is_empty() {
+        "(type to filter models)"
+    } else {
+        &picker.filter
+    };
+    items.push(ListItem::new(Line::from(vec![
+        Span::styled(
+            "Models ",
+            Style::default()
+                .fg(theme.brand)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("Filter: {filter_text}"),
+            Style::default().fg(theme.muted),
+        ),
+    ])));
+
+    for (i, entry) in filtered.iter().enumerate() {
+        let marker = if i == picker.cursor { "❯" } else { " " };
+        let color = if i == picker.cursor {
+            theme.active
+        } else {
+            theme.text
+        };
+        let id_width = 16;
+        let id = format!("{:width$}", entry.id, width = id_width);
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(format!("{marker} "), Style::default().fg(color)),
+            Span::styled(id, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} ", entry.label), Style::default().fg(color)),
+            Span::styled(
+                format!("({})", entry.base_url),
+                Style::default().fg(theme.muted),
+            ),
+        ])));
+    }
+
+    if filtered.is_empty() {
+        items.push(ListItem::new(Line::from(Span::styled(
+            "  No matching models in catalog",
+            Style::default().fg(theme.delete),
+        ))));
+    }
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.brand))
+            .title(" Select Model (Enter to apply, Esc to cancel) "),
+    );
+    list.render(area, buf);
+}
+
 // ── Snapshot helpers ───────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -439,6 +504,9 @@ fn draw_inner<B: ratatui::backend::Backend>(
         if state.palette.open {
             constraints.push(Constraint::Length(8)); // palette
         }
+        if state.model_picker.is_some() {
+            constraints.push(Constraint::Length(8)); // model picker
+        }
         if state.permission.is_some() {
             constraints.push(Constraint::Length(9)); // permission chooser
         }
@@ -482,6 +550,12 @@ fn draw_inner<B: ratatui::backend::Backend>(
                 state.palette.selected,
                 &theme,
             );
+            idx += 1;
+        }
+
+        // 3b. Model picker above composer while active.
+        if let Some(ref picker) = state.model_picker {
+            render_model_picker(chunks[idx], f.buffer_mut(), picker, &theme);
             idx += 1;
         }
 
@@ -711,5 +785,29 @@ mod tests {
         assert!(output.contains("cache: 85%"));
         assert!(output.contains("mem: 1420c"));
         assert!(output.contains("subs: 2"));
+    }
+
+    #[test]
+    fn render_model_picker_title_contains_model() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let picker = crate::app::ModelPickerState::new();
+        let area = Rect::new(0, 0, 80, 10);
+        let mut buffer = Buffer::empty(area);
+        render_model_picker(area, &mut buffer, &picker, &theme);
+        let output = buffer_to_string(&buffer);
+        assert!(output.to_lowercase().contains("model"), "{output}");
+        assert!(output.contains("gpt-4o-mini"), "{output}");
+    }
+
+    #[test]
+    fn welcome_card_contains_active_model_name() {
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let mut state = fixture_state();
+        state.model = "gpt-4o-mini".into();
+        let area = Rect::new(0, 0, 80, 10);
+        let mut buffer = Buffer::empty(area);
+        render_welcome(area, &mut buffer, &state, &theme);
+        let output = buffer_to_string(&buffer);
+        assert!(output.contains("gpt-4o-mini"), "{output}");
     }
 }
