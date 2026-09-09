@@ -66,6 +66,7 @@ pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> 
         Some(Command::Run { goal }) => cmd_run(goal, &profile, cwd.as_deref(), offline),
         Some(Command::Config { command }) => cmd_config(command, &profile, cwd.as_deref()),
         Some(Command::Memory { command }) => cmd_memory(command, &profile, cwd.as_deref()),
+        Some(Command::Serve { host, port }) => cmd_serve(host, port),
         None if io.stdin_is_terminal && io.stdout_is_terminal => {
             cmd_tui(&profile, cwd.as_deref(), offline)
         }
@@ -295,4 +296,16 @@ pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String
         format!("{risk:?}"),
         reason.into(),
     )
+}
+
+fn cmd_serve(host: String, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    crate::runtime::block_on_turn(async {
+        let (state, _events) = darius_web::ServerState::new();
+        let router = darius_web::create_router(state);
+        let addr = format!("{host}:{port}");
+        let listener = tokio::net::TcpListener::bind(&addr).await?;
+        println!("Darius web server listening on {addr}");
+        axum::serve(listener, router).await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
 }

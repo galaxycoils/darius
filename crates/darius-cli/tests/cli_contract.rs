@@ -124,7 +124,7 @@ fn public_help_is_exact_generated_surface() {
     assert!(output.status.success());
     assert_eq!(
         stdout(&output),
-        "Local-first coding agent\n\nUsage: darius [OPTIONS] [COMMAND]\n\nCommands:\n  tui     \n  run     \n  config  \n  memory  \n\nOptions:\n      --profile <PROFILE>  [default: default]\n      --cwd <CWD>          \n      --offline            \n  -h, --help               Print help\n  -V, --version            Print version\n"
+        "Local-first coding agent\n\nUsage: darius [OPTIONS] [COMMAND]\n\nCommands:\n  tui     \n  run     \n  config  \n  memory  \n  serve   Run the Darius web server (CognitiveLoop + SSE + A2A)\n\nOptions:\n      --profile <PROFILE>  [default: default]\n      --cwd <CWD>          \n      --offline            \n  -h, --help               Print help\n  -V, --version            Print version\n"
     );
 }
 
@@ -267,7 +267,6 @@ fn parse_errors_unknown_and_legacy_commands_exit_two() {
         "eval",
         "learn",
         "session-smoke",
-        "serve",
         "a2a",
         "cron",
         "approval-check",

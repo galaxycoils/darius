@@ -27,6 +27,8 @@ darius-cognitive = { path = "../darius-cognitive" }
 darius-safety = { path = "../darius-safety" }
 darius-tui = { path = "../darius-tui" }
 darius-web = { path = "../darius-web" }
+axum = "0.7"
+tokio-stream = "0.1"
 toml = "0.8"
 url = "2"
 dirs = "5"
