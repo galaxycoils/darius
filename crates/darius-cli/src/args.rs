@@ -25,7 +25,7 @@ pub enum Command {
     Run { #[arg(required = true)] goal: Vec<String> },
     Config { #[command(subcommand)] command: ConfigCommand },
     Memory { #[command(subcommand)] command: MemoryCommand },
-    /// Run the Darius web server (CognitiveLoop + SSE + A2A)
+    /// Run the Darius web server (CognitiveLoop + SSE)
     Serve {
         /// Host to bind to (default: 127.0.0.1)
         #[arg(long, default_value = "127.0.0.1")]

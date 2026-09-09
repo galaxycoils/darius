@@ -26,7 +26,7 @@ Scope: v1.2.1 release. Verified means the narrowly described local contract has 
 | Mock model TUI agent journey with truthful offline status | **Verified** | [`full_agent_journey_mock`](../crates/darius-cli/tests/tui_pty.rs) |
 | Exhaustive slash command handling across all 13 canonical commands | **Verified** | [`slash_command_execution_semantic_table_all_13_commands`](../crates/darius-cli/src/tui_runtime/tests.rs) |
 | Tool events paired and rendered in session transcript | **Verified** | [`tool_events_appear_in_session_transcript`](../crates/darius-tui/src/app.rs) |
-| Compatibility web refuses execution and advertises no capabilities | **Verified** | [`unavailable_web_surface_never_claims_execution`](../crates/darius-web/tests/public_claims.rs) |
+| Web server serves goals, SSE events, and A2A tasks | **Verified** | [`web_server_serves_goal_sse_and_a2a`](../crates/darius-web/src/lib.rs) |
 
 ## Retained surfaces and policy
 
@@ -38,13 +38,13 @@ Tool inventory: `memory_search`, `memory_pack`, `memory_remember`, `task_add`, `
 
 ## Unavailable integrations and removed names
 
-Unavailable CLI: `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`, `serve`, `a2a`, `cron`, `approval-check`, `help`, `doctor`, `config set`. Doctor means the config/status diagnostic workflow, not a new command.
+Unavailable CLI: `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`, `session-smoke`, `a2a`, `cron`, `approval-check`, `help`, `doctor`, `config set`. Doctor means the config/status diagnostic workflow, not a new command.
 
 Unavailable slash commands: `/plan`, `/effort`, `/skills`, `/a2a`, `/serve`; unavailable mode values: Manual and AcceptEdits. Use `/mode plan` instead.
 
 Unavailable: `peer_send`, `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop`, MCP, cron scheduling, worktree management/rollback, browser integration, skill mutation and remote sandboxes. Internal Rust symbols are not public support claims.
 
-Unavailable web/A2A execution: no CLI listener is shipped. If embedded, `GET /` renders an unavailable notice; `GET /a2a/card` returns an empty capabilities array. `/api/events`, `/api/goal`, `/a2a/tasks`, `/a2a/tasks/{id}`, `/a2a/peer`, `/a2a/inbox/{handle}`, `/health`, `/status` return 503 unavailable, without creating work or reporting success.
+Unavailable web/A2A execution: peer messaging, multi-peer fleets. `GET /a2a/peer`, `/a2a/inbox/{handle}` return 404. `/health`, `/status` return 404.
 
 ## Provider and platform boundaries
 
