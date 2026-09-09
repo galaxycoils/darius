@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 repository.workspace = true
-description = "Unavailable web compatibility surface for Darius"
+description = "Darius web server with CognitiveLoop, SSE, and A2A"
 
 [lib]
 name = "darius_web"
@@ -13,9 +13,17 @@ path = "src/lib.rs"
 [dependencies]
 axum = "0.7"
 tokio = { workspace = true }
+tokio-stream = "0.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
 uuid = { workspace = true }
 futures = "0.3"
 async-stream = "0.3"
 darius-cognitive = { path = "../darius-cognitive" }
+darius-core = { path = "../darius-core" }
+darius-memory = { path = "../darius-memory" }
+darius-tools = { path = "../darius-tools" }
+darius-safety = { path = "../darius-safety" }
+parking_lot = "0.12"
+dirs = "5"
+thiserror = { workspace = true }
