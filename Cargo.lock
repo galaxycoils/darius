@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "darius-bench"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "serde",
@@ -536,9 +536,10 @@ dependencies = [
 
 [[package]]
 name = "darius-cli"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "assert_cmd",
+ "axum",
  "clap",
  "darius-cognitive",
  "darius-core",
@@ -557,6 +558,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "toml",
  "tracing",
@@ -568,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "darius-cognitive"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -586,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "darius-core"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-rlm",
  "harness_e2e",
@@ -601,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "darius-daemon"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -630,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "darius-eval"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "darius-daemon",
@@ -642,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "darius-hashline"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "blake3",
  "darius-core",
@@ -652,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "darius-lsp"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "darius-hashline",
@@ -665,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "darius-memory"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -678,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "darius-rlm"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "pyo3",
@@ -694,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "darius-safety"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "parking_lot",
@@ -705,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skill-parser"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -714,7 +716,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skills"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "darius-core",
  "darius-skill-parser",
@@ -725,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tools"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -744,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tui"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "crossterm",
  "darius-cognitive",
@@ -761,15 +763,23 @@ dependencies = [
 
 [[package]]
 name = "darius-web"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "async-stream",
  "axum",
  "darius-cognitive",
+ "darius-core",
+ "darius-memory",
+ "darius-safety",
+ "darius-tools",
+ "dirs",
  "futures",
+ "parking_lot",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
  "tokio",
+ "tokio-stream",
  "uuid",
 ]
 
@@ -1081,9 +1091,10 @@ dependencies = [
 
 [[package]]
 name = "harness_e2e"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "assert_cmd",
+ "axum",
  "darius-cognitive",
  "darius-core",
  "darius-daemon",
@@ -2666,6 +2677,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 

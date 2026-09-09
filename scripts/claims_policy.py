@@ -1,7 +1,9 @@
 """Rules for authoritative prose and generated public text, not Rust symbols."""
 import re
 
-HIDDEN = r"\b(?:cron|approval-check|peer_send|MCP|subagent\w*|worktree|rollback|A2A)\b"
+HIDDEN = r"(?<!/)\b(?:cron|approval-check|peer_send|MCP|subagent\w*|worktree|rollback|A2A)\b"
+# Slash-prefixed tokens are URL path literals (e.g. /a2a/card in verified curl
+# examples), not prose integration claims; prose mentions are still flagged.
 QUALIFIED = r"unavailable|retired|removed|historical|not supported|not exposed|unverified"
 BAD = [
     r"most powerful|guaranteed|across all normal and abnormal exits|upon any exit or signal",

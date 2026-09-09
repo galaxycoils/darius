@@ -1,6 +1,9 @@
 use super::*;
+mod memory_roundtrip;
 mod permission_keys;
 mod permission_lifecycle;
+mod task_roundtrip;
+mod tool_evidence;
 use darius_cognitive::{MockModel, ModelOutput};
 use darius_tui::{Mode, PermissionChoice, RuntimeCommand};
 use serde_json::json;
@@ -19,6 +22,15 @@ struct Server {
 }
 impl Server {
     fn new(hold_first: bool) -> Self {
+        Self::scripted(
+            hold_first,
+            |_| json!({"role":"assistant","content":"recovered"}),
+        )
+    }
+    fn scripted(
+        hold_first: bool,
+        respond: impl Fn(serde_json::Value) -> serde_json::Value + Send + 'static,
+    ) -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
@@ -59,13 +71,12 @@ impl Server {
                     .unwrap();
                 let mut body = vec![0; length];
                 socket.read_exact(&mut body).unwrap();
-                tx.send(serde_json::from_slice(&body).unwrap()).unwrap();
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                tx.send(request.clone()).unwrap();
                 if hold_first && index == 0 {
                     held = Some(socket);
                 } else {
-                    let body =
-                        json!({"choices":[{"message":{"role":"assistant","content":"recovered"}}]})
-                            .to_string();
+                    let body = json!({"choices":[{"message":respond(request)}]}).to_string();
                     write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
                 }
                 index += 1;

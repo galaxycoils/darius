@@ -23,6 +23,7 @@ mod runtime_selection;
 mod runtime_selector;
 mod safety;
 pub mod tui_runtime;
+pub mod web_bridge;
 
 pub use config::ProfileConfig;
 pub use config_error::ConfigError;
@@ -66,7 +67,9 @@ pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> 
         Some(Command::Run { goal }) => cmd_run(goal, &profile, cwd.as_deref(), offline),
         Some(Command::Config { command }) => cmd_config(command, &profile, cwd.as_deref()),
         Some(Command::Memory { command }) => cmd_memory(command, &profile, cwd.as_deref()),
-        Some(Command::Serve { host, port }) => cmd_serve(host, port),
+        Some(Command::Serve { host, port }) => {
+            cmd_serve(host, port, &profile, cwd.as_deref(), offline)
+        }
         None if io.stdin_is_terminal && io.stdout_is_terminal => {
             cmd_tui(&profile, cwd.as_deref(), offline)
         }
@@ -298,9 +301,17 @@ pub fn check_approval(tool: &str, args_val: &serde_json::Value) -> (bool, String
     )
 }
 
-fn cmd_serve(host: String, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_serve(
+    host: String,
+    port: u16,
+    profile: &str,
+    cwd: Option<&Path>,
+    offline: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
+    let state = web_bridge::server_state(paths, profile.to_owned(), offline)
+        .map_err(std::io::Error::other)?;
     crate::runtime::block_on_turn(async {
-        let (state, _events) = darius_web::ServerState::new();
         let router = darius_web::create_router(state);
         let addr = format!("{host}:{port}");
         let listener = tokio::net::TcpListener::bind(&addr).await?;

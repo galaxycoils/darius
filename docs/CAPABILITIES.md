@@ -1,12 +1,12 @@
 # Darius capability inventory
 
-Scope: v1.2.1 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
+Scope: v1.3.0 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
 
 ## Verified local contracts
 
 | Surface and claim boundary | Status | Named proof |
 | --- | --- | --- |
-| Generated top-level CLI exposes only tui/run/config/memory | **Verified** | [`public_help_is_exact_generated_surface`](../crates/darius-cli/tests/cli_contract.rs) |
+| Generated top-level CLI exposes tui/run/config/memory/serve | **Verified** | [`public_help_is_exact_generated_surface`](../crates/darius-cli/tests/cli_contract.rs) |
 | Version flags report the package version | **Verified** | [`version_flags_print_the_current_package_version`](../crates/darius-cli/tests/cli_contract.rs) |
 | Global --profile/--cwd/--offline parse before and after commands | **Verified** | [`globals_parse_before_and_after_subcommand`](../crates/darius-cli/tests/cli_contract.rs) |
 | Removed CLI tokens fail with exit 2 | **Verified** | [`parse_errors_unknown_and_legacy_commands_exit_two`](../crates/darius-cli/tests/cli_contract.rs) |
@@ -26,11 +26,15 @@ Scope: v1.2.1 release. Verified means the narrowly described local contract has 
 | Mock model TUI agent journey with truthful offline status | **Verified** | [`full_agent_journey_mock`](../crates/darius-cli/tests/tui_pty.rs) |
 | Exhaustive slash command handling across all 13 canonical commands | **Verified** | [`slash_command_execution_semantic_table_all_13_commands`](../crates/darius-cli/src/tui_runtime/tests.rs) |
 | Tool events paired and rendered in session transcript | **Verified** | [`tool_events_appear_in_session_transcript`](../crates/darius-tui/src/app.rs) |
-| Web server serves goals, SSE events, and A2A tasks | **Verified** | [`web_server_serves_goal_sse_and_a2a`](../crates/darius-web/src/lib.rs) |
+| Web goal execution, correlated SSE, and task completion | **Verified** | [`goal_post_streams_correlated_sse_until_done`](../crates/darius-web/tests/transport.rs), [`failed_execution_reports_failed_task_and_error_sse`](../crates/darius-web/tests/transport.rs), [`web_executor_runs_agent_loop_with_real_tool_result`](../crates/darius-cli/tests/web_execute.rs), [`missing_executor_never_claims_execution`](../crates/darius-web/tests/public_claims.rs) |
+| Agent `search_files` via local fake provider, real path in tool result | **Verified** | [`test_run_search_files_goal_succeeds`](../crates/darius-cli/tests/run_fixtures/search.rs) |
+| Approved agent `memory_remember` persists; `memory_search` recalls it | **Verified** | [`tui_memory_tools_roundtrip_persists_approved_record`](../crates/darius-cli/src/tui_runtime/tests/memory_roundtrip.rs) |
+| Agent task board completes the actually returned task id | **Verified** | [`tui_task_board_tools_complete_actual_returned_id`](../crates/darius-cli/src/tui_runtime/tests/task_roundtrip.rs) |
+| `spill_read` recalls the marker beyond the real preview ceiling | **Verified** | [`spill_read_recalls_marker_beyond_real_preview_ceiling`](../crates/darius-tools/tests/spill_roundtrip.rs) |
 
 ## Retained surfaces and policy
 
-CLI: `tui`, `run <goal...>`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable.
+CLI: `tui`, `run <goal...>`, `serve`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable. `serve` binds loopback by default and refuses to execute when no live provider is configured; offline demo never executes goals.
 
 Slash registry: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`. `/model` opens an interactive picker or selects from catalog. Auto gates mutating/shell tools on approval; Plan denies them. This is a tool policy, not a process sandbox or a guarantee that session storage is never written.
 
@@ -44,7 +48,7 @@ Unavailable slash commands: `/plan`, `/effort`, `/skills`, `/a2a`, `/serve`; una
 
 Unavailable: `peer_send`, `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop`, MCP, cron scheduling, worktree management/rollback, browser integration, skill mutation and remote sandboxes. Internal Rust symbols are not public support claims.
 
-Unavailable web/A2A execution: peer messaging, multi-peer fleets. `GET /a2a/peer`, `/a2a/inbox/{handle}` return 404. `/health`, `/status` return 404.
+Web execution is executor-gated: without an injected runtime the router answers 503 and advertises no capabilities. With the CLI runtime, goals run the same policy-aware agent loop as `run`, headless mutations are denied, and per-task SSE replays the journal to a terminal event. Unavailable: peer messaging and multi-peer fleets. `GET /a2a/peer`, `/a2a/inbox/{handle}` return 404. `/health`, `/status` return 404.
 
 ## Provider and platform boundaries
 

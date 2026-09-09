@@ -1,6 +1,6 @@
-# Darius v1.2.1
+# Darius v1.3.0
 
-Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, and SQLite memory. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
+Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, SQLite memory, and a loopback web server. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
 
 ## Build and launch
 
@@ -10,7 +10,7 @@ cargo build --release -p darius-cli
 ./target/release/darius tui
 ```
 
-An unconfigured launch shows setup guidance, not simulated analysis. Prebuilt assets and the source installer require separate release verification; this checkout does not establish that v1.2.0 has been published. See [capabilities](docs/CAPABILITIES.md).
+An unconfigured launch shows setup guidance, not simulated analysis. Prebuilt assets and the source installer require separate release verification; this checkout does not establish that a release has been published. See [capabilities](docs/CAPABILITIES.md).
 
 ## Configure a provider
 
@@ -39,11 +39,30 @@ Auto runs read-only tools and asks before mutating tools or shell execution. Pla
 
 The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, and `/quit`. `/model` opens an interactive picker or selects from catalog; `/mode auto` and `/mode plan` change policy. See [operating guidance](docs/TROUBLESHOOTING.md).
 
-The CLI exposes `tui`, `run <goal>`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
+The CLI exposes `tui`, `run <goal>`, `serve`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
+
+## Serve goals over HTTP
+
+`darius serve` binds `127.0.0.1:7432` by default and runs the same policy-aware agent loop as `run`. It refuses to start without a live provider; `--offline` never executes goals. Headless web execution denies mutating tools, so approve writes and shell work in the TUI instead.
+
+```sh
+./target/release/darius serve &
+curl -s http://127.0.0.1:7432/a2a/card
+curl -s -X POST http://127.0.0.1:7432/api/goal \
+  -H 'Content-Type: application/json' \
+  -d '{"goal":"summarize this repository"}'
+curl -N 'http://127.0.0.1:7432/api/events?task_id=<id-from-goal-response>'
+curl -s -X POST http://127.0.0.1:7432/a2a/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"goal":"summarize this repository"}'
+curl -s http://127.0.0.1:7432/a2a/tasks/<id>
+```
+
+Without a configured provider the server exits with an error instead of simulating work. Event streams replay the per-task journal, so a slow client still sees every event up to the terminal `Done` or `Error`.
 
 ## Corrected prior claims
 
-Earlier v1.1.2 and v1.2.0 draft claims for MCP, subagent orchestration, cron, approval-check, peer_send, worktree rollback, web execution and A2A are retired and unavailable. The compatibility web router exposes no executable capabilities or active goal controls. Historical corrections are recorded in [CHANGELOG.md](CHANGELOG.md).
+Earlier v1.1.2 and v1.2.0 draft claims for MCP, subagent orchestration, cron, approval-check, peer_send, worktree rollback, and peer messaging fleets are retired and unavailable. The web router without an injected runtime exposes no executable capabilities. Historical corrections are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Verify this checkout
 

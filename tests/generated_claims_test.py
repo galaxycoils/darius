@@ -11,7 +11,7 @@ class GeneratedClaimsTests(unittest.TestCase):
     def result(self, command, **kwargs):
         key = tuple(command[1:])
         outputs = {
-            ('--help',): 'Commands:\n  tui \n  run \n  config \n  memory \n\nOptions:',
+            ('--help',): 'Commands:\n  tui \n  run \n  config \n  memory \n  serve \n\nOptions:',
             ('config', '--help'): 'Commands:\n  show \n  init \n  preset \n\nOptions:',
             ('memory', '--help'): 'Commands:\n  search \n  pack \n  import \n  export \n  stats \n\nOptions:',
             ('config', 'show'): 'Runtime state: setup\nMemory: unavailable\nProvider URL: not configured',

@@ -50,11 +50,8 @@ if [ ! -f "$RELEASE_DIR/darius" ]; then
     exit 1
 fi
 
-# 2. Ensure tarball exists (create via pack-release.sh if needed)
-if [ ! -f "$TARBALL" ] || [ ! -f "$CHECKSUM" ]; then
-    echo "Tarball or checksum missing. Creating..."
-    bash "$REPO_ROOT/scripts/pack-release.sh"
-fi
+# 2. Always package the binary under test; never validate a stale archive.
+bash "$REPO_ROOT/scripts/pack-release.sh"
 
 echo "Tarball: $TARBALL"
 echo "Checksum: $(cat "$CHECKSUM")"

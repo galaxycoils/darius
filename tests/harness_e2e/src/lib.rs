@@ -557,15 +557,36 @@ mod tests {
 
     #[tokio::test]
     async fn e2e_peer_a2a_messaging_matrix() {
-        let (state, _) = darius_web::ServerState::new();
-        let _router = darius_web::create_router(state);
+        // Without an injected executor no execution capability is advertised.
+        let (bare_state, _) = darius_web::ServerState::new();
+        let _router = darius_web::create_router(bare_state);
+        let bare_card = darius_web::agent_card();
+        assert!(bare_card.capabilities.is_empty());
 
-        // Verify card indicates web execution/A2A are available
-        let card = darius_web::agent_card();
-        assert!(!card.capabilities.is_empty());
-        assert!(card.capabilities.contains(&"cognitive_loop".to_string()));
-        assert!(card.capabilities.contains(&"memory_search".to_string()));
-        assert!(card.capabilities.contains(&"tool_execution".to_string()));
-        assert!(card.capabilities.contains(&"task_board".to_string()));
+        // With an executor the card advertises exactly the transport capabilities.
+        let executor: darius_web::GoalExecutor =
+            std::sync::Arc::new(|goal, _sink| Ok(format!("executed: {goal}")));
+        let exec_state = darius_web::ServerState::with_executor(executor);
+        let router = darius_web::create_router(exec_state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let body = http_get(address, "/a2a/card").await;
+        let card: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            card["capabilities"],
+            serde_json::json!(["goal_execution", "task_lookup", "task_sse"])
+        );
+    }
+
+    async fn http_get(address: std::net::SocketAddr, path: &str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+        let wire = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        socket.write_all(wire.as_bytes()).await.unwrap();
+        let mut bytes = Vec::new();
+        socket.read_to_end(&mut bytes).await.unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        text.split("\r\n\r\n").nth(1).unwrap_or("").to_owned()
     }
 }

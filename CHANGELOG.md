@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0] - 2026-09-09
+
+### Added
+- `darius serve` CLI subcommand on `127.0.0.1:7432` by default: executor-gated web execution running the same policy-aware agent loop as `run`, with per-task SSE journals, task lookup, and an executor-gated agent card.
+- Agent tool evidence: `search_files` result correlation, approved `memory_remember`/`memory_search` roundtrip with persisted record, task board completion of the returned id, and `spill_read` recall beyond the preview ceiling.
+- Staged installer path: `scripts/pack-release.sh` plus `tests/install_staged_e2e.sh` repacking the current release binary on every run.
+- README quickstart for build, provider config, TUI approvals, and serve curl examples.
+
+### Corrected
+- Web execution without a configured live provider refuses instead of simulating work; offline demo never executes goals.
+- Headless web execution denies mutating tools; writes and shell work stay on the TUI approval surface.
+- Capability rows promote only surfaces with named executable proof in the same checkout.
+
 ## [1.2.1] - 2026-09-08
 
 ### Fixed

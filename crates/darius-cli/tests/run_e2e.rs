@@ -1,5 +1,7 @@
 #[path = "run_fixtures/http.rs"]
 mod http_fixture;
+#[path = "run_fixtures/search.rs"]
+mod search;
 mod support;
 
 use assert_cmd::Command as AssertCommand;
@@ -309,7 +311,7 @@ fn test_memory_cli_lifecycle() {
 }
 
 #[test]
-fn test_run_memory_tools_roundtrip() {
+fn test_run_memory_remember_denied_without_persistence() {
     let ctx = TestContext::new();
     let provider = FakeProvider::start();
     let key_env = "DARIUS_RUN_KEY";
@@ -324,14 +326,6 @@ fn test_run_memory_tools_roundtrip() {
         serde_json::json!({"body": "AGENT_MEM_UNIQUE_RS", "kind": "fact", "title": "Memory Test"}),
     );
     provider.push_text("remember attempted");
-
-    // Turn 2: memory_search (read-only, should succeed)
-    provider.push_tool_call(
-        "call-search",
-        "memory_search",
-        serde_json::json!({"text": "AGENT_MEM_UNIQUE_RS"}),
-    );
-    provider.push_text("search complete");
 
     let mut cmd = ctx.command();
     cmd.env(key_env, key_val)
@@ -361,14 +355,13 @@ fn test_run_memory_tools_roundtrip() {
         "memory_remember should be denied in headless: {messages:?}"
     );
 
-    // Verify memory.db was NOT written to (remember was denied)
-    let db_path = ctx.home.path().join("profiles/default/memory.db");
-    if db_path.exists() {
-        let content = std::fs::read_to_string(&db_path).unwrap_or_default();
-        assert!(!content.contains("AGENT_MEM_UNIQUE_RS"), "memory_remember was denied, unique body should not be in db");
-    }
+    let profile = ctx.home.path().join("profiles/default");
+    assert!(profile.join("memory.db").is_file());
+    let memory = darius_memory::MemoryEngine::open(&profile).unwrap();
+    assert_eq!(memory.record_count().unwrap(), 0);
+    provider.assert_clean();
 
-    ctx.assert_clean_home("test_run_memory_tools_roundtrip");
+    ctx.assert_clean_home("test_run_memory_remember_denied_without_persistence");
 }
 
 fn assert_provider_failure(response: Option<(u16, String)>, category: &[&str], action: &[&str]) {

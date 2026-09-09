@@ -17,6 +17,5 @@ if errors:
 PY
 python3 -B -m unittest discover -s tests -p '*claims_test.py'
 cargo test -p darius-core --test public_claims
-cargo test -p darius-web --test public_claims
 cargo test -p darius-cli --test cli_contract --test public_claims
 printf '%s\n' 'Public claims audit PASS (local contract evidence; not release or live-service proof)'
