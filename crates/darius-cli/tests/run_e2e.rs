@@ -308,6 +308,69 @@ fn test_memory_cli_lifecycle() {
     ctx.assert_clean_home("test_memory_cli_lifecycle");
 }
 
+#[test]
+fn test_run_memory_tools_roundtrip() {
+    let ctx = TestContext::new();
+    let provider = FakeProvider::start();
+    let key_env = "DARIUS_RUN_KEY";
+    let key_val = "run-secret-123";
+
+    ctx.write_profile_config("default", provider.url(), key_env);
+
+    // Turn 1: memory_remember (mutating, denied in headless)
+    provider.push_tool_call(
+        "call-remember",
+        "memory_remember",
+        serde_json::json!({"body": "AGENT_MEM_UNIQUE_RS", "kind": "fact", "title": "Memory Test"}),
+    );
+    provider.push_text("remember attempted");
+
+    // Turn 2: memory_search (read-only, should succeed)
+    provider.push_tool_call(
+        "call-search",
+        "memory_search",
+        serde_json::json!({"text": "AGENT_MEM_UNIQUE_RS"}),
+    );
+    provider.push_text("search complete");
+
+    let mut cmd = ctx.command();
+    cmd.env(key_env, key_val)
+        .arg("run")
+        .arg("remember and then search for AGENT_MEM_UNIQUE_RS");
+
+    let assert = cmd.assert().failure().code(1);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("Mutation denied") || stderr.contains("denied"),
+        "expected mutation denial, got: {stderr}"
+    );
+
+    let requests = provider.recorded_requests();
+    assert_eq!(requests.len(), 2, "remember denied, no further turns");
+
+    // Verify memory_remember was denied (mutating in headless)
+    let messages = requests[1].body["messages"].as_array().unwrap();
+    assert!(
+        messages.iter().any(|message| {
+            message["role"] == "tool"
+                && message["tool_call_id"] == "call-remember"
+                && message["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("denied") || text.contains("approval"))
+        }),
+        "memory_remember should be denied in headless: {messages:?}"
+    );
+
+    // Verify memory.db was NOT written to (remember was denied)
+    let db_path = ctx.home.path().join("profiles/default/memory.db");
+    if db_path.exists() {
+        let content = std::fs::read_to_string(&db_path).unwrap_or_default();
+        assert!(!content.contains("AGENT_MEM_UNIQUE_RS"), "memory_remember was denied, unique body should not be in db");
+    }
+
+    ctx.assert_clean_home("test_run_memory_tools_roundtrip");
+}
+
 fn assert_provider_failure(response: Option<(u16, String)>, category: &[&str], action: &[&str]) {
     let ctx = TestContext::new();
     let provider = http_fixture::HttpFixture::start(response);
