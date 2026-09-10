@@ -257,3 +257,102 @@ fn execution_policy_plan_denies_before_permission_and_readonly_runs() {
     ));
     h.shutdown();
 }
+
+#[test]
+fn tui_allow_once_write_file_creates_disk_file() {
+    let mut h = Harness::new(
+        "http://127.0.0.1:1",
+        Some(vec![write("allowed_out.txt", "WRITE_OK_MARKER"), text()]),
+    );
+    h.submit("write it");
+    h.permit(PermissionChoice::AllowOnce);
+    h.done(false);
+    assert_eq!(
+        std::fs::read_to_string(h.temp.path().join("allowed_out.txt")).unwrap(),
+        "WRITE_OK_MARKER"
+    );
+    h.shutdown();
+}
+
+#[test]
+fn tui_deny_write_leaves_no_file() {
+    let mut h = Harness::new(
+        "http://127.0.0.1:1",
+        Some(vec![write("denied.txt", "no"), text()]),
+    );
+    h.submit("write it");
+    h.permit(PermissionChoice::Deny);
+    h.done(false);
+    assert!(!h.temp.path().join("denied.txt").exists());
+    h.shutdown();
+}
+
+#[test]
+fn tui_allow_once_shell_echo_appears_in_tool_result() {
+    let mut h = Harness::new(
+        "http://127.0.0.1:1",
+        Some(vec![
+            call("shell", json!({"command":"echo SHELL_OK_TOKEN"})),
+            text(),
+        ]),
+    );
+    h.submit("run it");
+    let events = h.until(|e| matches!(e, UiEvent::PermissionRequired { .. }));
+    let UiEvent::PermissionRequired { id, .. } = events.last().unwrap() else {
+        unreachable!()
+    };
+    h.commands
+        .send(RuntimeCommand::ResolvePermission {
+            id: id.clone(),
+            choice: PermissionChoice::AllowOnce,
+        })
+        .unwrap();
+    let events = h.until(|e| matches!(e, UiEvent::ToolEnd { .. }));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        UiEvent::ToolEnd {
+            ok: true,
+            preview,
+            ..
+        } if preview.contains("SHELL_OK_TOKEN")
+    )));
+    h.done(false);
+    h.shutdown();
+}
+
+#[test]
+fn tui_allow_session_shell_exact_command_caches_and_different_reprompts() {
+    let mut h = Harness::new(
+        "http://127.0.0.1:1",
+        Some(vec![
+            call(
+                "shell",
+                json!({"command":"printf first > shell_session.txt"}),
+            ),
+            text(),
+            call(
+                "shell",
+                json!({"command":"printf first > shell_session.txt"}),
+            ),
+            text(),
+            call(
+                "shell",
+                json!({"command":"printf second > shell_session.txt"}),
+            ),
+            text(),
+        ]),
+    );
+    h.submit("run first shell");
+    h.permit(PermissionChoice::AllowSession);
+    h.done(false);
+    h.submit("run first shell again");
+    completed(&mut h);
+    h.submit("run different shell");
+    h.permit(PermissionChoice::Deny);
+    h.done(false);
+    assert_eq!(
+        std::fs::read_to_string(h.temp.path().join("shell_session.txt")).unwrap(),
+        "first"
+    );
+    h.shutdown();
+}
