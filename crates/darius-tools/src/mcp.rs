@@ -4,10 +4,14 @@ use crate::{ToolCall, ToolOutcome, ToolRegistry, ToolRisk};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 use thiserror::Error;
-
 #[derive(Debug, Error)]
 pub enum McpError {
     #[error("mcp server error: {0}")]
@@ -148,6 +152,321 @@ impl McpClient for LocalMcpClient {
             preview: format!("MCP[{name}] called with args: {arguments}"),
             spilled_path: None,
         })
+    }
+}
+
+struct StdioTransport {
+    child: Child,
+    stdin: ChildStdin,
+    stdout_rx: Receiver<String>,
+    next_id: u64,
+}
+
+impl StdioTransport {
+    fn request(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, McpError> {
+        self.next_id += 1;
+        let id = self.next_id;
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+        writeln!(self.stdin, "{req}")
+            .map_err(|e| McpError::Transport(format!("failed to write to stdin: {e}")))?;
+        self.stdin
+            .flush()
+            .map_err(|e| McpError::Transport(format!("failed to flush stdin: {e}")))?;
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(McpError::Timeout(timeout));
+            }
+            match self.stdout_rx.recv_timeout(remaining) {
+                Ok(line) => {
+                    let val: serde_json::Value = serde_json::from_str(&line)
+                        .map_err(|e| McpError::Parse(format!("invalid JSON from MCP stdout: {e}")))?;
+                    if val.get("id").and_then(|v| v.as_u64()) == Some(id) {
+                        if let Some(err) = val.get("error") {
+                            let msg = err
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("unknown error");
+                            return Err(McpError::Server(msg.to_string()));
+                        }
+                        if let Some(res) = val.get("result") {
+                            return Ok(res.clone());
+                        }
+                        return Ok(val);
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(McpError::Timeout(timeout));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(McpError::Transport(
+                        "MCP child closed stdout unexpectedly".into(),
+                    ));
+                }
+            }
+        }
+    }
+
+    fn notify(&mut self, method: &str, params: serde_json::Value) -> Result<(), McpError> {
+        let notif = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        writeln!(self.stdin, "{notif}")
+            .map_err(|e| McpError::Transport(format!("failed to write notification: {e}")))?;
+        self.stdin
+            .flush()
+            .map_err(|e| McpError::Transport(format!("failed to flush notification: {e}")))?;
+        Ok(())
+    }
+}
+
+impl Drop for StdioTransport {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// A real child-process stdio MCP client implementing `McpClient`.
+pub struct StdioMcpClient {
+    transport: Arc<Mutex<StdioTransport>>,
+    spill_dir: PathBuf,
+    default_timeout: Duration,
+}
+
+impl StdioMcpClient {
+    pub fn connect(cfg: &McpTransportConfig, timeout: Duration) -> Result<Self, McpError> {
+        let (command, args, env) = match cfg {
+            McpTransportConfig::Stdio { command, args, env } => (command, args, env),
+            McpTransportConfig::Sse { .. } => {
+                return Err(McpError::Transport(
+                    "SSE transport not supported for StdioMcpClient".into(),
+                ));
+            }
+        };
+
+        let mut cmd = Command::new(command);
+        cmd.args(args);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| McpError::Transport(format!("failed to spawn '{command}': {e}")))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| McpError::Transport("stdin unavailable".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| McpError::Transport("stdout unavailable".into()))?;
+        let stderr = child.stderr.take();
+
+        let (tx, stdout_rx) = channel();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() && tx.send(trimmed).is_err() {
+                    break;
+                }
+                line.clear();
+            }
+        });
+
+        if let Some(stderr) = stderr {
+            thread::spawn(move || {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    line.clear();
+                }
+            });
+        }
+
+        let mut transport = StdioTransport {
+            child,
+            stdin,
+            stdout_rx,
+            next_id: 0,
+        };
+
+        let init_params = serde_json::json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "darius",
+                "version": "1.4.0"
+            }
+        });
+        let _ = transport.request("initialize", init_params, timeout)?;
+        let _ = transport.notify("notifications/initialized", serde_json::json!({}));
+
+        let spill_dir =
+            std::env::temp_dir().join(format!("darius_mcp_spill_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&spill_dir);
+
+        Ok(Self {
+            transport: Arc::new(Mutex::new(transport)),
+            spill_dir,
+            default_timeout: timeout,
+        })
+    }
+
+    pub fn with_spill_dir(mut self, spill_dir: PathBuf) -> Self {
+        self.spill_dir = spill_dir;
+        self
+    }
+
+    pub fn shutdown(&self) -> Result<(), McpError> {
+        let mut t = self.transport.lock();
+        let _ = t.child.kill();
+        let _ = t.child.wait();
+        Ok(())
+    }
+
+    pub fn ping(&self, timeout: Duration) -> Result<HealthStatus, McpError> {
+        <Self as McpClient>::ping(self, timeout)
+    }
+
+    pub fn list_tools(&self) -> Result<Vec<McpToolDef>, McpError> {
+        <Self as McpClient>::list_tools(self)
+    }
+
+    pub fn call_tool(
+        &self,
+        name: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<ToolOutcome, McpError> {
+        <Self as McpClient>::call_tool(self, name, arguments)
+    }
+}
+
+impl McpClient for StdioMcpClient {
+    fn ping(&self, timeout: Duration) -> Result<HealthStatus, McpError> {
+        if timeout.as_secs() == 0 && timeout.subsec_nanos() == 0 {
+            return Err(McpError::Timeout(timeout));
+        }
+        let mut t = self.transport.lock();
+        if let Ok(Some(_)) = t.child.try_wait() {
+            return Ok(HealthStatus::Unreachable("child process exited".into()));
+        }
+        match t.request("ping", serde_json::json!({}), timeout) {
+            Ok(_) => Ok(HealthStatus::Healthy),
+            Err(McpError::Timeout(d)) => Err(McpError::Timeout(d)),
+            Err(_) => {
+                if let Ok(None) = t.child.try_wait() {
+                    Ok(HealthStatus::Healthy)
+                } else {
+                    Ok(HealthStatus::Unreachable("server unreachable".into()))
+                }
+            }
+        }
+    }
+
+    fn list_tools(&self) -> Result<Vec<McpToolDef>, McpError> {
+        let mut t = self.transport.lock();
+        let res = t.request("tools/list", serde_json::json!({}), self.default_timeout)?;
+        let mut list = Vec::new();
+        if let Some(tools) = res.get("tools").and_then(|t| t.as_array()) {
+            for tool in tools {
+                let name = tool
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let description = tool
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let input_schema = tool
+                    .get("inputSchema")
+                    .or_else(|| tool.get("input_schema"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({"type": "object"}));
+                let requires_prior_success = tool
+                    .get("requires_prior_success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                list.push(McpToolDef {
+                    name,
+                    description,
+                    input_schema,
+                    requires_prior_success,
+                });
+            }
+        }
+        list.truncate(64);
+        Ok(list)
+    }
+
+    fn call_tool(
+        &self,
+        name: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<ToolOutcome, McpError> {
+        let mut t = self.transport.lock();
+        let res = t.request(
+            "tools/call",
+            serde_json::json!({"name": name, "arguments": arguments}),
+            self.default_timeout,
+        )?;
+        let text = if let Some(arr) = res.get("content").and_then(|c| c.as_array()) {
+            let mut parts = Vec::new();
+            for block in arr {
+                if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
+                    parts.push(t.to_string());
+                } else {
+                    parts.push(block.to_string());
+                }
+            }
+            parts.join("\n")
+        } else if let Some(t) = res.get("text").and_then(|v| v.as_str()) {
+            t.to_string()
+        } else {
+            res.to_string()
+        };
+
+        let outcome = if text.len() > crate::spec::SPILL_CEILING {
+            let _ = std::fs::create_dir_all(&self.spill_dir);
+            let path = self
+                .spill_dir
+                .join(format!("tool_result_{}.txt", uuid::Uuid::new_v4()));
+            let _ = std::fs::write(&path, &text);
+            ToolOutcome::Ok {
+                preview: crate::spec::truncate_preview(&text, crate::spec::SPILL_CEILING),
+                spilled_path: Some(path),
+            }
+        } else {
+            ToolOutcome::Ok {
+                preview: text,
+                spilled_path: None,
+            }
+        };
+
+        Ok(outcome)
     }
 }
 
