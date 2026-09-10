@@ -1,5 +1,6 @@
 use super::*;
-use darius_tui::{Action, AppState, Effect};
+use darius_cognitive::DiffKind;
+use darius_tui::{Action, AppState, DiffLineKind, Effect, TranscriptItem};
 #[test]
 fn mode_runtime_change_updates_ui_and_next_submission_mode() {
     let mut state = AppState::default();
@@ -354,5 +355,43 @@ fn tui_allow_session_shell_exact_command_caches_and_different_reprompts() {
         std::fs::read_to_string(h.temp.path().join("shell_session.txt")).unwrap(),
         "first"
     );
+    h.shutdown();
+}
+
+#[test]
+fn tui_write_diff_appears_in_transcript_on_overwrite() {
+    let mut h = Harness::new(
+        "http://127.0.0.1:1",
+        Some(vec![write("diff_target.txt", "new\ncontent\nhere"), text()]),
+    );
+    std::fs::write(
+        h.temp.path().join("diff_target.txt"),
+        "original\ncontent\nhere",
+    )
+    .unwrap();
+    h.submit("overwrite it");
+    h.permit(PermissionChoice::AllowOnce);
+    let events = h.until(|e| matches!(e, UiEvent::Done));
+    assert!(!events.iter().any(|e| matches!(e, UiEvent::Error { .. })));
+    let diff = events.iter().find(|e| matches!(e, UiEvent::Diff { .. }));
+    assert!(diff.is_some(), "expected UiEvent::Diff on overwrite");
+    let UiEvent::Diff { file, lines, .. } = diff.unwrap() else {
+        unreachable!()
+    };
+    assert!(file.ends_with("diff_target.txt"));
+    assert!(!lines.is_empty());
+    assert!(lines
+        .iter()
+        .any(|l| l.kind == DiffKind::Delete && l.text.contains("original")));
+    assert!(lines
+        .iter()
+        .any(|l| l.kind == DiffKind::Add && l.text.contains("new")));
+
+    let mut state = AppState::default();
+    state.apply_event(diff.unwrap().clone());
+    assert!(matches!(
+        state.transcript.last(),
+        Some(TranscriptItem::Diff { diff }) if diff.lines.iter().any(|l| l.kind == DiffLineKind::Add && l.text.contains("new"))
+    ));
     h.shutdown();
 }
