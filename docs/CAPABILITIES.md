@@ -65,7 +65,7 @@ Web execution is executor-gated: without an injected runtime the router answers 
 
 OpenAI-compatible wire behavior is tested with local fake providers. Credentialed OpenAI, OpenRouter, Groq, Ollama, native Anthropic, automatic failover and role-model overrides are not verified integrations. A `live` diagnostic means configuration/key selection, not a connectivity or health probe. Only `--offline` selects the demo. See [setup and diagnostics](TROUBLESHOOTING.md).
 
-Release target naming: `macos-x86_64`, `macos-aarch64`, `linux-x86_64`, `linux-aarch64`. Historical `darwin-x86_64`/`darwin-aarch64` names are not current asset names. Published assets, credentialed downloads, cross-platform installation and Windows support are unavailable as claims from this local audit. Local installer tests are not publication evidence.
+Release target naming: `macos-x86_64`, `macos-aarch64`, `linux-x86_64`. Historical `darwin-x86_64`/`darwin-aarch64` names are not current asset names. Published assets, credentialed downloads, cross-platform installation and Windows support are unavailable as claims from this local audit. Local installer tests are not publication evidence.
 
 ## Audit boundary
 

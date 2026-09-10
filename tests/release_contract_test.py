@@ -31,5 +31,14 @@ class ReleaseContractTests(unittest.TestCase):
         evidence = (ROOT / "scripts/release-evidence.py").read_text()
         self.assertIn('provenance(repo, args.tag, args.baseline, args.wu_shas)', evidence)
 
+    def test_release_matrix_targets_match_capabilities(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        capabilities = (ROOT / "docs/CAPABILITIES.md").read_text()
+        expected_targets = {"linux-x86_64", "macos-aarch64", "macos-x86_64"}
+        for target in expected_targets:
+            self.assertIn(f"darius-{target}", workflow)
+            self.assertIn(f"`{target}`", capabilities)
+        self.assertNotIn("`linux-aarch64`", capabilities)
+
 if __name__ == "__main__":
     unittest.main()
