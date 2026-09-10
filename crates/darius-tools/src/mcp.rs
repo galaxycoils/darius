@@ -29,6 +29,7 @@ pub enum McpTransportConfig {
     #[serde(rename = "stdio")]
     Stdio {
         command: String,
+        #[serde(default)]
         args: Vec<String>,
         #[serde(default)]
         env: HashMap<String, String>,
@@ -39,6 +40,16 @@ pub enum McpTransportConfig {
         #[serde(default)]
         headers: HashMap<String, String>,
     },
+}
+
+/// Config entry for an MCP server, flattening transport options and metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpServerEntry {
+    pub name: String,
+    #[serde(flatten)]
+    pub transport: McpTransportConfig,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 /// Metadata for an MCP tool definition.

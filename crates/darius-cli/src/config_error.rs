@@ -23,4 +23,10 @@ pub enum ConfigError {
     Write(#[source] std::io::Error),
     #[error("could not serialize profile configuration")]
     Serialize,
+    #[error("MCP server name is invalid: '{0}' (must be non-empty and match [a-zA-Z0-9_-]+)")]
+    InvalidMcpServerName(String),
+    #[error("MCP server command must not be empty for server '{0}'")]
+    EmptyMcpServerCommand(String),
+    #[error("MCP server URL is invalid for server '{0}'")]
+    InvalidMcpServerUrl(String),
 }

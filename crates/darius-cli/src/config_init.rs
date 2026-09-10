@@ -80,6 +80,7 @@ pub fn initialize_profile(
             api_key_env: metadata.api_key_env.clone(),
         }),
         model_overrides: HashMap::new(),
+        ..Default::default()
     };
     config.validate()?;
     let content = toml::to_string(&config).map_err(|_| ConfigError::Serialize)?;

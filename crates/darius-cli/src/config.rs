@@ -2,15 +2,26 @@
 
 use crate::config_error::ConfigError;
 use crate::paths::DariusPaths;
+use darius_tools::{McpServerEntry, McpTransportConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub servers: Vec<McpServerEntry>,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ProfileConfig {
     pub model: Option<ModelConfig>,
     #[serde(default)]
     pub model_overrides: HashMap<String, String>,
+    #[serde(default)]
+    pub mcp: McpConfig,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -28,12 +39,16 @@ impl ProfileConfig {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(&path).map_err(ConfigError::Read)?;
-        let config: Self =
+        let mut config: Self =
             toml::from_str(&content).map_err(|_| ConfigError::InvalidToml { path })?;
+        if config.mcp_servers.is_empty() && !config.mcp.servers.is_empty() {
+            config.mcp_servers = config.mcp.servers.clone();
+        } else if !config.mcp_servers.is_empty() && config.mcp.servers.is_empty() {
+            config.mcp.servers = config.mcp_servers.clone();
+        }
         config.validate()?;
         Ok(config)
     }
-
     pub fn config_path(paths: &DariusPaths, profile: &str) -> Result<PathBuf, ConfigError> {
         Ok(paths.profile(profile)?.join("config.toml"))
     }
@@ -70,26 +85,57 @@ impl ProfileConfig {
             .or_else(|| self.model.as_ref().map(|model| model.model.clone()))
     }
 
+    pub fn mcp_servers(&self) -> Vec<McpServerEntry> {
+        if !self.mcp.servers.is_empty() {
+            self.mcp.servers.clone()
+        } else {
+            self.mcp_servers.clone()
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
-        let Some(model) = &self.model else {
-            return Ok(());
-        };
-        if model.provider.trim().is_empty() {
-            return Err(ConfigError::EmptyProvider);
+        if let Some(model) = &self.model {
+            if model.provider.trim().is_empty() {
+                return Err(ConfigError::EmptyProvider);
+            }
+            if model.model.trim().is_empty() {
+                return Err(ConfigError::EmptyModel);
+            }
+            let url = url::Url::parse(&model.base_url).map_err(|_| ConfigError::InvalidUrlScheme)?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err(ConfigError::InvalidUrlScheme);
+            }
+            if model
+                .api_key_env
+                .as_deref()
+                .is_some_and(|name| !valid_env_name(name))
+            {
+                return Err(ConfigError::InvalidApiKeyEnvironment);
+            }
         }
-        if model.model.trim().is_empty() {
-            return Err(ConfigError::EmptyModel);
-        }
-        let url = url::Url::parse(&model.base_url).map_err(|_| ConfigError::InvalidUrlScheme)?;
-        if !matches!(url.scheme(), "http" | "https") {
-            return Err(ConfigError::InvalidUrlScheme);
-        }
-        if model
-            .api_key_env
-            .as_deref()
-            .is_some_and(|name| !valid_env_name(name))
-        {
-            return Err(ConfigError::InvalidApiKeyEnvironment);
+        for server in self.mcp_servers() {
+            if server.name.trim().is_empty()
+                || !server
+                    .name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
+                return Err(ConfigError::InvalidMcpServerName(server.name.clone()));
+            }
+            match &server.transport {
+                McpTransportConfig::Stdio { command, .. } => {
+                    if command.trim().is_empty() {
+                        return Err(ConfigError::EmptyMcpServerCommand(server.name.clone()));
+                    }
+                }
+                McpTransportConfig::Sse { url, .. } => {
+                    let parsed = url::Url::parse(url)
+                        .map_err(|_| ConfigError::InvalidMcpServerUrl(server.name.clone()))?;
+                    if !matches!(parsed.scheme(), "http" | "https") {
+                        return Err(ConfigError::InvalidMcpServerUrl(server.name.clone()));
+                    }
+                }
+            }
         }
         Ok(())
     }

@@ -235,3 +235,142 @@ fn config_init_force_replaces_existing_metadata_without_temp_artifacts() {
     assert!(content.contains("replacement-model"));
     assert_eq!(entries, vec!["config.toml"]);
 }
+
+#[test]
+fn config_parses_mcp_servers_stdio_and_sse() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    let toml_str = r#"
+[model]
+provider = "openai_compatible"
+base_url = "https://api.example.test"
+model = "test-model"
+
+[[mcp.servers]]
+name = "mock_stdio"
+type = "stdio"
+command = "/path/to/mock-mcp"
+args = ["--stdio"]
+env = { "MOCK_MCP_MODE" = "tools" }
+timeout_ms = 15000
+
+[[mcp.servers]]
+name = "mock_sse"
+type = "sse"
+url = "https://example.com/mcp"
+headers = { "Authorization" = "Bearer token" }
+"#;
+    fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+    let config = ProfileConfig::load(&paths, "default").unwrap();
+    let servers = config.mcp_servers();
+    assert_eq!(servers.len(), 2);
+    assert_eq!(servers[0].name, "mock_stdio");
+    assert_eq!(servers[0].timeout_ms, Some(15000));
+    match &servers[0].transport {
+        darius_tools::McpTransportConfig::Stdio { command, args, env } => {
+            assert_eq!(command, "/path/to/mock-mcp");
+            assert_eq!(args, &["--stdio"]);
+            assert_eq!(env.get("MOCK_MCP_MODE").unwrap(), "tools");
+        }
+        _ => panic!("expected stdio transport"),
+    }
+    assert_eq!(servers[1].name, "mock_sse");
+    assert_eq!(servers[1].timeout_ms, None);
+    match &servers[1].transport {
+        darius_tools::McpTransportConfig::Sse { url, headers } => {
+            assert_eq!(url, "https://example.com/mcp");
+            assert_eq!(headers.get("Authorization").unwrap(), "Bearer token");
+        }
+        _ => panic!("expected sse transport"),
+    }
+}
+
+#[test]
+fn config_empty_mcp_servers_is_ok() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    let toml_str = r#"
+[model]
+provider = "openai_compatible"
+base_url = "https://api.example.test"
+model = "test-model"
+"#;
+    fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+    let config = ProfileConfig::load(&paths, "default").unwrap();
+    assert!(config.mcp_servers().is_empty());
+}
+
+#[test]
+fn config_invalid_mcp_server_name_is_visible_error() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    let toml_str = r#"
+[model]
+provider = "openai_compatible"
+base_url = "https://api.example.test"
+model = "test-model"
+
+[[mcp.servers]]
+name = "bad name with spaces!"
+type = "stdio"
+command = "echo"
+"#;
+    fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+    let error = ProfileConfig::load(&paths, "default").unwrap_err();
+    assert!(matches!(error, ConfigError::InvalidMcpServerName(_)));
+}
+
+#[test]
+fn config_empty_mcp_command_is_visible_error() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    let toml_str = r#"
+[model]
+provider = "openai_compatible"
+base_url = "https://api.example.test"
+model = "test-model"
+
+[[mcp.servers]]
+name = "mock"
+type = "stdio"
+command = "   "
+"#;
+    fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+    let error = ProfileConfig::load(&paths, "default").unwrap_err();
+    assert!(matches!(error, ConfigError::EmptyMcpServerCommand(_)));
+}
+
+#[test]
+fn config_invalid_mcp_url_is_visible_error() {
+    let temp = TempDir::new().unwrap();
+    let paths = paths(&temp);
+    let profile = paths.profile("default").unwrap();
+    fs::create_dir_all(&profile).unwrap();
+    let toml_str = r#"
+[model]
+provider = "openai_compatible"
+base_url = "https://api.example.test"
+model = "test-model"
+
+[[mcp.servers]]
+name = "mock"
+type = "sse"
+url = "not-a-valid-url"
+"#;
+    fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+    let error = ProfileConfig::load(&paths, "default").unwrap_err();
+    assert!(matches!(error, ConfigError::InvalidMcpServerUrl(_)));
+}
