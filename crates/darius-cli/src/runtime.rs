@@ -115,8 +115,8 @@ pub struct SessionRuntime {
     pub policy: LoopPolicy,
     state: RuntimeState,
     diagnostics: Vec<String>,
+    pub mcp_clients: Vec<Arc<darius_tools::StdioMcpClient>>,
 }
-
 impl SessionRuntime {
     pub fn from_profile(paths: &DariusPaths, profile: &str) -> Result<Self, RuntimeError> {
         Self::from_options(paths, profile, RuntimeOptions::default())
@@ -146,7 +146,7 @@ impl SessionRuntime {
             model: model_label(&resolved.state),
             mode: resolved.state.label().into(),
         };
-        let diagnostics = diagnostics::lines(
+        let mut diagnostics = diagnostics::lines(
             paths,
             profile,
             &resolved.config_path,
@@ -154,6 +154,28 @@ impl SessionRuntime {
             &resolved.state,
             true,
         );
+        let mut mcp_clients = Vec::new();
+        for server in resolved.profile_config.mcp_servers() {
+            let timeout = std::time::Duration::from_millis(server.timeout_ms.unwrap_or(30_000));
+            match darius_tools::StdioMcpClient::connect(&server.transport, timeout) {
+                Ok(client) => {
+                    let client = Arc::new(client.with_spill_dir(spill_dir.clone()));
+                    match darius_tools::register_mcp_tools(&mut tools, &server.name, client.clone()) {
+                        Ok(count) => {
+                            diagnostics.push(format!("mcp: {}={} tools={}", server.name, "ok", count));
+                            mcp_clients.push(client);
+                        }
+                        Err(e) => {
+                            let _ = client.shutdown();
+                            diagnostics.push(format!("mcp: {}={} ({})", server.name, "error", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    diagnostics.push(format!("mcp: {}={} ({})", server.name, "error", e));
+                }
+            }
+        }
         let (event_sender, _) = broadcast::channel(256);
         let conversation =
             Conversation::from_messages(vec![]).map_err(|e| RuntimeError::Model(e.to_string()))?;
@@ -174,6 +196,7 @@ impl SessionRuntime {
             policy: LoopPolicy::default(),
             state: resolved.state,
             diagnostics,
+            mcp_clients,
         })
     }
 
@@ -185,14 +208,29 @@ impl SessionRuntime {
         let resolved = resolve_profile(paths, profile, options)?;
         std::fs::create_dir_all(&resolved.config.profile_dir)?;
         MemoryEngine::open(&resolved.config.profile_dir)?;
-        Ok(diagnostics::lines(
+        let mut lines = diagnostics::lines(
             paths,
             profile,
             &resolved.config_path,
             resolved.config_exists,
             &resolved.state,
             true,
-        ))
+        );
+        for server in resolved.profile_config.mcp_servers() {
+            let timeout =
+                std::time::Duration::from_millis(server.timeout_ms.unwrap_or(2_000).min(5_000));
+            match darius_tools::StdioMcpClient::connect(&server.transport, timeout) {
+                Ok(client) => {
+                    let count = client.list_tools().map(|t| t.len()).unwrap_or(0);
+                    let _ = client.shutdown();
+                    lines.push(format!("mcp: {}={} tools={}", server.name, "ok", count));
+                }
+                Err(e) => {
+                    lines.push(format!("mcp: {}={} ({})", server.name, "error", e));
+                }
+            }
+        }
+        Ok(lines)
     }
 
     pub fn is_setup(&self) -> bool {
@@ -208,7 +246,6 @@ impl SessionRuntime {
     pub fn diagnostics(&self) -> &[String] {
         &self.diagnostics
     }
-
     pub fn subscribe_events(&self) -> broadcast::Receiver<UiEvent> {
         self.event_sender.subscribe()
     }
@@ -290,6 +327,14 @@ impl SessionRuntime {
 
         self.model = Box::new(model);
         Ok(None)
+    }
+}
+
+impl Drop for SessionRuntime {
+    fn drop(&mut self) {
+        for client in &self.mcp_clients {
+            let _ = client.shutdown();
+        }
     }
 }
 
@@ -460,5 +505,72 @@ mod tests {
             assert_eq!(res, None);
             assert_eq!(runtime.model_id(), "gpt-4o-mini");
         }
+    }
+
+    #[test]
+    fn runtime_starts_and_registers_mcp_servers_from_profile() {
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let profile = paths.profile("mcp_prof").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../darius-tools/tests/fixtures/mock_mcp.py")
+            .canonicalize()
+            .unwrap();
+
+        let toml_str = format!(
+            r#"[model]
+provider = "openai_compatible"
+base_url = "http://127.0.0.1:8080"
+model = "mock"
+api_key_env = "NONE"
+
+[[mcp.servers]]
+name = "mock"
+type = "stdio"
+command = "python3"
+args = ["{}"]
+"#,
+            script.to_string_lossy()
+        );
+        std::fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+        let runtime = SessionRuntime::from_profile(&paths, "mcp_prof").unwrap();
+        assert!(runtime.tools.has_tool("mcp_mock_echo"));
+        assert_eq!(runtime.mcp_clients.len(), 1);
+        assert!(runtime
+            .diagnostics()
+            .iter()
+            .any(|d| d.contains("mcp: mock=ok tools=1")));
+    }
+
+    #[test]
+    fn runtime_soft_fails_on_bad_mcp_command_and_records_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let profile = paths.profile("mcp_bad").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+
+        let toml_str = r#"[model]
+provider = "openai_compatible"
+base_url = "http://127.0.0.1:8080"
+model = "mock"
+api_key_env = "NONE"
+
+[[mcp.servers]]
+name = "bad_mock"
+type = "stdio"
+command = "/path/to/nonexistent/executable/for/test"
+"#;
+        std::fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+        let runtime = SessionRuntime::from_profile(&paths, "mcp_bad").unwrap();
+        assert_eq!(runtime.mcp_clients.len(), 0);
+        assert!(runtime
+            .diagnostics()
+            .iter()
+            .any(|d| d.contains("mcp: bad_mock=error")));
+        let diag = SessionRuntime::diagnostics_for(&paths, "mcp_bad", RuntimeOptions::default()).unwrap();
+        assert!(diag.iter().any(|d| d.contains("mcp: bad_mock=error")));
     }
 }

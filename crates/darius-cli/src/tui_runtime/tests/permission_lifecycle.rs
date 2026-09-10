@@ -395,3 +395,80 @@ fn tui_write_diff_appears_in_transcript_on_overwrite() {
     ));
     h.shutdown();
 }
+
+#[test]
+fn tui_approval_gates_mutating_mcp_tools_and_plan_denies() {
+    let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../darius-tools/tests/fixtures/mock_mcp.py")
+        .canonicalize()
+        .unwrap();
+
+    let mcp_toml = format!(
+        r#"[[mcp.servers]]
+name = "mock"
+type = "stdio"
+command = "python3"
+args = ["{}"]
+env = {{ "MOCK_MCP_READONLY" = "0" }}
+"#,
+        script.to_string_lossy()
+    );
+
+    // 1. Auto mode: mutating tool call triggers PermissionRequired, AllowOnce executes it
+    let mut h = Harness::new_with_mcp(
+        "http://127.0.0.1:1",
+        Some(vec![
+            call("mcp_mock_echo", json!({"text": "MUTATING_PERMITTED"})),
+            text(),
+        ]),
+        &mcp_toml,
+    );
+    h.submit("call mutating mcp");
+    let events = h.until(|e| matches!(e, UiEvent::PermissionRequired { .. }));
+    let UiEvent::PermissionRequired { id, title, command, .. } = events.last().unwrap() else {
+        unreachable!()
+    };
+    assert!(title.contains("mcp_mock_echo"));
+    h.commands
+        .send(RuntimeCommand::ResolvePermission {
+            id: id.clone(),
+            choice: PermissionChoice::AllowOnce,
+        })
+        .unwrap();
+    let events = h.until(|e| matches!(e, UiEvent::ToolEnd { .. }));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        UiEvent::ToolEnd {
+            ok: true,
+            preview,
+            ..
+        } if preview.contains("MUTATING_PERMITTED")
+    )));
+    h.done(false);
+    h.shutdown();
+
+    // 2. Plan mode: mutating MCP tool is denied before permission prompt
+    let mut h_plan = Harness::new_with_mcp(
+        "http://127.0.0.1:1",
+        Some(vec![
+            call("mcp_mock_echo", json!({"text": "SHOULD_BE_DENIED"})),
+            text(),
+        ]),
+        &mcp_toml,
+    );
+    h_plan
+        .commands
+        .send(RuntimeCommand::SubmitGoal {
+            text: "plan mode call".into(),
+            mode: Mode::Plan,
+        })
+        .unwrap();
+    let plan_events = completed(&mut h_plan);
+    assert!(!plan_events
+        .iter()
+        .any(|e| matches!(e, UiEvent::PermissionRequired { .. })));
+    assert!(plan_events
+        .iter()
+        .any(|e| matches!(e, UiEvent::ToolEnd { ok: false, .. })));
+    h_plan.shutdown();
+}

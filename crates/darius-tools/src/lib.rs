@@ -248,6 +248,11 @@ impl ToolRegistry {
         self.handlers.get(name).map(|t| t.risk)
     }
 
+    /// Check whether a tool is registered by name.
+    pub fn has_tool(&self, name: &str) -> bool {
+        self.handlers.contains_key(name)
+    }
+
     pub fn execute(&self, call: &ToolCall) -> ToolOutcome {
         match self.handlers.get(&call.name) {
             Some(tool) => match (tool.handler)(call) {

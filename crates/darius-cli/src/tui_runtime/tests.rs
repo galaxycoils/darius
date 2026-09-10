@@ -190,6 +190,39 @@ impl Harness {
             fallback_cancel,
         }
     }
+    fn new_with_mcp(
+        url: &str,
+        outputs: Option<Vec<ModelOutput>>,
+        mcp_servers_toml: &str,
+    ) -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = DariusPaths {
+            home: temp.path().join("home"),
+            workspace: temp.path().to_owned(),
+        };
+        let profile = paths.profile("test").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        assert!(std::env::var("HOME").is_ok());
+        let toml_content = format!(
+            "[model]\nprovider = 'test'\nbase_url = '{url}'\nmodel = 'test'\napi_key_env = 'HOME'\n\n{mcp_servers_toml}\n"
+        );
+        std::fs::write(profile.join("config.toml"), toml_content).unwrap();
+        let mut runtime = SessionRuntime::from_profile(&paths, "test").unwrap();
+        if let Some(outputs) = outputs {
+            runtime.model = Box::new(MockModel::new(outputs));
+        }
+        let fallback_cancel = runtime.cancellation_token();
+        let (mut worker, events) = TuiWorker::new(runtime);
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let join = Some(std::thread::spawn(move || worker.run_loop(rx)));
+        Self {
+            temp,
+            commands,
+            events,
+            join,
+            fallback_cancel,
+        }
+    }
     fn submit(&self, text: &str) {
         self.commands
             .send(RuntimeCommand::SubmitGoal {

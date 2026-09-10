@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+import os
 import sys
 import json
 
@@ -38,8 +38,8 @@ def main():
                         {
                             "name": "echo",
                             "description": "Echo back input text",
+                            "readOnly": os.environ.get("MOCK_MCP_READONLY") == "1",
                             "inputSchema": {
-                                "type": "object",
                                 "properties": {
                                     "text": {"type": "string"}
                                 }
