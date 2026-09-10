@@ -116,6 +116,7 @@ pub struct SessionRuntime {
     state: RuntimeState,
     diagnostics: Vec<String>,
     pub mcp_clients: Vec<Arc<darius_tools::StdioMcpClient>>,
+    pub dynamic_tool_specs: Vec<darius_cognitive::ToolSpec>,
 }
 impl SessionRuntime {
     pub fn from_profile(paths: &DariusPaths, profile: &str) -> Result<Self, RuntimeError> {
@@ -155,16 +156,31 @@ impl SessionRuntime {
             true,
         );
         let mut mcp_clients = Vec::new();
+        let mut dynamic_tool_specs = Vec::new();
         for server in resolved.profile_config.mcp_servers() {
             let timeout = std::time::Duration::from_millis(server.timeout_ms.unwrap_or(30_000));
             match darius_tools::StdioMcpClient::connect(&server.transport, timeout) {
                 Ok(client) => {
                     let client = Arc::new(client.with_spill_dir(spill_dir.clone()));
-                    match darius_tools::register_mcp_tools(&mut tools, &server.name, client.clone())
-                    {
-                        Ok(count) => {
-                            diagnostics
-                                .push(format!("mcp: {}={} tools={}", server.name, "ok", count));
+                    match darius_tools::register_mcp_tools_defs(
+                        &mut tools,
+                        &server.name,
+                        client.clone(),
+                    ) {
+                        Ok(defs) => {
+                            for (registered_name, def) in &defs {
+                                dynamic_tool_specs.push(darius_cognitive::ToolSpec {
+                                    name: registered_name.clone(),
+                                    description: def.description.clone(),
+                                    parameters: def.input_schema.clone(),
+                                });
+                            }
+                            diagnostics.push(format!(
+                                "mcp: {}={} tools={}",
+                                server.name,
+                                "ok",
+                                defs.len()
+                            ));
                             mcp_clients.push(client);
                         }
                         Err(e) => {
@@ -199,6 +215,7 @@ impl SessionRuntime {
             state: resolved.state,
             diagnostics,
             mcp_clients,
+            dynamic_tool_specs,
         })
     }
 
@@ -300,6 +317,9 @@ impl SessionRuntime {
         self.metadata.model = cfg.model.clone();
 
         if cfg.provider == "mock" || cfg.provider == "offline" {
+            if !self.is_offline_demo() {
+                return Err("mock provider is only allowed with explicit --offline flag".into());
+            }
             self.model = Box::new(darius_cognitive::MockModel::new(vec![]));
             return Ok(None);
         }
@@ -310,12 +330,10 @@ impl SessionRuntime {
         let has_key = std::env::var(&cfg.api_key_env).is_ok();
 
         if !is_local && !has_key {
-            self.model = Box::new(darius_cognitive::MockModel::new(vec![]));
-            let warning = format!(
-                "API key env '{}' is not set; using mock model for safety",
+            return Err(format!(
+                "API key environment variable '{}' is not set; export it or run 'darius config init'",
                 cfg.api_key_env
-            );
-            return Ok(Some(warning));
+            ));
         }
 
         let model = darius_daemon::LiveModel::for_provider(darius_daemon::Provider {
@@ -446,18 +464,41 @@ mod tests {
     }
 
     #[test]
-    fn apply_mock_catalog_entry_updates_model_id() {
+    fn apply_mock_rejected_unless_offline_demo() {
         let temp = TempDir::new().unwrap();
         let mut runtime = SessionRuntime::from_profile(&paths(&temp), "model_test").unwrap();
-        let entry = &darius_core::config::default_model_catalog()[0];
-        let cfg = darius_core::config::catalog_entry_to_config(entry);
+        let cfg = darius_core::config::ModelConfig {
+            provider: "mock".into(),
+            base_url: "http://localhost:8080/v1".into(),
+            model: "mock".into(),
+            api_key_env: "NONE".into(),
+        };
+        let err = runtime.apply_model_config(&cfg).unwrap_err();
+        assert!(err.contains("mock provider is only allowed with explicit --offline flag"));
+    }
+
+    #[test]
+    fn apply_mock_allowed_with_offline_demo() {
+        let temp = TempDir::new().unwrap();
+        let mut runtime = SessionRuntime::from_options(
+            &paths(&temp),
+            "model_test_offline",
+            RuntimeOptions { offline: true },
+        )
+        .unwrap();
+        let cfg = darius_core::config::ModelConfig {
+            provider: "mock".into(),
+            base_url: "http://localhost:8080/v1".into(),
+            model: "mock".into(),
+            api_key_env: "NONE".into(),
+        };
         let res = runtime.apply_model_config(&cfg).unwrap();
         assert_eq!(res, None);
         assert_eq!(runtime.model_id(), "mock");
     }
 
     #[test]
-    fn apply_openai_entry_without_key_falls_back_with_warning() {
+    fn apply_model_config_rejects_missing_key_without_mock_fallback() {
         let temp = TempDir::new().unwrap();
         let mut runtime = SessionRuntime::from_profile(&paths(&temp), "model_test2").unwrap();
         let cfg = darius_core::config::ModelConfig {
@@ -466,10 +507,9 @@ mod tests {
             model: "gpt-4o-mini".into(),
             api_key_env: "DARIUS_UNSET_KEY_FOR_TEST_12345".into(),
         };
-        let warning = runtime.apply_model_config(&cfg).unwrap();
-        assert!(warning.is_some());
-        assert!(warning.unwrap().contains("DARIUS_UNSET_KEY_FOR_TEST_12345"));
-        assert_eq!(runtime.model_id(), "gpt-4o-mini");
+        let err = runtime.apply_model_config(&cfg).unwrap_err();
+        assert!(err.contains("DARIUS_UNSET_KEY_FOR_TEST_12345"));
+        assert!(err.contains("is not set"));
     }
 
     #[test]
@@ -579,5 +619,96 @@ command = "/path/to/nonexistent/executable/for/test"
         let diag =
             SessionRuntime::diagnostics_for(&paths, "mcp_bad", RuntimeOptions::default()).unwrap();
         assert!(diag.iter().any(|d| d.contains("mcp: bad_mock=error")));
+    }
+
+    #[test]
+    fn dynamic_mcp_tools_included_in_turn_schemas() {
+        let temp = TempDir::new().unwrap();
+        let paths = paths(&temp);
+        let profile = paths.profile("mcp_turn_prof").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../darius-tools/tests/fixtures/mock_mcp.py")
+            .canonicalize()
+            .unwrap();
+
+        let toml_str = format!(
+            r#"[model]
+provider = "openai_compatible"
+base_url = "http://127.0.0.1:8080"
+model = "mock"
+api_key_env = "NONE"
+
+[[mcp.servers]]
+name = "mock"
+type = "stdio"
+command = "python3"
+args = ["{}"]
+"#,
+            script.to_string_lossy()
+        );
+        std::fs::write(profile.join("config.toml"), toml_str).unwrap();
+
+        let mut runtime = SessionRuntime::from_profile(&paths, "mcp_turn_prof").unwrap();
+        assert!(
+            runtime
+                .dynamic_tool_specs
+                .iter()
+                .any(|t| t.name == "mcp_mock_echo")
+        );
+
+        struct SpyModel {
+            recorded_tools: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
+        }
+
+        #[darius_cognitive::async_trait]
+        impl darius_cognitive::AsyncModel for SpyModel {
+            async fn complete(
+                &mut self,
+                _messages: &[darius_cognitive::Message],
+                tools: &[darius_cognitive::ToolSpec],
+                _ctx: &darius_cognitive::TurnContext,
+            ) -> Result<darius_cognitive::ModelOutput, darius_cognitive::CognitiveError>
+            {
+                let mut list = self.recorded_tools.lock();
+                for t in tools {
+                    list.push(t.name.clone());
+                }
+                Ok(darius_cognitive::ModelOutput {
+                    content: Some("done".into()),
+                    tool_calls: vec![],
+                })
+            }
+        }
+
+        let recorded = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let mut spy = SpyModel {
+            recorded_tools: recorded.clone(),
+        };
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
+        let control = std::sync::Arc::new(crate::permissions::HeadlessRunControl::default());
+        let loopt = darius_cognitive::AgentLoop::new(sink, control);
+
+        let res = block_on_turn(loopt.run_turn_with_extra_tools(
+            &runtime.metadata,
+            &runtime.policy,
+            "test echo",
+            &mut runtime.conversation,
+            &mut spy,
+            &runtime.tools,
+            &runtime.memory,
+            &runtime.workspace.to_string_lossy(),
+            &runtime.dynamic_tool_specs,
+        ));
+        assert!(res.is_ok());
+
+        let seen_tools = recorded.lock();
+        assert!(
+            seen_tools.contains(&"mcp_mock_echo".to_string()),
+            "tools was {:?}",
+            *seen_tools
+        );
     }
 }

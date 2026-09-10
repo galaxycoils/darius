@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "darius-bench"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "serde",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "darius-cli"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -566,11 +566,12 @@ dependencies = [
  "url",
  "uuid",
  "wait-timeout",
+ "wiremock",
 ]
 
 [[package]]
 name = "darius-cognitive"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -588,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "darius-core"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-rlm",
  "harness_e2e",
@@ -603,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "darius-daemon"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -625,6 +626,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
  "wiremock",
@@ -632,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "darius-eval"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "darius-daemon",
@@ -644,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "darius-hashline"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "blake3",
  "darius-core",
@@ -654,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "darius-lsp"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "darius-hashline",
@@ -667,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "darius-memory"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -680,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "darius-rlm"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "pyo3",
@@ -696,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "darius-safety"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "parking_lot",
@@ -707,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skill-parser"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -716,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skills"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "darius-core",
  "darius-skill-parser",
@@ -727,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tools"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -746,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tui"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "crossterm",
  "darius-cognitive",
@@ -763,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "darius-web"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -1091,10 +1093,11 @@ dependencies = [
 
 [[package]]
 name = "harness_e2e"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "assert_cmd",
  "axum",
+ "darius-cli",
  "darius-cognitive",
  "darius-core",
  "darius-daemon",
@@ -1107,6 +1110,7 @@ dependencies = [
  "portable-pty",
  "predicates",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "uuid",
@@ -2072,6 +2076,7 @@ dependencies = [
  "base64",
  "bytes",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -2091,12 +2096,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -3042,6 +3049,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

@@ -24,6 +24,7 @@ pub use agent_compact::*;
 pub use agent_events::*;
 pub use agent_exec::*;
 pub use agent_loop::*;
+pub use async_trait::async_trait;
 pub use compress::*;
 pub use context::*;
 pub use conversation::*;

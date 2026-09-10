@@ -40,18 +40,25 @@ struct ProfileConfigFile {
 pub fn default_model_catalog() -> Vec<ModelCatalogEntry> {
     vec![
         ModelCatalogEntry {
-            id: "mock",
-            label: "Mock (offline demo)",
-            provider: "mock",
-            model: "mock",
-            base_url: "http://localhost:8080/v1",
-        },
-        ModelCatalogEntry {
             id: "gpt-4o-mini",
             label: "OpenAI gpt-4o-mini (fast & lean)",
             provider: "openai",
             model: "gpt-4o-mini",
             base_url: "https://api.openai.com/v1",
+        },
+        ModelCatalogEntry {
+            id: "claude-3-5-sonnet",
+            label: "Anthropic Claude 3.5 Sonnet",
+            provider: "anthropic",
+            model: "claude-3-5-sonnet-20241022",
+            base_url: "https://api.anthropic.com/v1",
+        },
+        ModelCatalogEntry {
+            id: "llama3.2",
+            label: "Ollama (local custom model)",
+            provider: "ollama",
+            model: "llama3.2",
+            base_url: "http://localhost:11434/v1",
         },
         ModelCatalogEntry {
             id: "gpt-4o",
@@ -61,11 +68,11 @@ pub fn default_model_catalog() -> Vec<ModelCatalogEntry> {
             base_url: "https://api.openai.com/v1",
         },
         ModelCatalogEntry {
-            id: "ollama",
-            label: "Ollama (local custom model)",
-            provider: "ollama",
-            model: "llama3.2",
-            base_url: "http://localhost:11434/v1",
+            id: "claude-3-5-haiku",
+            label: "Anthropic Claude 3.5 Haiku (fast)",
+            provider: "anthropic",
+            model: "claude-3-5-haiku-20241022",
+            base_url: "https://api.anthropic.com/v1",
         },
     ]
 }
@@ -74,6 +81,7 @@ pub fn default_model_catalog() -> Vec<ModelCatalogEntry> {
 pub fn catalog_entry_to_config(entry: &ModelCatalogEntry) -> ModelConfig {
     let api_key_env = match entry.provider {
         "mock" | "ollama" => "NONE".into(),
+        "anthropic" => "ANTHROPIC_API_KEY".into(),
         _ => "OPENAI_API_KEY".into(),
     };
     ModelConfig {
@@ -124,10 +132,14 @@ mod tests {
     }
 
     #[test]
-    fn catalog_contains_mock_and_gpt4o_mini() {
+    fn default_model_catalog_has_no_mock_default() {
         let catalog = default_model_catalog();
-        assert!(catalog.iter().any(|e| e.id == "mock"));
-        assert!(catalog.iter().any(|e| e.id == "gpt-4o-mini"));
+        assert!(!catalog.is_empty());
+        assert_eq!(catalog[0].id, "gpt-4o-mini");
+        assert!(catalog.iter().all(|e| e.id != "mock"));
+        assert!(catalog.iter().any(|e| e.id == "claude-3-5-sonnet"));
+        assert!(catalog.iter().any(|e| e.id == "llama3.2"));
         assert!(catalog.iter().any(|e| e.id == "gpt-4o"));
+        assert!(catalog.iter().any(|e| e.id == "claude-3-5-haiku"));
     }
 }

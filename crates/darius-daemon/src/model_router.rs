@@ -1,17 +1,19 @@
 //! ModelRouter — single authority for all model calls (optimizer, planner, rater, etc.).
 
+pub mod anthropic;
 pub mod budget;
-mod live_factory;
+pub mod live_factory;
 pub mod openai;
 mod usage;
 pub mod wire;
 pub mod wire_call;
 pub mod wire_decode;
 
-pub use budget::{BudgetEnforcer, BudgetScope};
-pub use openai::LiveModel;
-
 use crate::cache::{CacheCoordinator, CacheMetrics};
+pub use anthropic::AnthropicModel;
+pub use budget::{BudgetEnforcer, BudgetScope};
+pub use live_factory::LiveModel;
+pub use openai::OpenAiModel;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;

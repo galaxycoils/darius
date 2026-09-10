@@ -13,6 +13,7 @@ pub mod commands;
 mod config;
 mod config_error;
 mod config_init;
+pub mod config_probe;
 mod config_publish;
 mod diagnostics;
 mod events;
@@ -198,7 +199,7 @@ fn cmd_run(
     let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
     let control = std::sync::Arc::new(permissions::HeadlessRunControl::default());
     let loopt = darius_cognitive::AgentLoop::new(sink, control.clone());
-    let text = crate::runtime::block_on_turn(loopt.run_turn(
+    let text = crate::runtime::block_on_turn(loopt.run_turn_with_extra_tools(
         &runtime.metadata,
         &runtime.policy,
         &goal,
@@ -207,6 +208,7 @@ fn cmd_run(
         &runtime.tools,
         &runtime.memory,
         &workspace,
+        &runtime.dynamic_tool_specs,
     ));
     if control.0.load(std::sync::atomic::Ordering::Relaxed) {
         return Err(
@@ -238,6 +240,9 @@ fn cmd_config(
             )? {
                 println!("{line}");
             }
+        }
+        ConfigCommand::Probe => {
+            crate::runtime::block_on_turn(crate::config_probe::run_config_probe(&paths, profile))?;
         }
         ConfigCommand::Init {
             provider,

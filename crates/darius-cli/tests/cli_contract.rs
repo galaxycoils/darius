@@ -288,6 +288,12 @@ fn explicit_memory_and_config_variants_parse() {
             command: ConfigCommand::Show
         })
     ));
+    assert!(matches!(
+        parse(&["config", "probe"]).unwrap().command,
+        Some(Command::Config {
+            command: ConfigCommand::Probe
+        })
+    ));
     for (name, expected) in [
         ("pack", MemoryCommand::Pack),
         ("stats", MemoryCommand::Stats),

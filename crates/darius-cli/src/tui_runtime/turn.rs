@@ -44,7 +44,7 @@ pub(super) fn spawn(
     let join = tokio::task::spawn_blocking(move || {
         let agent = AgentLoop::new(sink, turn_control);
         let workspace = runtime.workspace.to_string_lossy().into_owned();
-        let outcome = block_on_turn(agent.run_turn(
+        let outcome = block_on_turn(agent.run_turn_with_extra_tools(
             &runtime.metadata,
             &runtime.policy,
             &text,
@@ -53,6 +53,7 @@ pub(super) fn spawn(
             &runtime.tools,
             &runtime.memory,
             &workspace,
+            &runtime.dynamic_tool_specs,
         ));
         TurnResult { runtime, outcome }
     });

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0] - 2026-09-09
+
+### Added
+- Native Anthropic Messages API provider (`AnthropicModel`) supporting Claude models (`claude-3-5-sonnet`, `claude-3-5-haiku`) with system message extraction, alternating user/assistant turns, and tool-use decoding.
+- Real-time token streaming to TUI and `EventSink` via Server-Sent Events (SSE) for both OpenAI and Anthropic models with incremental tool call assembly.
+- Dynamic MCP tool schema injection: discovered tools from MCP servers are automatically passed to model turns and registered in tool schemas.
+- Live provider connectivity probe CLI command (`darius config probe`) verifying endpoint reachability, credentials, and roundtrip latency.
+- Opt-in live provider verification integration test suite (`tests/live_providers_e2e.rs`) gated by `DARIUS_LIVE_TESTS=1`.
+- Windows build matrix runner (`x86_64-pc-windows-msvc`) and zip packaging in CI release workflow and release scripts.
+
+### Removed
+- Removed `mock` default from model catalog and eliminated silent fallback to `MockModel` on missing credentials.
+
 ## [1.4.0] - 2026-09-09
 
 ### Added

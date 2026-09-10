@@ -36,7 +36,7 @@ fn execute(
     let control = Arc::new(crate::permissions::HeadlessRunControl::default());
     let agent = AgentLoop::new(sink, control.clone());
     let workspace = runtime.workspace.to_string_lossy().into_owned();
-    let result = block_on_turn(agent.run_turn(
+    let result = block_on_turn(agent.run_turn_with_extra_tools(
         &runtime.metadata,
         &runtime.policy,
         goal,
@@ -45,6 +45,7 @@ fn execute(
         &runtime.tools,
         &runtime.memory,
         &workspace,
+        &runtime.dynamic_tool_specs,
     ));
     if control.0.load(Ordering::Relaxed) {
         return Err(

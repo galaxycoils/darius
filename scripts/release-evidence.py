@@ -21,8 +21,8 @@ REQUIRED_ASSETS = (
     "darius-linux-x86_64",
     "darius-macos-aarch64",
     "darius-macos-x86_64",
+    "darius-windows-x86_64",
 )
-
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -81,18 +81,19 @@ def main() -> int:
     artifacts = {}
     for stem in REQUIRED_ASSETS:
         tar = dist / f"{stem}.tar.gz"
+        zip_file = dist / f"{stem}.zip"
+        archive = zip_file if zip_file.exists() else tar
         checksum = dist / f"{stem}.sha256"
-        if not tar.exists() or not checksum.exists():
+        if not archive.exists() or not checksum.exists():
             print(f"Missing artifact or checksum: {stem}", file=sys.stderr)
             return 1
         expected = checksum.read_text().split()[0]
-        actual = sha256(tar)
+        actual = sha256(archive)
         if expected != actual:
             print(f"Checksum mismatch for {stem}", file=sys.stderr)
             return 1
-        artifacts[f"{stem}.tar.gz"] = actual
+        artifacts[archive.name] = actual
         artifacts[f"{stem}.sha256"] = sha256(checksum)
-
     if not (dist / "install.sh").exists():
         print("Missing install.sh in dist", file=sys.stderr)
         return 1

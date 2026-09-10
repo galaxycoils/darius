@@ -1,6 +1,6 @@
 # Darius capability inventory
 
-Scope: v1.4.0 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
+Scope: v1.5.0 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
 
 ## Verified local contracts
 
@@ -45,7 +45,7 @@ Scope: v1.4.0 release. Verified means the narrowly described local contract has 
 
 ## Retained surfaces and policy
 
-CLI: `tui`, `run <goal...>`, `serve`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable. `serve` binds loopback by default and refuses to execute when no live provider is configured; offline demo never executes goals.
+CLI: `tui`, `run <goal...>`, `serve`, `config show`, `config probe`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable. `serve` binds loopback by default and refuses to execute when no live provider is configured; offline demo never executes goals.
 
 Slash registry: `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, `/quit`. `/model` opens an interactive picker or selects from catalog. Auto gates mutating/shell tools on approval; Plan denies them. This is a tool policy, not a process sandbox or a guarantee that session storage is never written.
 
@@ -65,7 +65,7 @@ Web execution is executor-gated: without an injected runtime the router answers 
 
 OpenAI-compatible wire behavior is tested with local fake providers. Credentialed OpenAI, OpenRouter, Groq, Ollama, native Anthropic, automatic failover and role-model overrides are not verified integrations. A `live` diagnostic means configuration/key selection, not a connectivity or health probe. Only `--offline` selects the demo. See [setup and diagnostics](TROUBLESHOOTING.md).
 
-Release target naming: `macos-x86_64`, `macos-aarch64`, `linux-x86_64`. Historical `darwin-x86_64`/`darwin-aarch64` names are not current asset names. Published assets, credentialed downloads, cross-platform installation and Windows support are unavailable as claims from this local audit. Local installer tests are not publication evidence.
+Release target naming: `macos-x86_64`, `macos-aarch64`, `linux-x86_64`, `windows-x86_64`. Historical `darwin-x86_64`/`darwin-aarch64` names are not current asset names. Published assets, credentialed downloads, cross-platform installation and Windows support are unavailable as claims from this local audit. Local installer tests are not publication evidence.
 
 ## Audit boundary
 

@@ -906,7 +906,7 @@ fn model_picker_then_run_mock() {
     h.write_bytes(b"/model\r").unwrap();
     h.expect("Select Model");
     h.write_bytes(b"\r").unwrap();
-    h.expect("Selected model: mock");
+    h.expect("Selected model: gpt-4o-mini");
     h.write_bytes(b"hello after picker\r").unwrap();
     h.expect("Offline demo: no real file analysis or completion was performed.");
     h.quit_restored();

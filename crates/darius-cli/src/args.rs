@@ -40,6 +40,8 @@ pub enum Command {
 pub enum ConfigCommand {
     /// Display current runtime configuration and diagnostics
     Show,
+    /// Probe connectivity and authentication for the configured model provider
+    Probe,
     /// Initialize a profile with model provider settings
     Init {
         /// Model provider type (e.g. openai_compatible, ollama)

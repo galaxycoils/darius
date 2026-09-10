@@ -43,6 +43,9 @@ case "$OS" in
     Darwin|darwin|mac|macos|macOS)
         CANONICAL_OS="macos"
         ;;
+    Windows|windows|Windows_NT|MINGW*|MSYS*|CYGWIN*)
+        CANONICAL_OS="windows"
+        ;;
     *)
         echo "Unsupported OS: $OS" >&2
         exit 1
@@ -64,7 +67,7 @@ case "$ARCH" in
 esac
 
 case "$CANONICAL_OS-$CANONICAL_ARCH" in
-    linux-x86_64|macos-aarch64|macos-x86_64) ;;
+    linux-x86_64|macos-aarch64|macos-x86_64|windows-x86_64) ;;
     *) echo "Unsupported release target: $CANONICAL_OS-$CANONICAL_ARCH" >&2; exit 1 ;;
 esac
 
@@ -72,6 +75,8 @@ ASSET_STEM="darius-${CANONICAL_OS}-${CANONICAL_ARCH}"
 
 if [ "$STEM_ONLY" -eq 1 ]; then
     echo "$ASSET_STEM"
+elif [ "$CANONICAL_OS" = "windows" ]; then
+    echo "${ASSET_STEM}.zip"
 else
     echo "${ASSET_STEM}.tar.gz"
 fi

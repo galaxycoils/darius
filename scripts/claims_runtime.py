@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from claims_policy import violations
 
-EXPECTED = {(): {"tui", "run", "config", "memory", "serve"}, ("config",): {"show", "init", "preset"}, ("memory",): {"search", "pack", "import", "export", "stats"}}
+EXPECTED = {(): {"tui", "run", "config", "memory", "serve"}, ("config",): {"show", "init", "preset", "probe"}, ("memory",): {"search", "pack", "import", "export", "stats"}}
 
 def audit(root, binary):
     errors = []

@@ -34,7 +34,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_release_matrix_targets_match_capabilities(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         capabilities = (ROOT / "docs/CAPABILITIES.md").read_text()
-        expected_targets = {"linux-x86_64", "macos-aarch64", "macos-x86_64"}
+        expected_targets = {"linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-x86_64"}
         for target in expected_targets:
             self.assertIn(f"darius-{target}", workflow)
             self.assertIn(f"`{target}`", capabilities)

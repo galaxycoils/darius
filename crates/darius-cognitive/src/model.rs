@@ -45,4 +45,20 @@ pub trait AsyncModel: Send {
         tools: &[ToolSpec],
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError>;
+
+    async fn complete_stream(
+        &mut self,
+        messages: &[crate::conversation::Message],
+        tools: &[ToolSpec],
+        sink: &dyn crate::ui_events::EventSink,
+        ctx: &TurnContext,
+    ) -> Result<ModelOutput, CognitiveError> {
+        let out = self.complete(messages, tools, ctx).await?;
+        if out.tool_calls.is_empty()
+            && let Some(text) = &out.content
+        {
+            sink.emit(crate::ui_events::UiEvent::AssistantDelta { text: text.clone() });
+        }
+        Ok(out)
+    }
 }

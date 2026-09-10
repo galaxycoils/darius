@@ -26,6 +26,34 @@ impl AgentLoop {
         memory: &darius_memory::MemoryEngine,
         workspace: &str,
     ) -> Result<String, CognitiveError> {
+        self.run_turn_with_extra_tools(
+            meta,
+            policy,
+            goal,
+            convo,
+            model,
+            tools,
+            memory,
+            workspace,
+            &[],
+        )
+        .await
+    }
+
+    /// Run one user turn with additional dynamic tool specifications (e.g. MCP tools).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_turn_with_extra_tools(
+        &self,
+        meta: &RunMetadata,
+        policy: &LoopPolicy,
+        goal: &str,
+        convo: &mut Conversation,
+        model: &mut dyn AsyncModel,
+        tools: &darius_tools::ToolRegistry,
+        memory: &darius_memory::MemoryEngine,
+        workspace: &str,
+        extra_tools: &[crate::model::ToolSpec],
+    ) -> Result<String, CognitiveError> {
         emit_header(self.sink.as_ref(), meta, goal);
         let mut msgs = convo.messages().to_vec();
         msgs.push(Message::User {
@@ -33,7 +61,15 @@ impl AgentLoop {
         });
         self.sink.emit(UiEvent::UserMessage { text: goal.into() });
         let outcome = self
-            .drive(policy, &mut msgs, model, tools, memory, workspace)
+            .drive(
+                policy,
+                &mut msgs,
+                model,
+                tools,
+                memory,
+                workspace,
+                extra_tools,
+            )
             .await;
         self.finish(outcome, msgs, convo)
     }

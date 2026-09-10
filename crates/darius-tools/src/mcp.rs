@@ -320,7 +320,7 @@ impl StdioMcpClient {
             "capabilities": {},
             "clientInfo": {
                 "name": "darius",
-                "version": "1.4.0"
+                "version": "1.5.0"
             }
         });
         let _ = transport.request("initialize", init_params, timeout)?;
@@ -506,8 +506,18 @@ pub fn register_mcp_tools(
     server_name: &str,
     client: Arc<dyn McpClient>,
 ) -> Result<usize, McpError> {
+    let defs = register_mcp_tools_defs(registry, server_name, client)?;
+    Ok(defs.len())
+}
+
+/// Register discovered tools from an MCP client and return the registered names and schemas.
+pub fn register_mcp_tools_defs(
+    registry: &mut ToolRegistry,
+    server_name: &str,
+    client: Arc<dyn McpClient>,
+) -> Result<Vec<(String, McpToolDef)>, McpError> {
     let tools = client.list_tools()?;
-    let count = tools.len();
+    let mut defs = Vec::with_capacity(tools.len());
 
     for tool in tools {
         let c = client.clone();
@@ -526,9 +536,11 @@ pub fn register_mcp_tools(
             c.call_tool(&orig_name, &call.arguments)
                 .map_err(|e| crate::ToolError::Execution(e.to_string()))
         });
+
+        defs.push((registered_name, tool));
     }
 
-    Ok(count)
+    Ok(defs)
 }
 
 #[cfg(test)]

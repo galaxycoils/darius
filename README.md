@@ -1,4 +1,4 @@
-# Darius v1.4.0
+# Darius v1.5.0
 
 Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, SQLite memory, and a loopback web server. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
 
