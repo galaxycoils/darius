@@ -64,6 +64,8 @@ pub struct McpToolDef {
     pub input_schema: serde_json::Value,
     #[serde(default)]
     pub requires_prior_success: bool,
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Health status of an MCP server.
@@ -410,11 +412,17 @@ impl McpClient for StdioMcpClient {
                     .get("requires_prior_success")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let read_only = tool
+                    .get("read_only")
+                    .or_else(|| tool.get("readOnly"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 list.push(McpToolDef {
                     name,
                     description,
                     input_schema,
                     requires_prior_success,
+                    read_only,
                 });
             }
         }
@@ -470,9 +478,25 @@ impl McpClient for StdioMcpClient {
     }
 }
 
-/// Register discovered tools from an MCP client into the Darius ToolRegistry.
+/// Helper to sanitize tool and server names for model tool visibility.
+pub fn sanitize_tool_name(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
+/// Format the model-visible tool name for an MCP tool: `mcp_{server}_{tool}`.
+pub fn format_mcp_tool_name(server: &str, tool: &str) -> String {
+    let clean_server = sanitize_tool_name(server);
+    let clean_tool = sanitize_tool_name(tool);
+    format!("mcp_{clean_server}_{clean_tool}")
+}
+
+/// Register discovered tools from an MCP client into the Darius ToolRegistry
+/// under the `mcp_{server}_{tool}` naming convention and with session-scoped dynamic allowlist.
 pub fn register_mcp_tools(
     registry: &mut ToolRegistry,
+    server_name: &str,
     client: Arc<dyn McpClient>,
 ) -> Result<usize, McpError> {
     let tools = client.list_tools()?;
@@ -480,11 +504,19 @@ pub fn register_mcp_tools(
 
     for tool in tools {
         let c = client.clone();
-        let name = tool.name.clone();
-        let tool_name = name.clone();
+        let orig_name = tool.name.clone();
+        let registered_name = format_mcp_tool_name(server_name, &orig_name);
+        let risk = if tool.read_only {
+            ToolRisk::ReadOnly
+        } else {
+            ToolRisk::Mutating
+        };
 
-        registry.register_with_risk(&name, ToolRisk::Mutating, move |call: &ToolCall| {
-            c.call_tool(&tool_name, &call.arguments)
+        // Register in session-scoped dynamic allowlist
+        crate::model_tools::register_dynamic_tool(&registered_name, risk);
+
+        registry.register_with_risk(&registered_name, risk, move |call: &ToolCall| {
+            c.call_tool(&orig_name, &call.arguments)
                 .map_err(|e| crate::ToolError::Execution(e.to_string()))
         });
     }
@@ -567,19 +599,20 @@ mod tests {
             description: "Query PostgreSQL database".into(),
             input_schema: serde_json::json!({"type": "object"}),
             requires_prior_success: false,
+            read_only: false,
         });
 
-        let count = register_mcp_tools(&mut registry, client.clone()).unwrap();
+        let count = register_mcp_tools(&mut registry, "test_server", client.clone()).unwrap();
         assert_eq!(count, 1);
 
         let call = ToolCall {
             id: "mcp-call-1".into(),
-            name: "query_db".into(),
+            name: "mcp_test_server_query_db".into(),
             arguments: serde_json::json!({"sql": "SELECT 1"}),
         };
 
-        let outcome = registry.execute(&call);
-        match outcome {
+        // execute_model succeeds because tool is registered in dynamic allowlist
+        match registry.execute_model(&call) {
             ToolOutcome::Ok { preview, .. } => {
                 assert!(preview.contains("MCP[query_db]"));
                 assert!(preview.contains("SELECT 1"));
@@ -589,7 +622,6 @@ mod tests {
                 panic!("unexpected terminal outcome")
             }
         }
-
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
@@ -601,6 +633,7 @@ mod tests {
             description: "Deploy artifact to production".into(),
             input_schema: serde_json::json!({}),
             requires_prior_success: true,
+            read_only: false,
         });
 
         // 1. When prior step succeeded -> allowed

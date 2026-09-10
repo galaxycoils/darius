@@ -528,13 +528,14 @@ mod tests {
             description: "Scale Kubernetes deployment".into(),
             input_schema: serde_json::json!({}),
             requires_prior_success: true,
+            read_only: false,
         });
 
-        darius_tools::register_mcp_tools(&mut registry, client.clone()).unwrap();
+        darius_tools::register_mcp_tools(&mut registry, "k8s", client.clone()).unwrap();
 
         let call = darius_tools::ToolCall {
             id: "mcp-call".into(),
-            name: "k8s_scale".into(),
+            name: "mcp_k8s_k8s_scale".into(),
             arguments: serde_json::json!({"replicas": 3}),
         };
 

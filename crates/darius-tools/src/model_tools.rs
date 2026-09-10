@@ -7,6 +7,9 @@
 //! NOT host-filesystem sandboxed: commands inherit the workspace as cwd
 //! yet absolute paths in commands can escape it.
 use crate::{ToolCall, ToolOutcome, ToolRisk};
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 /// Every model-visible tool with its explicit risk. No default risk.
 pub const MODEL_TOOLS: &[(&str, ToolRisk)] = &[
@@ -23,17 +26,38 @@ pub const MODEL_TOOLS: &[(&str, ToolRisk)] = &[
     ("shell", ToolRisk::Shell),
 ];
 
-/// Closed-world membership: nothing else may serve model calls.
+static DYNAMIC_MODEL_TOOLS: LazyLock<RwLock<HashMap<String, ToolRisk>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Register a session-scoped dynamic model tool discovered from a connected MCP server.
+pub fn register_dynamic_tool(name: impl Into<String>, risk: ToolRisk) {
+    DYNAMIC_MODEL_TOOLS.write().insert(name.into(), risk);
+}
+
+/// Unregister a dynamic model tool.
+pub fn unregister_dynamic_tool(name: &str) {
+    DYNAMIC_MODEL_TOOLS.write().remove(name);
+}
+
+/// Clear all session-scoped dynamic model tools.
+pub fn clear_dynamic_tools() {
+    DYNAMIC_MODEL_TOOLS.write().clear();
+}
+
+/// Closed-world membership: static MODEL_TOOLS + session-scoped dynamic allowlist.
 pub fn is_model_tool(name: &str) -> bool {
-    MODEL_TOOLS.iter().any(|(tool, _)| *tool == name)
+    if MODEL_TOOLS.iter().any(|(tool, _)| *tool == name) {
+        return true;
+    }
+    DYNAMIC_MODEL_TOOLS.read().contains_key(name)
 }
 
 /// Explicit risk for model tools; `None` for unknown/hidden tools.
 pub fn model_tool_risk(name: &str) -> Option<ToolRisk> {
-    MODEL_TOOLS
-        .iter()
-        .find(|(tool, _)| *tool == name)
-        .map(|(_, risk)| *risk)
+    if let Some((_, risk)) = MODEL_TOOLS.iter().find(|(tool, _)| *tool == name) {
+        return Some(*risk);
+    }
+    DYNAMIC_MODEL_TOOLS.read().get(name).copied()
 }
 
 /// Strip model-controlled approval flags; approval comes from RunControl.
@@ -115,7 +139,22 @@ mod tests {
     fn model_tool_allowlist_rejects_hidden_with_correlated_error() {
         let dir = std::env::temp_dir().join(format!("darius_allow_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = registry_with_decoys(&dir);
+        let mut registry = registry_with_decoys(&dir);
+
+        // Register a legitimate session-discovered MCP tool
+        register_dynamic_tool("mcp_real_echo", ToolRisk::ReadOnly);
+        registry.register_with_risk("mcp_real_echo", ToolRisk::ReadOnly, |_| {
+            Ok(ToolOutcome::Ok {
+                preview: "echoed".into(),
+                spilled_path: None,
+            })
+        });
+
+        // Legitimate dynamic MCP tool is accepted by execute_model
+        let c_real = call("call-real", "mcp_real_echo", serde_json::json!({}));
+        assert!(matches!(registry.execute_model(&c_real), ToolOutcome::Ok { .. }));
+
+        // Decoys and undiscovered mcp_* names must still be rejected
         for name in [
             "peer_send",
             "mcp_list",
@@ -125,6 +164,8 @@ mod tests {
             "cron_add",
             "glob",
             "mcp_shadow",
+            "mcp_undiscovered_decoy",
+            "mcp_attacker_tool",
             "read_spill",
             "browser_open",
             "a2a_send",
@@ -139,9 +180,9 @@ mod tests {
                 other => panic!("{name} must be rejected: {other:?}"),
             }
         }
+        unregister_dynamic_tool("mcp_real_echo");
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     #[test]
     fn model_tool_allowlist_strips_model_approval() {
         let dir = std::env::temp_dir().join(format!("darius_allow_{}", uuid::Uuid::new_v4()));
