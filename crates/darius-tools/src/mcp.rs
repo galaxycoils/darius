@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -193,8 +193,9 @@ impl StdioTransport {
             }
             match self.stdout_rx.recv_timeout(remaining) {
                 Ok(line) => {
-                    let val: serde_json::Value = serde_json::from_str(&line)
-                        .map_err(|e| McpError::Parse(format!("invalid JSON from MCP stdout: {e}")))?;
+                    let val: serde_json::Value = serde_json::from_str(&line).map_err(|e| {
+                        McpError::Parse(format!("invalid JSON from MCP stdout: {e}"))
+                    })?;
                     if val.get("id").and_then(|v| v.as_u64()) == Some(id) {
                         if let Some(err) = val.get("error") {
                             let msg = err
@@ -481,7 +482,13 @@ impl McpClient for StdioMcpClient {
 /// Helper to sanitize tool and server names for model tool visibility.
 pub fn sanitize_tool_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -645,5 +652,48 @@ mod tests {
         client.set_prior_step_succeeded(false);
         let outcome = client.call_tool("deploy_prod", &serde_json::json!({}));
         assert!(matches!(outcome, Err(McpError::StepGateFailed(_))));
+    }
+
+    #[test]
+    fn mcp_collision_safe_names_for_multiple_servers() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("darius_mcp_collision_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let mut registry =
+            ToolRegistry::new_with_roots(&temp_dir, &temp_dir.join("tool_results")).unwrap();
+
+        let client_a = Arc::new(LocalMcpClient::new());
+        client_a.add_tool(McpToolDef {
+            name: "do_work".into(),
+            description: "Work on server A".into(),
+            input_schema: serde_json::json!({}),
+            requires_prior_success: false,
+            read_only: true,
+        });
+
+        let client_b = Arc::new(LocalMcpClient::new());
+        client_b.add_tool(McpToolDef {
+            name: "do_work".into(),
+            description: "Work on server B".into(),
+            input_schema: serde_json::json!({}),
+            requires_prior_success: false,
+            read_only: false,
+        });
+
+        register_mcp_tools(&mut registry, "server_a", client_a).unwrap();
+        register_mcp_tools(&mut registry, "server_b", client_b).unwrap();
+
+        assert!(registry.has_tool("mcp_server_a_do_work"));
+        assert!(registry.has_tool("mcp_server_b_do_work"));
+        assert_eq!(
+            registry.risk("mcp_server_a_do_work"),
+            Some(ToolRisk::ReadOnly)
+        );
+        assert_eq!(
+            registry.risk("mcp_server_b_do_work"),
+            Some(ToolRisk::Mutating)
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

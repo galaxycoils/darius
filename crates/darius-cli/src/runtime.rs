@@ -160,9 +160,11 @@ impl SessionRuntime {
             match darius_tools::StdioMcpClient::connect(&server.transport, timeout) {
                 Ok(client) => {
                     let client = Arc::new(client.with_spill_dir(spill_dir.clone()));
-                    match darius_tools::register_mcp_tools(&mut tools, &server.name, client.clone()) {
+                    match darius_tools::register_mcp_tools(&mut tools, &server.name, client.clone())
+                    {
                         Ok(count) => {
-                            diagnostics.push(format!("mcp: {}={} tools={}", server.name, "ok", count));
+                            diagnostics
+                                .push(format!("mcp: {}={} tools={}", server.name, "ok", count));
                             mcp_clients.push(client);
                         }
                         Err(e) => {
@@ -538,10 +540,12 @@ args = ["{}"]
         let runtime = SessionRuntime::from_profile(&paths, "mcp_prof").unwrap();
         assert!(runtime.tools.has_tool("mcp_mock_echo"));
         assert_eq!(runtime.mcp_clients.len(), 1);
-        assert!(runtime
-            .diagnostics()
-            .iter()
-            .any(|d| d.contains("mcp: mock=ok tools=1")));
+        assert!(
+            runtime
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("mcp: mock=ok tools=1"))
+        );
     }
 
     #[test]
@@ -566,11 +570,14 @@ command = "/path/to/nonexistent/executable/for/test"
 
         let runtime = SessionRuntime::from_profile(&paths, "mcp_bad").unwrap();
         assert_eq!(runtime.mcp_clients.len(), 0);
-        assert!(runtime
-            .diagnostics()
-            .iter()
-            .any(|d| d.contains("mcp: bad_mock=error")));
-        let diag = SessionRuntime::diagnostics_for(&paths, "mcp_bad", RuntimeOptions::default()).unwrap();
+        assert!(
+            runtime
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("mcp: bad_mock=error"))
+        );
+        let diag =
+            SessionRuntime::diagnostics_for(&paths, "mcp_bad", RuntimeOptions::default()).unwrap();
         assert!(diag.iter().any(|d| d.contains("mcp: bad_mock=error")));
     }
 }

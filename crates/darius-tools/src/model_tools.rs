@@ -152,7 +152,10 @@ mod tests {
 
         // Legitimate dynamic MCP tool is accepted by execute_model
         let c_real = call("call-real", "mcp_real_echo", serde_json::json!({}));
-        assert!(matches!(registry.execute_model(&c_real), ToolOutcome::Ok { .. }));
+        assert!(matches!(
+            registry.execute_model(&c_real),
+            ToolOutcome::Ok { .. }
+        ));
 
         // Decoys and undiscovered mcp_* names must still be rejected
         for name in [

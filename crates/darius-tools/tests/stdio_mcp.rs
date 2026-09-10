@@ -41,7 +41,10 @@ fn stdio_mcp_client_call_tool_echo_success() {
     let outcome = client.call_tool("echo", &args).expect("call_tool failed");
 
     match outcome {
-        ToolOutcome::Ok { preview, spilled_path } => {
+        ToolOutcome::Ok {
+            preview,
+            spilled_path,
+        } => {
             assert!(preview.contains("HELLO_MCP_WORLD"));
             assert!(spilled_path.is_none());
         }
@@ -88,7 +91,10 @@ fn stdio_mcp_client_spill_large_output() {
         .expect("call_tool failed");
 
     match outcome {
-        ToolOutcome::Ok { preview, spilled_path } => {
+        ToolOutcome::Ok {
+            preview,
+            spilled_path,
+        } => {
             assert!(preview.len() <= 32 * 1024);
             assert!(spilled_path.is_some(), "expected large output to spill");
             let path = spilled_path.unwrap();

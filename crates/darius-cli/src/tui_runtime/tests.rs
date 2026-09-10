@@ -190,11 +190,7 @@ impl Harness {
             fallback_cancel,
         }
     }
-    fn new_with_mcp(
-        url: &str,
-        outputs: Option<Vec<ModelOutput>>,
-        mcp_servers_toml: &str,
-    ) -> Self {
+    fn new_with_mcp(url: &str, outputs: Option<Vec<ModelOutput>>, mcp_servers_toml: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let paths = DariusPaths {
             home: temp.path().join("home"),

@@ -141,3 +141,32 @@ fn test_run_mcp_echo_tool_succeeds() {
     provider.assert_clean();
     ctx.assert_clean_home("test_run_mcp_echo_tool_succeeds");
 }
+
+#[test]
+fn test_config_show_includes_mcp_health_without_leaking_secrets() {
+    let ctx = TestContext::new();
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../darius-tools/tests/fixtures/mock_mcp.py")
+        .canonicalize()
+        .expect("mock_mcp.py script must exist");
+
+    ctx.write_profile_config_with_mcp(
+        "default",
+        "http://127.0.0.1:8080",
+        KEY_ENV,
+        "python3",
+        &[&script.to_string_lossy()],
+        &[("SECRET_MCP_KEY", "super-secret-token-12345")],
+    );
+
+    let assert = ctx.command().args(["config", "show"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("mcp: mock=ok tools=1"),
+        "stdout was: {stdout}"
+    );
+    assert!(
+        !stdout.contains("super-secret-token-12345"),
+        "secret leaked in config show output"
+    );
+}

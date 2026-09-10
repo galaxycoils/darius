@@ -41,6 +41,32 @@ The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode
 
 The CLI exposes `tui`, `run <goal>`, `serve`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
 
+
+## MCP server configuration
+
+Darius supports local MCP (Model Context Protocol) servers over stdio and SSE transports. Configure servers in your profile's `config.toml`:
+
+```toml
+[[mcp.servers]]
+name = "mock"
+type = "stdio"
+command = "python3"
+args = ["/path/to/server.py"]
+env = { "ENV_VAR" = "value" }
+timeout_ms = 30000
+
+[[mcp.servers]]
+name = "remote"
+type = "sse"
+url = "https://example.com/mcp"
+headers = { "Authorization" = "Bearer token" }
+```
+
+Discovered tools are registered with namespaced identifiers: `mcp_{server}_{tool}`. Tools default to `Mutating` risk and require user approval in Auto mode unless the tool metadata specifies a `read_only` hint. Model tool visibility is enforced via a session-scoped dynamic allowlist populated strictly from connected servers on startup, not a static wildcard.
+
+## Write diff preview
+
+Approved `write_file` operations on existing non-empty files generate unified diff previews in the TUI transcript with line-level addition and deletion markers (capped at 200 lines). First-time file creation produces a summary-only preview.
 ## Serve goals over HTTP
 
 `darius serve` binds `127.0.0.1:7432` by default and runs the same policy-aware agent loop as `run`. It refuses to start without a live provider; `--offline` never executes goals. Headless web execution denies mutating tools, so approve writes and shell work in the TUI instead.

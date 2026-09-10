@@ -101,7 +101,8 @@ impl ProfileConfig {
             if model.model.trim().is_empty() {
                 return Err(ConfigError::EmptyModel);
             }
-            let url = url::Url::parse(&model.base_url).map_err(|_| ConfigError::InvalidUrlScheme)?;
+            let url =
+                url::Url::parse(&model.base_url).map_err(|_| ConfigError::InvalidUrlScheme)?;
             if !matches!(url.scheme(), "http" | "https") {
                 return Err(ConfigError::InvalidUrlScheme);
             }

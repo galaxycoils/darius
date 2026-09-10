@@ -380,12 +380,16 @@ fn tui_write_diff_appears_in_transcript_on_overwrite() {
     };
     assert!(file.ends_with("diff_target.txt"));
     assert!(!lines.is_empty());
-    assert!(lines
-        .iter()
-        .any(|l| l.kind == DiffKind::Delete && l.text.contains("original")));
-    assert!(lines
-        .iter()
-        .any(|l| l.kind == DiffKind::Add && l.text.contains("new")));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.kind == DiffKind::Delete && l.text.contains("original"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.kind == DiffKind::Add && l.text.contains("new"))
+    );
 
     let mut state = AppState::default();
     state.apply_event(diff.unwrap().clone());
@@ -425,10 +429,14 @@ env = {{ "MOCK_MCP_READONLY" = "0" }}
     );
     h.submit("call mutating mcp");
     let events = h.until(|e| matches!(e, UiEvent::PermissionRequired { .. }));
-    let UiEvent::PermissionRequired { id, title, command, .. } = events.last().unwrap() else {
+    let UiEvent::PermissionRequired {
+        id, title, command, ..
+    } = events.last().unwrap()
+    else {
         unreachable!()
     };
     assert!(title.contains("mcp_mock_echo"));
+    assert!(command.contains("MUTATING_PERMITTED"));
     h.commands
         .send(RuntimeCommand::ResolvePermission {
             id: id.clone(),
@@ -464,11 +472,15 @@ env = {{ "MOCK_MCP_READONLY" = "0" }}
         })
         .unwrap();
     let plan_events = completed(&mut h_plan);
-    assert!(!plan_events
-        .iter()
-        .any(|e| matches!(e, UiEvent::PermissionRequired { .. })));
-    assert!(plan_events
-        .iter()
-        .any(|e| matches!(e, UiEvent::ToolEnd { ok: false, .. })));
+    assert!(
+        !plan_events
+            .iter()
+            .any(|e| matches!(e, UiEvent::PermissionRequired { .. }))
+    );
+    assert!(
+        plan_events
+            .iter()
+            .any(|e| matches!(e, UiEvent::ToolEnd { ok: false, .. }))
+    );
     h_plan.shutdown();
 }

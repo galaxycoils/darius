@@ -36,6 +36,13 @@ Scope: v1.3.0 release. Verified means the narrowly described local contract has 
 | TUI `shell` AllowOnce captures stdout in tool result preview | **Verified** | [`tui_allow_once_shell_echo_appears_in_tool_result`](../crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs) |
 | TUI `shell` AllowSession caches exact command and reprompts different command | **Verified** | [`tui_allow_session_shell_exact_command_caches_and_different_reprompts`](../crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs), [`permission_lifecycle_session_exact_shell_command_and_complete_task_arguments`](../crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs), [`permission_lifecycle_shell_key_binds_canonical_workspace_and_exact_command`](../crates/darius-cli/src/tui_runtime/tests/permission_keys.rs) |
 | TUI `write_file` diff preview on overwrite in transcript (creates remain summary-only per Option A) | **Verified** | [`tui_write_diff_appears_in_transcript_on_overwrite`](../crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs) |
+| Profile `[[mcp.servers]]` parse (stdio and sse) | **Verified** | [`config_parses_mcp_servers_stdio_and_sse`](../crates/darius-cli/tests/config.rs) |
+| `StdioMcpClient` initialize and tools/list via fixture | **Verified** | [`stdio_mcp_client_connect_and_list_tools`](../crates/darius-tools/tests/stdio_mcp.rs) |
+| `StdioMcpClient` tools/call echo and output spill | **Verified** | [`stdio_mcp_client_call_tool_echo_success`](../crates/darius-tools/tests/stdio_mcp.rs), [`stdio_mcp_client_spill_large_output`](../crates/darius-tools/tests/stdio_mcp.rs) |
+| Runtime registers `mcp_{server}_{tool}` names | **Verified** | [`runtime_starts_and_registers_mcp_servers_from_profile`](../crates/darius-cli/src/runtime.rs) |
+| Session-scoped dynamic allowlist admits discovered tools, rejects undiscovered `mcp_*` names | **Verified** | [`model_tool_allowlist_rejects_hidden_with_correlated_error`](../crates/darius-tools/src/model_tools.rs) |
+| Mutating MCP tools gated in TUI and denied in Plan mode | **Verified** | [`tui_approval_gates_mutating_mcp_tools_and_plan_denies`](../crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs) |
+
 ## Retained surfaces and policy
 
 CLI: `tui`, `run <goal...>`, `serve`, `config show`, `config init`, `config preset`, `memory search <query>`, `memory pack`, `memory import <file>`, `memory export <file>`, `memory stats`. Missing required nested arguments fail; short command aliases and --session are unavailable. `serve` binds loopback by default and refuses to execute when no live provider is configured; offline demo never executes goals.
@@ -50,7 +57,7 @@ Unavailable CLI: `daemon`, `status`, `start`, `stop`, `attach`, `eval`, `learn`,
 
 Unavailable slash commands: `/plan`, `/effort`, `/skills`, `/a2a`, `/serve`; unavailable mode values: Manual and AcceptEdits. Use `/mode plan` instead.
 
-Unavailable: `peer_send`, `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop`, MCP, cron scheduling, worktree management/rollback, browser integration, skill mutation and remote sandboxes. Internal Rust symbols are not public support claims.
+Unavailable: `peer_send`, `subagent_spawn`, `subagent_list`, `subagent_steer`, `subagent_stop`, peer MCP fleet, cron scheduling, worktree management/rollback, browser integration, skill mutation and remote sandboxes. Internal Rust symbols are not public support claims.
 
 Web execution is executor-gated: without an injected runtime the router answers 503 and advertises no capabilities. With the CLI runtime, goals run the same policy-aware agent loop as `run`, headless mutations are denied, and per-task SSE replays the journal to a terminal event. Unavailable: peer messaging and multi-peer fleets. `GET /a2a/peer`, `/a2a/inbox/{handle}` return 404. `/health`, `/status` return 404.
 
