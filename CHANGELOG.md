@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0] - 2026-09-09
+
+### Added
+- Local MCP (Model Context Protocol) stdio and SSE client support via `[[mcp.servers]]` profile configuration with JSON-RPC 2.0 framing and large output disk spill (>32 KiB).
+- Session-scoped dynamic allowlist for discovered MCP tools: registers tools under namespaced identifiers (`mcp_{server}_{tool}`) and enforces closed-world model tool boundaries without static wildcards.
+- TUI approval gating for mutating MCP tools with Auto permission prompts and Plan mode deny.
+- MCP health diagnostics in `darius config show` and TUI `/status` without disclosing environment secrets.
+- TUI write diff preview in session transcript with line-level addition and deletion markers (capped at 200 lines) on overwrite of pre-existing non-empty files.
+- Verified test proofs for TUI `write_file` and `shell` AllowOnce, AllowSession, Deny, and Plan execution policies.
+
+### Corrected
+- Reconciled documented release target claims in `CAPABILITIES.md` (`macos-x86_64`, `macos-aarch64`, `linux-x86_64`) with the 3 targets actually built by the CI release matrix.
+- Clarified write diff preview behavior: diff generation is active for file overwrites; first-time file creation remains summary-only (Option A).
+
 ## [1.3.0] - 2026-09-09
 
 ### Added

@@ -1,6 +1,6 @@
 # Darius capability inventory
 
-Scope: v1.3.0 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
+Scope: v1.4.0 release. Verified means the narrowly described local contract has an executable test, not that a release, hosted model, or every operating system was validated. Run the linked test suite at the exact checkout before release. Experimental is not used here; source-only features are unavailable.
 
 ## Verified local contracts
 

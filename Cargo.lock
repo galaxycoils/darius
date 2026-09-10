@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "darius-bench"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "serde",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "darius-cli"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "darius-cognitive"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "darius-core"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-rlm",
  "harness_e2e",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "darius-daemon"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "darius-eval"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "darius-daemon",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "darius-hashline"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "blake3",
  "darius-core",
@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "darius-lsp"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "darius-hashline",
@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "darius-memory"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "darius-rlm"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "pyo3",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "darius-safety"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "parking_lot",
@@ -707,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skill-parser"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -716,7 +716,7 @@ dependencies = [
 
 [[package]]
 name = "darius-skills"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "darius-core",
  "darius-skill-parser",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tools"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "chrono",
  "darius-core",
@@ -746,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "darius-tui"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "crossterm",
  "darius-cognitive",
@@ -763,7 +763,7 @@ dependencies = [
 
 [[package]]
 name = "darius-web"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "harness_e2e"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "assert_cmd",
  "axum",
