@@ -368,6 +368,28 @@ impl MemoryEngine {
         self.db_path.clone()
     }
 
+    pub fn delete(&self, id: &str) -> Result<bool, MemoryError> {
+        let rows = self.conn.execute("DELETE FROM records WHERE id = ?1", [id])?;
+        Ok(rows > 0)
+    }
+
+    pub fn update_tags(&self, id: &str, tags: &[String]) -> Result<bool, MemoryError> {
+        let tags_json = serde_json::to_string(tags).unwrap_or_else(|_| "[]".into());
+        let rows = self.conn.execute(
+            "UPDATE records SET tags = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![tags_json, chrono::Utc::now().timestamp_millis(), id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn all_records(&self, limit: usize) -> Result<Vec<Record>, MemoryError> {
+        self.search(&SearchQuery {
+            text: None,
+            kinds: vec![],
+            limit,
+        })
+    }
+
     pub fn distill_handoff(
         &self,
         handoff: &darius_core::SessionHandoff,
@@ -659,5 +681,49 @@ mod tests {
             })
             .unwrap();
         assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn test_delete_and_update_tags_and_all_records() {
+        let engine = MemoryEngine::open_in_memory().unwrap();
+        let r1 = engine
+            .upsert(NewRecord {
+                kind: RecordKind::Fact,
+                title: Some("Fact 1".into()),
+                body: "First fact for testing upkeep".into(),
+                tags: vec!["tag1".into()],
+                importance: 0.8,
+                source: None,
+            })
+            .unwrap();
+
+        let r2 = engine
+            .upsert(NewRecord {
+                kind: RecordKind::Fact,
+                title: Some("Fact 2".into()),
+                body: "Second fact for testing upkeep".into(),
+                tags: vec!["tag2".into()],
+                importance: 0.7,
+                source: None,
+            })
+            .unwrap();
+
+        let all = engine.all_records(10).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Update tags
+        let updated = engine
+            .update_tags(&r1.id, &["tag1".into(), "clustered".into()])
+            .unwrap();
+        assert!(updated);
+
+        // Delete r2
+        let deleted = engine.delete(&r2.id).unwrap();
+        assert!(deleted);
+
+        let remaining = engine.all_records(10).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, r1.id);
+        assert!(remaining[0].tags.contains(&"clustered".to_string()));
     }
 }
