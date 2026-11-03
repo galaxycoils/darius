@@ -18,7 +18,10 @@ impl AgentLoop {
         workspace: &str,
         extra_tools: &[crate::model::ToolSpec],
     ) -> Result<String, CognitiveError> {
-        let ctx = TurnContext::with_token(self.control.cancellation_token());
+        let mut ctx = TurnContext::with_token(self.control.cancellation_token());
+        if let Some(session_id) = &self.session_id {
+            ctx = ctx.with_session_id(session_id.clone());
+        }
         let prompt = coding_system_prompt(workspace);
         let specs = model_tool_specs_with_dynamic(extra_tools);
         let rounds = policy.max_react_iters.clamp(1, MAX_ROUNDS);

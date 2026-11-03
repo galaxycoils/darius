@@ -24,6 +24,13 @@ pub enum Command {
     Tui,
     Run { #[arg(required = true)] goal: Vec<String> },
     Config { #[command(subcommand)] command: ConfigCommand },
+    Auth { #[command(subcommand)] command: AuthCommand },
+    /// List models for the active profile (or --provider) with source annotation
+    Models {
+        /// Provider id (e.g. opencode-free, nous); defaults to the active profile's provider
+        #[arg(long)]
+        provider: Option<String>,
+    },
     Memory { #[command(subcommand)] command: MemoryCommand },
     /// Run the Darius web server (CognitiveLoop + SSE)
     Serve {
@@ -68,6 +75,28 @@ pub enum ConfigCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Interactive six-provider setup wizard (key → home .env, nous → OAuth instruction)
+    Setup {
+        /// Provider id; when absent, an interactive menu is shown (default: opencode-free)
+        #[arg(long)]
+        provider: Option<String>,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum AuthCommand {
+    /// Log in to a provider via OAuth device-code flow (currently: nous)
+    Login {
+        /// Provider id (currently only `nous`)
+        provider: String,
+    },
+    /// Clear the stored OAuth credential for a provider
+    Logout {
+        /// Provider id (currently only `nous`)
+        provider: String,
+    },
+    /// Show stored credential metadata (never the token)
+    Status,
 }
 
 #[derive(clap::Subcommand)]

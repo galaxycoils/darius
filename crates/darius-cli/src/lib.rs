@@ -1,6 +1,6 @@
 //! Darius command-line entry points and retained runtime behavior.
 
-use crate::args::{Cli, Command, ConfigCommand, MemoryCommand};
+use crate::args::{AuthCommand, Cli, Command, ConfigCommand, MemoryCommand};
 use crate::tui_runtime::TuiWorker;
 use clap::{CommandFactory, Parser};
 use darius_tui::{AppState, TuiController};
@@ -8,6 +8,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub mod args;
+pub(crate) mod auth_cmd;
 pub(crate) mod command_handler;
 pub mod commands;
 mod config;
@@ -17,12 +18,16 @@ pub mod config_probe;
 mod config_publish;
 mod diagnostics;
 mod events;
+pub(crate) mod models_cmd;
 pub mod paths;
 mod permissions;
 pub mod runtime;
 mod runtime_selection;
 mod runtime_selector;
+mod runtime_session;
 mod safety;
+#[cfg(test)]
+mod session_test_support;
 pub mod tui_runtime;
 pub mod web_bridge;
 
@@ -67,6 +72,10 @@ pub fn run_with(cli: Cli, io: IoCaps) -> Result<(), Box<dyn std::error::Error>> 
         Some(Command::Tui) => cmd_tui(&profile, cwd.as_deref(), offline),
         Some(Command::Run { goal }) => cmd_run(goal, &profile, cwd.as_deref(), offline),
         Some(Command::Config { command }) => cmd_config(command, &profile, cwd.as_deref()),
+        Some(Command::Auth { command }) => cmd_auth(command, cwd.as_deref()),
+        Some(Command::Models { provider }) => {
+            cmd_models(provider.as_deref(), &profile, cwd.as_deref())
+        }
         Some(Command::Memory { command }) => cmd_memory(command, &profile, cwd.as_deref()),
         Some(Command::Serve { host, port }) => {
             cmd_serve(host, port, &profile, cwd.as_deref(), offline)
@@ -198,7 +207,7 @@ fn cmd_run(
     let (tx, _rx) = std::sync::mpsc::channel();
     let sink = std::sync::Arc::new(darius_cognitive::ChannelEventSink::new(tx));
     let control = std::sync::Arc::new(permissions::HeadlessRunControl::default());
-    let loopt = darius_cognitive::AgentLoop::new(sink, control.clone());
+    let loopt = runtime.agent_loop(sink, control.clone());
     let text = crate::runtime::block_on_turn(loopt.run_turn_with_extra_tools(
         &runtime.metadata,
         &runtime.policy,
@@ -233,6 +242,10 @@ fn cmd_config(
     let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
     match command {
         ConfigCommand::Show => {
+            let profile_config = crate::config::ProfileConfig::load(&paths, profile)?;
+            if let Some(note) = profile_config.openai_deprecation() {
+                eprintln!("note: {note}");
+            }
             for line in crate::runtime::SessionRuntime::diagnostics_for(
                 &paths,
                 profile,
@@ -256,6 +269,8 @@ fn cmd_config(
                 base_url: base_url.to_string(),
                 model,
                 api_key_env: Some(key_env),
+                auth_type: None,
+                default_max_tokens: None,
             };
             let path = initialize_profile(&paths, profile, &metadata, force)?;
             println!("Initialized profile '{profile}' at {}", path.display());
@@ -269,8 +284,33 @@ fn cmd_config(
                 path.display()
             );
         }
+        ConfigCommand::Setup { provider } => {
+            if let Err(e) = crate::config_init::run_setup(&paths, profile, provider.as_deref()) {
+                return Err(e.into());
+            }
+        }
     }
     Ok(())
+}
+
+fn cmd_models(
+    provider: Option<&str>,
+    profile: &str,
+    cwd: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
+    crate::models_cmd::run_models(&paths, profile, provider).map_err(|e| e.into())
+}
+
+fn cmd_auth(command: AuthCommand, cwd: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+    let paths = paths::DariusPaths::resolve(&paths::OsEnv, cwd)?;
+    match command {
+        AuthCommand::Login { provider } => auth_cmd::login(&paths, &provider).map_err(|e| e.into()),
+        AuthCommand::Logout { provider } => {
+            auth_cmd::logout(&paths, &provider).map_err(|e| e.into())
+        }
+        AuthCommand::Status => auth_cmd::status(&paths).map_err(|e| e.into()),
+    }
 }
 
 /// Evaluate the same closed-world risk policy used by model execution.

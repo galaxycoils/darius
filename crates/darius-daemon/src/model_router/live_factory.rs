@@ -1,12 +1,12 @@
 //! Validated construction for one exact live provider and shared budget.
 use super::{
-    BudgetEnforcer, BudgetScope, Provider, RouterError, anthropic::AnthropicModel,
-    openai::OpenAiModel,
+    BudgetEnforcer, BudgetScope, Provider, ProviderRouting, RouterError, anthropic::AnthropicModel,
+    chat_completions::ChatCompletionsModel,
 };
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ModelOutput, ToolSpec, TurnContext};
 
 pub enum LiveBackend {
-    OpenAi(OpenAiModel),
+    ChatCompletions(ChatCompletionsModel),
     Anthropic(AnthropicModel),
 }
 
@@ -30,20 +30,21 @@ impl LiveModel {
         budget: BudgetEnforcer,
         scope: BudgetScope,
     ) -> Result<Self, RouterError> {
-        let fields = [
-            &provider.name,
-            &provider.model,
-            &provider.base_url,
-            &provider.api_key_env,
-        ];
-        if fields.iter().any(|value| value.trim().is_empty()) {
-            return Err(RouterError::Provider("provider config incomplete".into()));
-        }
-        let is_anthropic = provider.name.eq_ignore_ascii_case("anthropic")
-            || provider.base_url.contains("anthropic.com")
-            || provider.model.starts_with("claude");
+        provider.validate()?;
+        let is_anthropic = provider.name == "anthropic";
 
-        let base_url = provider.base_url.trim_end_matches('/').to_owned();
+        let mut base_url = provider.base_url.trim_end_matches('/').to_owned();
+        // 3.5: NVIDIA local NIM override — a set `NVIDIA_BASE_URL` wins over
+        // the profile default for nvidia providers only; empty values and
+        // every other provider keep the configured base_url.
+        if provider
+            .profile()
+            .is_some_and(|profile| profile.id == "nvidia")
+            && let Ok(nim_url) = std::env::var("NVIDIA_BASE_URL")
+            && !nim_url.trim().is_empty()
+        {
+            base_url = nim_url.trim_end_matches('/').to_owned();
+        }
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
@@ -59,13 +60,16 @@ impl LiveModel {
                 scope,
             })
         } else {
-            LiveBackend::OpenAi(OpenAiModel {
+            LiveBackend::ChatCompletions(ChatCompletionsModel {
+                profile: provider.profile(),
                 model: provider.model.clone(),
                 base_url: base_url.clone(),
                 key_env: provider.api_key_env.clone(),
                 client: client.clone(),
                 budget: budget.clone(),
                 scope,
+                max_output_tokens: None,
+                provider_routing: None,
             })
         };
 
@@ -83,6 +87,16 @@ impl LiveModel {
     pub fn is_anthropic(&self) -> bool {
         matches!(self.backend, LiveBackend::Anthropic(_))
     }
+
+    /// Attach OpenRouter routing prefs after construction. No-op for the
+    /// Anthropic backend and for `None`; the body-build gate (3.6) additionally
+    /// drops routing for non-OpenRouter profiles, so callers need no branching.
+    pub fn with_provider_routing(mut self, routing: Option<ProviderRouting>) -> Self {
+        if let LiveBackend::ChatCompletions(m) = &mut self.backend {
+            m.provider_routing = routing;
+        }
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -94,7 +108,7 @@ impl AsyncModel for LiveModel {
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
         match &mut self.backend {
-            LiveBackend::OpenAi(m) => m.complete(messages, tools, ctx).await,
+            LiveBackend::ChatCompletions(m) => m.complete(messages, tools, ctx).await,
             LiveBackend::Anthropic(m) => m.complete(messages, tools, ctx).await,
         }
     }
@@ -107,8 +121,50 @@ impl AsyncModel for LiveModel {
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
         match &mut self.backend {
-            LiveBackend::OpenAi(m) => m.complete_stream(messages, tools, sink, ctx).await,
+            LiveBackend::ChatCompletions(m) => m.complete_stream(messages, tools, sink, ctx).await,
             LiveBackend::Anthropic(m) => m.complete_stream(messages, tools, sink, ctx).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Provider;
+    use super::LiveModel;
+
+    /// 3.5 config tests: nvidia profile default base_url, `NVIDIA_BASE_URL`
+    /// override (local NIM), empty override ignored, non-nvidia unaffected.
+    /// Single test fn: the env var is process-global, so the cases run
+    /// sequentially here instead of racing across parallel tests.
+    #[test]
+    fn nvidia_base_url_override() {
+        unsafe { std::env::remove_var("NVIDIA_BASE_URL") };
+        let nvidia = darius_core::providers::resolve("nvidia").unwrap();
+        assert_eq!(nvidia.default_max_tokens, Some(16384));
+
+        let live = LiveModel::for_provider(Provider::from_profile("nvidia").unwrap()).unwrap();
+        assert_eq!(live.base_url, nvidia.base_url);
+
+        unsafe { std::env::set_var("NVIDIA_BASE_URL", "http://localhost:8000/v1") };
+        let live = LiveModel::for_provider(Provider::from_profile("nvidia").unwrap()).unwrap();
+        assert_eq!(live.base_url, "http://localhost:8000/v1");
+
+        // Alias resolves to the same nvidia profile, override still applies.
+        let live = LiveModel::for_provider(Provider::from_profile("nvidia-nim").unwrap()).unwrap();
+        assert_eq!(live.base_url, "http://localhost:8000/v1");
+
+        // Empty override is ignored.
+        unsafe { std::env::set_var("NVIDIA_BASE_URL", "   ") };
+        let live = LiveModel::for_provider(Provider::from_profile("nvidia").unwrap()).unwrap();
+        assert_eq!(live.base_url, nvidia.base_url);
+
+        // Non-nvidia providers never see the override.
+        unsafe { std::env::set_var("NVIDIA_BASE_URL", "http://localhost:8000/v1") };
+        let mut other = Provider::from_profile("openrouter").unwrap();
+        other.base_url = "https://openrouter.ai/api/v1".into();
+        let live = LiveModel::for_provider(other).unwrap();
+        assert_eq!(live.base_url, "https://openrouter.ai/api/v1");
+
+        unsafe { std::env::remove_var("NVIDIA_BASE_URL") };
     }
 }

@@ -1,6 +1,6 @@
-# Darius v1.5.0
+# Darius v2.0.0
 
-Terminal coding-agent harness with an OpenAI-compatible adapter, explicit offline demo, permission prompts, SQLite memory, and a loopback web server. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
+Terminal coding-agent harness with six Hermes-parity providers, live model listing, explicit offline demo, permission prompts, SQLite memory, and a loopback web server. Local session storage does not mean inference stays local: configured providers receive prompts and tool results.
 
 ## Build and launch
 
@@ -14,16 +14,47 @@ An unconfigured launch shows setup guidance, not simulated analysis. Prebuilt as
 
 ## Configure a provider
 
+| Provider ID | Base URL | Key env | Auth |
+| --- | --- | --- | --- |
+| `kilocode` | `https://api.kilo.ai/api/gateway` | `KILOCODE_API_KEY` | api key |
+| `opencode-go` | `https://opencode.ai/zen/go/v1` | `OPENCODE_GO_API_KEY` | api key |
+| `opencode-free` | `https://opencode.ai/zen/v1` | *(none — keyless)* | anonymous |
+| `nous` | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` (fallback) | Portal OAuth device-code |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | api key |
+| `nvidia` | `https://integrate.api.nvidia.com/v1` | `NVIDIA_API_KEY` | api key |
+
+Fastest start (no key, no account — explicit selection, never automatic):
+
 ```sh
-./target/release/darius config init --provider openai_compatible \
-  --base-url https://api.openai.com/v1 --model gpt-4o-mini --key-env DARIUS_API_KEY
-export DARIUS_API_KEY="your-key"
+./target/release/darius config preset opencode-free
+./target/release/darius models
 ./target/release/darius run "summarize this repository"
 ```
 
-Initialization writes `~/.darius/profiles/default/config.toml` and refuses replacement unless `--force` is passed. `--profile`, `--cwd`, and `--offline` are global options. `DARIUS_HOME` relocates profile storage. `config preset <name>` writes example settings, not proof of provider availability. Model identifiers and endpoint compatibility must be checked with your provider.
+Guided setup (recommends `opencode-free`, writes keys to `~/.darius/.env`, never to `config.toml`):
 
-Missing keys for credential-required configurations cause an error; there is no silent mock fallback. Local/no-key configurations can select live without a key, which is not proof of connectivity. With no configuration, a usable `DARIUS_API_KEY` or `OPENAI_API_KEY` selects the default OpenAI-compatible configuration. Only an explicit `--offline` selects the labelled `MockModel` demo:
+```sh
+./target/release/darius config setup
+```
+
+Keyed provider example:
+
+```sh
+./target/release/darius config preset openrouter
+export OPENROUTER_API_KEY="your-key"
+./target/release/darius run "summarize this repository"
+```
+
+Nous Portal login (device-code flow; tokens live in `~/.darius/auth.json`, mode `0600`):
+
+```sh
+./target/release/darius auth login nous
+./target/release/darius auth status
+```
+
+Keys resolve from the process environment or `~/.darius/.env` (dotenv style; `DARIUS_HOME` relocates it); a workspace `.env` still loads for back-compat. `config.toml` stores only the key *variable name* (`api_key_env`), never secrets. Initialization writes `~/.darius/profiles/default/config.toml` and refuses replacement unless `--force` is passed. `--profile`, `--cwd`, and `--offline` are global options. `DARIUS_HOME` relocates profile storage. `config preset <name>` writes example settings, not proof of provider availability. Model identifiers and endpoint compatibility must be checked with your provider (`darius models` lists the live catalog with live/cached/fallback source).
+
+Missing keys for credential-required configurations cause an error naming the variable; there is no silent mock fallback. Local/no-key configurations can select live without a key, which is not proof of connectivity. With no configuration, darius enters setup guidance — bare environment keys never auto-select a provider. Only an explicit `--offline` selects the labelled `MockModel` demo:
 
 ```sh
 ./target/release/darius --offline run "demo"
@@ -39,7 +70,9 @@ Auto runs read-only tools and asks before mutating tools or shell execution. Pla
 
 The supported slash commands are `/help`, `/clear`, `/compact`, `/model`, `/mode`, `/permissions`, `/memory`, `/pack`, `/tasks`, `/status`, `/config`, `/stop`, and `/quit`. `/model` opens an interactive picker or selects from catalog; `/mode auto` and `/mode plan` change policy. See [operating guidance](docs/TROUBLESHOOTING.md).
 
-The CLI exposes `tui`, `run <goal>`, `serve`, `config show|init|preset`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
+The CLI exposes `tui`, `run <goal>`, `serve`, `config show|init|preset|probe|setup`, `auth login|logout|status`, `models [--provider]`, and `memory search|pack|import|export|stats`. Inspect nested `--help` for required arguments. Explicit config/memory operations may initialize local storage.
+
+Legacy `openai_compatible` configs (including `api.openai.com` bases) still load; `api.openai.com` entries print a deprecation notice in `config show` directing to a named provider.
 
 
 ## MCP server configuration

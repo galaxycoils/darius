@@ -13,6 +13,61 @@ pub struct McpConfig {
     pub servers: Vec<McpServerEntry>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelConfig {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub auth_type: Option<darius_core::providers::AuthType>,
+    #[serde(default)]
+    pub default_max_tokens: Option<u32>,
+    #[serde(default)]
+    pub context_length: Option<u32>,
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct OpenRouterConfig {
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub only: Vec<String>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
+    #[serde(default)]
+    pub order: Vec<String>,
+}
+
+impl OpenRouterConfig {
+    /// Thread the `[openrouter]` section to the transport (3.6): `None`
+    /// when the section carries no prefs, so no `provider_routing` key is
+    /// sent at all. The transport still gates on the openrouter profile
+    /// id — this value is dropped for any other provider at body-build.
+    pub fn provider_routing(&self) -> Option<darius_daemon::ProviderRouting> {
+        let routing = darius_daemon::ProviderRouting {
+            sort: self.sort.clone(),
+            only: self.only.clone(),
+            ignore: self.ignore.clone(),
+            order: self.order.clone(),
+        };
+        (!routing.is_empty()).then_some(routing)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct NousConfig {
+    #[serde(default = "default_keepalive_interval")]
+    pub keepalive_interval_seconds: u64,
+}
+
+fn default_keepalive_interval() -> u64 {
+    900
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ProfileConfig {
     pub model: Option<ModelConfig>,
@@ -22,14 +77,10 @@ pub struct ProfileConfig {
     pub mcp: McpConfig,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerEntry>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ModelConfig {
-    pub provider: String,
-    pub base_url: String,
-    pub model: String,
-    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub openrouter: Option<OpenRouterConfig>,
+    #[serde(default)]
+    pub nous: NousConfig,
 }
 
 impl ProfileConfig {
@@ -93,6 +144,22 @@ impl ProfileConfig {
         }
     }
 
+    pub fn openai_deprecation(&self) -> Option<String> {
+        let model = self.model.as_ref()?;
+        if model.provider != "openai_compatible" {
+            return None;
+        }
+        let base = url::Url::parse(&model.base_url).ok()?;
+        if base.host_str() == Some("api.openai.com") {
+            Some(
+                "provider \"openai_compatible\" with base_url host api.openai.com is deprecated; migrate to a named provider (see darius config init)"
+                    .to_string(),
+            )
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         if let Some(model) = &self.model {
             if model.provider.trim().is_empty() {
@@ -146,4 +213,34 @@ fn valid_env_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openrouter_section_converts_to_transport_routing() {
+        let cfg = OpenRouterConfig {
+            sort: Some("throughput".into()),
+            only: vec!["lambda".into()],
+            ignore: vec![],
+            order: vec!["lambda".into(), "deepinfra".into()],
+        };
+        let routing = cfg.provider_routing().expect("non-empty section converts");
+        assert_eq!(routing.sort.as_deref(), Some("throughput"));
+        assert_eq!(routing.only, vec!["lambda"]);
+        assert!(routing.ignore.is_empty());
+        assert_eq!(routing.order, vec!["lambda", "deepinfra"]);
+    }
+
+    #[test]
+    fn empty_openrouter_section_converts_to_none() {
+        assert!(OpenRouterConfig::default().provider_routing().is_none());
+        let blank_sort = OpenRouterConfig {
+            sort: Some(String::new()),
+            ..OpenRouterConfig::default()
+        };
+        assert!(blank_sort.provider_routing().is_none());
+    }
 }

@@ -4,6 +4,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod a2a;
 pub mod a2a_quotas;
+pub mod auth;
 pub mod backup;
 pub mod cache;
 pub mod chaos;
@@ -16,9 +17,9 @@ pub mod handoff;
 pub mod kanban;
 pub mod memory;
 mod messaging;
-
-pub use messaging::{MessagingError, MessagingMessage, task_state_status};
+pub mod model_catalog;
 pub mod model_router;
+pub mod opencode_affinity;
 pub mod platform_adapters;
 pub mod profile;
 pub mod sandbox;
@@ -30,6 +31,9 @@ pub mod worktrees;
 
 pub use a2a::{A2aServer, AgentCard};
 pub use a2a_quotas::{AgentQuota, AgentState, QueuePolicy, QuotaError, QuotaManager};
+pub use auth::{
+    AuthStatus, DeviceCode, Keepalive, NousAuthConfig, NousAuthError, NousAuthService, NousCred,
+};
 pub use backup::{BackupError, BackupManager};
 pub use cache::{CacheCoordinator, CacheMetrics, compute_prefix_cache_key};
 pub use chaos::{ChaosError, ChaosTester, ManagedProcess};
@@ -43,10 +47,15 @@ pub use event_log::{EventLog, EventLogError};
 pub use handoff::{HandoffError, HandoffStore};
 pub use kanban::{KanbanBoard, KanbanError, KanbanTask, TaskStatus};
 pub use memory::{HindsightMemory, MemoryError, MentalModel, SessionMemory};
-pub use model_router::{
-    AnthropicModel, BudgetEnforcer, BudgetScope, LiveModel, ModelRole, ModelRouter, OpenAiModel,
-    Provider, ProviderRegistry, RouterError,
+pub use messaging::{MessagingError, MessagingMessage, task_state_status};
+pub use model_catalog::{
+    CatalogError, CatalogRequest, CatalogResponse, CatalogSource, ModelCatalog, ModelListing,
 };
+pub use model_router::{
+    AnthropicModel, BudgetEnforcer, BudgetScope, LiveBackend, LiveModel, ModelRole, ModelRouter,
+    OpenAiModel, Provider, ProviderRegistry, ProviderRouting, RouterError,
+};
+pub use opencode_affinity::{is_opencode_relay, session_token};
 pub use platform_adapters::{
     AdapterError, AdapterManager, DiscordAdapter, IncomingMessage, PlatformAdapter, SlackAdapter,
     TelegramAdapter,

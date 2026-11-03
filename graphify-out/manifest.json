@@ -22639,294 +22639,9 @@
     "ast_hash": "ee948e5220e2cafc485fcf6b4350b7c6",
     "semantic_hash": ""
   },
-  "/private/tmp/darius-graphify/workspace/install.sh": {
-    "mtime": 1788125997.755886,
-    "ast_hash": "cde72e42cb152bf6d23b4829c0d71086",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-cli/src/events.rs": {
-    "mtime": 1788125981.0608306,
-    "ast_hash": "990631b59c667020005f4fba02920ceb",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-cli/src/lib.rs": {
-    "mtime": 1788125981.0614917,
-    "ast_hash": "7731644bb846e4e667f54c27e7ba0969",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-cli/src/main.rs": {
-    "mtime": 1788125981.0619514,
-    "ast_hash": "ee4a3b268df2e77b4780b52bfaef7ce2",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-skills/src/registry.rs": {
-    "mtime": 1788125981.0636163,
-    "ast_hash": "3a83298e0a6d02f3211374e17ae0453f",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-skills/src/lib.rs": {
-    "mtime": 1788125981.0642905,
-    "ast_hash": "abee6aba7d4b5ae59ed5f885ea0485c5",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-skills/src/curator.rs": {
-    "mtime": 1788125981.0648108,
-    "ast_hash": "e323e7f53722f3cc2998dfb1653aac6d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-skills/src/loader.rs": {
-    "mtime": 1788125981.0652473,
-    "ast_hash": "a150d58e7104d53ae7ee4ea682918739",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-lsp/src/lib.rs": {
-    "mtime": 1788125981.0667415,
-    "ast_hash": "7fd27540f6cbb40e681ba938dad0f71b",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-hashline/src/filesystem.rs": {
-    "mtime": 1788125981.0693367,
-    "ast_hash": "24072beb532120f2ff87862372889ad2",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-hashline/src/lib.rs": {
-    "mtime": 1788125981.0698235,
-    "ast_hash": "17482c9cf582e91446a0ff5ad3fad117",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-hashline/src/anchors.rs": {
-    "mtime": 1788125981.0703068,
-    "ast_hash": "86574a68f04d8b1f39c286301bea047e",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-hashline/src/edits.rs": {
-    "mtime": 1788125981.0708857,
-    "ast_hash": "62ca7720b14b6bb7567b1b330f2a9445",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/telemetry.rs": {
-    "mtime": 1788125981.073939,
-    "ast_hash": "3f5fcf3a143093801c4a0c5db43d62d4",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/cache.rs": {
-    "mtime": 1788125981.0746002,
-    "ast_hash": "b96b6984a8628dcd74788b70dd52cda1",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/data_ownership.rs": {
-    "mtime": 1788125981.0750928,
-    "ast_hash": "2172ac21c69e1234925f742ebc7d0b8f",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/chaos.rs": {
-    "mtime": 1788125981.0756128,
-    "ast_hash": "4ed8bf9d41ccf291e654750e02c65eea",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/cron.rs": {
-    "mtime": 1788125981.0760188,
-    "ast_hash": "db6eb31c785defb1237b03ebc0fe9a7a",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/handoff.rs": {
-    "mtime": 1788125981.076725,
-    "ast_hash": "34ff3f294ae8a5754339352d5dde2939",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/profile.rs": {
-    "mtime": 1788125981.0771143,
-    "ast_hash": "f508bd74105d356244fa5b1c714effe2",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/tools.rs": {
-    "mtime": 1788125981.0775006,
-    "ast_hash": "d03c73a0c176568ff60763d92655e15a",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/event_log.rs": {
-    "mtime": 1788125981.077983,
-    "ast_hash": "fe824d86cfbabf1afbcf3133c8a3c28b",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/lib.rs": {
-    "mtime": 1788125981.078451,
-    "ast_hash": "0a07c395fc30ee8b35e93591b2ecedfb",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/memory.rs": {
-    "mtime": 1788125981.0788524,
-    "ast_hash": "69188177e82a203f9b51be4bb59bd51d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/compliance.rs": {
-    "mtime": 1788125981.0792415,
-    "ast_hash": "5c8a8e4828a5983352ab355b74282b4a",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/a2a.rs": {
-    "mtime": 1788125981.0798054,
-    "ast_hash": "dbef0a16b3431c75936ea73afed1850f",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/backup.rs": {
-    "mtime": 1788125981.0803027,
-    "ast_hash": "7c165e268c609768353bebe1b0690f1c",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/platform_adapters.rs": {
-    "mtime": 1788125981.0806885,
-    "ast_hash": "3b7b4f9ad54c25b9de901fe1cf83ef6d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/worktrees.rs": {
-    "mtime": 1788125981.0809839,
-    "ast_hash": "ac4d60cfedfc70bf7bbb9fde27fad43a",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/daemon.rs": {
-    "mtime": 1788125981.0814788,
-    "ast_hash": "03e0696c04b62be45b6602e35c993a8c",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/kanban.rs": {
-    "mtime": 1788125981.0818777,
-    "ast_hash": "8d00ea911aced5dd586a21e3ce91ec1a",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/a2a_quotas.rs": {
-    "mtime": 1788125981.082345,
-    "ast_hash": "88c480e67e5b92516b296727f949149c",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/model_router.rs": {
-    "mtime": 1788125981.0827537,
-    "ast_hash": "0d1becc670caea63d4433a5fd9d0a078",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/status_projector.rs": {
-    "mtime": 1788125981.0831897,
-    "ast_hash": "84f821f741bc5503edf4e0cb9db7c59d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-daemon/src/sandbox.rs": {
-    "mtime": 1788125981.0836287,
-    "ast_hash": "4650969d5472f9fc7581a46f1d6e97a6",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/grader.rs": {
-    "mtime": 1788125981.0934088,
-    "ast_hash": "554a42227bb8b9039c8e1bde25016000",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/lib.rs": {
-    "mtime": 1788125981.0936916,
-    "ast_hash": "2eaffad84d61d657e93cd90b69f3f9e9",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/rubric.rs": {
-    "mtime": 1788125981.094099,
-    "ast_hash": "9e2b1e9dd8831394e01553bd8da2b74d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/fixtures.rs": {
-    "mtime": 1788125981.0944,
-    "ast_hash": "cc037f7f2bbfd30ff9dce941641a48c4",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/rater.rs": {
-    "mtime": 1788125981.0947661,
-    "ast_hash": "0b883ea76b07e879ecc6bc9e87eb9ad4",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-eval/src/learn.rs": {
-    "mtime": 1788125981.0951624,
-    "ast_hash": "c9218692d4d96295caa2c2068b79fcd1",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-safety/src/gates.rs": {
-    "mtime": 1788125981.0963192,
-    "ast_hash": "ab2901c824a71a943da7531ca26e2cea",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-safety/src/audit.rs": {
-    "mtime": 1788125981.09696,
-    "ast_hash": "f6a5ec09718498ef0ad0cb58f6d60c6e",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-safety/src/lib.rs": {
-    "mtime": 1788125981.0974736,
-    "ast_hash": "35f8a1851e48b8b1885017dfd9bbe712",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-safety/src/capabilities.rs": {
-    "mtime": 1788125981.0978417,
-    "ast_hash": "973e666a33ac752d4f525df4e48b8f50",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-bench/src/lib.rs": {
-    "mtime": 1788125981.099005,
-    "ast_hash": "c61b85e072b29343711a5cae0cba2035",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-core/tests/smoke.rs": {
-    "mtime": 1788125981.1002374,
-    "ast_hash": "f969e937445220c74b995fdd639533b8",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-core/src/lib.rs": {
-    "mtime": 1788125981.1008568,
-    "ast_hash": "68a1c2235de8977f1d3446ae0bae1c50",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-core/src/plugins.rs": {
-    "mtime": 1788125981.1016078,
-    "ast_hash": "8f0fd2762b0a2c8c217dacb4c7f68b32",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-skill-parser/src/lib.rs": {
-    "mtime": 1788125981.102897,
-    "ast_hash": "c08071be304a9f8b5f08383a092d1cd7",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-rlm/src/kernel.rs": {
-    "mtime": 1788125981.1041837,
-    "ast_hash": "0ad7048843b4cccfbf30dc7dbad6c745",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-rlm/src/lib.rs": {
-    "mtime": 1788125981.1046727,
-    "ast_hash": "daf028bb037bb178e803ab8bd855438d",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-rlm/src/evaluate.rs": {
-    "mtime": 1788125981.1059408,
-    "ast_hash": "9110836196fae48e0704b45c5dc0a7dd",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/crates/darius-rlm/src/wire.rs": {
-    "mtime": 1788125981.1064098,
-    "ast_hash": "4223b66691da9630ce79ba1f1ef43a91",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/tests/harness_e2e/src/lib.rs": {
-    "mtime": 1788125997.7579665,
-    "ast_hash": "53f98b51eadae938a85d835151fee275",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/README.md": {
-    "mtime": 1788125997.7589848,
-    "ast_hash": "80898f3f634baccf49bb48e1f6f2f6e6",
-    "semantic_hash": ""
-  },
-  "/private/tmp/darius-graphify/workspace/.github/workflows/ci.yml": {
-    "mtime": 1788125997.7617066,
-    "ast_hash": "c593868ccc4c09f8b33d971c2310fbce",
-    "semantic_hash": ""
-  },
   "/Users/cmd/workspace/Darius/install.sh": {
-    "mtime": 1787799670.4709024,
-    "ast_hash": "cde72e42cb152bf6d23b4829c0d71086",
+    "mtime": 1788817172.7885382,
+    "ast_hash": "4d6cc953c06621605add190ff9dbf081",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-cli/src/events.rs": {
@@ -22935,12 +22650,12 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-cli/src/lib.rs": {
-    "mtime": 1788132474.4465098,
-    "ast_hash": "0d7100211223f295104bc113f4dc8f51",
+    "mtime": 1789075845.7356405,
+    "ast_hash": "3af1788b5f7bf7eb7d374c31b9148cbb",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-cli/src/main.rs": {
-    "mtime": 1788123480.10038,
+    "mtime": 1788445846.3200321,
     "ast_hash": "ee4a3b268df2e77b4780b52bfaef7ce2",
     "semantic_hash": ""
   },
@@ -22995,8 +22710,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/cache.rs": {
-    "mtime": 1788121925.3025208,
-    "ast_hash": "b96b6984a8628dcd74788b70dd52cda1",
+    "mtime": 1788299364.9901161,
+    "ast_hash": "f78c36c5a0fbd31f777474e9eb63a2f2",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/data_ownership.rs": {
@@ -23010,8 +22725,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/cron.rs": {
-    "mtime": 1788121946.9928336,
-    "ast_hash": "db6eb31c785defb1237b03ebc0fe9a7a",
+    "mtime": 1788299167.6872818,
+    "ast_hash": "4a8904b262b1d044abdda77ed6bbffdf",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/handoff.rs": {
@@ -23030,13 +22745,13 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/event_log.rs": {
-    "mtime": 1788122303.218136,
-    "ast_hash": "fe824d86cfbabf1afbcf3133c8a3c28b",
+    "mtime": 1788139073.3972526,
+    "ast_hash": "986eccf27798d389d5663f222e1f1463",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/lib.rs": {
-    "mtime": 1788122781.974012,
-    "ast_hash": "0a07c395fc30ee8b35e93591b2ecedfb",
+    "mtime": 1789075547.2008479,
+    "ast_hash": "65088aca759e6c32fd84025cb12bd41c",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/memory.rs": {
@@ -23050,8 +22765,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/a2a.rs": {
-    "mtime": 1788113850.2684903,
-    "ast_hash": "dbef0a16b3431c75936ea73afed1850f",
+    "mtime": 1788135413.2079828,
+    "ast_hash": "2e2004c564a29b66dcabdb5c389a165e",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/backup.rs": {
@@ -23065,8 +22780,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/worktrees.rs": {
-    "mtime": 1788113850.2892573,
-    "ast_hash": "ac4d60cfedfc70bf7bbb9fde27fad43a",
+    "mtime": 1788299737.0530105,
+    "ast_hash": "4c470d78f8561f3f683c0b998a4cd481",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/daemon.rs": {
@@ -23085,8 +22800,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router.rs": {
-    "mtime": 1788123602.4132006,
-    "ast_hash": "0d1becc670caea63d4433a5fd9d0a078",
+    "mtime": 1789074888.0851517,
+    "ast_hash": "98e6f2808a78b7a7d7fbcd64ab8f186f",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/status_projector.rs": {
@@ -23095,8 +22810,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-daemon/src/sandbox.rs": {
-    "mtime": 1788113850.2855582,
-    "ast_hash": "4650969d5472f9fc7581a46f1d6e97a6",
+    "mtime": 1788136015.9510536,
+    "ast_hash": "30c1ea2a8e1d70fedaba4d0d4e6c2ae6",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-eval/src/grader.rs": {
@@ -23130,18 +22845,18 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-safety/src/gates.rs": {
-    "mtime": 1787776550.7144632,
-    "ast_hash": "ab2901c824a71a943da7531ca26e2cea",
+    "mtime": 1788299310.093399,
+    "ast_hash": "6334ff148e3da0cafe918ccc98e9a25a",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-safety/src/audit.rs": {
-    "mtime": 1787776550.7156456,
-    "ast_hash": "f6a5ec09718498ef0ad0cb58f6d60c6e",
+    "mtime": 1788299310.0926538,
+    "ast_hash": "0074a599192858389c8826f6e8f00da5",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-safety/src/lib.rs": {
-    "mtime": 1788114224.0646362,
-    "ast_hash": "35f8a1851e48b8b1885017dfd9bbe712",
+    "mtime": 1788299293.556344,
+    "ast_hash": "1f8b53e87075316e3e42f486d2f95b3e",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-safety/src/capabilities.rs": {
@@ -23155,8 +22870,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/lib.rs": {
-    "mtime": 1788133839.6830914,
-    "ast_hash": "f8604753e82f83b5cf042b94b02eddc0",
+    "mtime": 1789065101.0687673,
+    "ast_hash": "572ccc618a9869347a958a26ee8b9a0d",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/skills.rs": {
@@ -23165,8 +22880,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-tools/src/lib.rs": {
-    "mtime": 1788133124.500654,
-    "ast_hash": "a6a5987ca027eda199baef086b500c0a",
+    "mtime": 1789008909.0557194,
+    "ast_hash": "6bd7236a48e304ad7cf4e6ba69047dbe",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-core/tests/smoke.rs": {
@@ -23175,8 +22890,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-core/src/lib.rs": {
-    "mtime": 1788113850.252802,
-    "ast_hash": "68a1c2235de8977f1d3446ae0bae1c50",
+    "mtime": 1789073327.330315,
+    "ast_hash": "46031d84cd2fbf58cc3eaaf95bf3407f",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-core/src/plugins.rs": {
@@ -23195,8 +22910,8 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-rlm/src/lib.rs": {
-    "mtime": 1788123354.668336,
-    "ast_hash": "daf028bb037bb178e803ab8bd855438d",
+    "mtime": 1788136127.1520255,
+    "ast_hash": "301c3bb2ec64d10b96a1e8f58d05c796",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-rlm/src/evaluate.rs": {
@@ -23210,23 +22925,1108 @@
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/crates/darius-memory/src/lib.rs": {
-    "mtime": 1788133074.735108,
-    "ast_hash": "3c227abd60f0f6feefd9471cee40be44",
+    "mtime": 1788897043.9360635,
+    "ast_hash": "6346b454fea99871f7861748e53111bb",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/tests/harness_e2e/src/lib.rs": {
-    "mtime": 1788122781.9944053,
-    "ast_hash": "53f98b51eadae938a85d835151fee275",
+    "mtime": 1789008751.7172136,
+    "ast_hash": "41e88272dd48b68addd893afc759ecd6",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/README.md": {
-    "mtime": 1788133948.1203697,
-    "ast_hash": "f20da75c0d6fbdad7c7c97a7de5d9621",
+    "mtime": 1789076208.6788301,
+    "ast_hash": "d81d1318afddc6808740daa0b2bb5d37",
     "semantic_hash": ""
   },
   "/Users/cmd/workspace/Darius/.github/workflows/ci.yml": {
-    "mtime": 1787795037.6074662,
-    "ast_hash": "c593868ccc4c09f8b33d971c2310fbce",
+    "mtime": 1788817387.8804824,
+    "ast_hash": "435473eda962479edca80e6080e648d5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.hermes_state.json": {
+    "mtime": 1789065705.19339,
+    "ast_hash": "21c51d22e52332d09c1b8dfddc7a8548",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/provider_routing.rs": {
+    "mtime": 1788460357.8445752,
+    "ast_hash": "7996b8a4652034c86128757bfe364384",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/session_identity.rs": {
+    "mtime": 1789065204.1235716,
+    "ast_hash": "d46087b784c1106372e33fc373148a30",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/web_execute.rs": {
+    "mtime": 1788996738.5617847,
+    "ast_hash": "af4074a51718dffdfb81d3746584ee3a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/public_claims.rs": {
+    "mtime": 1788885175.9012673,
+    "ast_hash": "36d159a1f7268f2d0ca0fbb0e6322572",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/config.rs": {
+    "mtime": 1789072778.479941,
+    "ast_hash": "67a7abbbb0999bbe3e356e269dab2c08",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/config_dotenv.rs": {
+    "mtime": 1789069907.8368351,
+    "ast_hash": "ada6f8111ebd667826a076aa0fb4eecf",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/run_e2e.rs": {
+    "mtime": 1789072914.5031252,
+    "ast_hash": "742186f0641cc8acd9c07fe122c7544f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/cli_contract.rs": {
+    "mtime": 1789076340.2074053,
+    "ast_hash": "fd0a40d282918d74fec851fa8336d3fc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/paths.rs": {
+    "mtime": 1788390424.084839,
+    "ast_hash": "5e832de8f1675ec4435d17faace937ae",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/mcp_e2e.rs": {
+    "mtime": 1789009491.2506166,
+    "ast_hash": "945323f2be5cab2bb1739539ad251131",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/config_sections.rs": {
+    "mtime": 1789067244.1966758,
+    "ast_hash": "99f676582cbef5c3dc8f032d716ea508",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/permission_run.rs": {
+    "mtime": 1788798086.3106184,
+    "ast_hash": "a99514180f921958cbab444ee187c893",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/config_provider_options.rs": {
+    "mtime": 1789071534.2048361,
+    "ast_hash": "1a90565cbf7b5f0a4c158a9202f1b394",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/tui_pty.rs": {
+    "mtime": 1789073188.400638,
+    "ast_hash": "722d8bfd65938139f7232c0251902073",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/run_fixtures/request.rs": {
+    "mtime": 1788884977.6729653,
+    "ast_hash": "5149acc061c53f3118cc2d5860d5f015",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/run_fixtures/http.rs": {
+    "mtime": 1788885079.771434,
+    "ast_hash": "987575e91a1333dffd888b340423b56b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/run_fixtures/search.rs": {
+    "mtime": 1788996096.4422355,
+    "ast_hash": "ffec7f662f22c81b13b394c6583d976e",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/support/fake_provider.rs": {
+    "mtime": 1788896490.9936259,
+    "ast_hash": "ae925701c83db8f3c385c32b4d60b00b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/support/screen.rs": {
+    "mtime": 1788885118.3088853,
+    "ast_hash": "cb5d889ce1825b00f3f715a4eccc5c55",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/tests/support/mod.rs": {
+    "mtime": 1788885118.308404,
+    "ast_hash": "667c2a95f2d4343c2a5acca67e17ecdf",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/auth_cmd.rs": {
+    "mtime": 1789076566.6833627,
+    "ast_hash": "cad0320ee5ede81a93ea1791ffcb80bd",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/runtime.rs": {
+    "mtime": 1789075078.6933506,
+    "ast_hash": "6e8832e0891a0d15a67e0c62df48ebd3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/config_init.rs": {
+    "mtime": 1789075826.6087723,
+    "ast_hash": "c8202fe28bf2145b81f4e848ee80f5aa",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/diagnostics.rs": {
+    "mtime": 1789066083.4567726,
+    "ast_hash": "4c0377baa30f9d53fa30bcc5dfd7729a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/config_error.rs": {
+    "mtime": 1789072818.8581557,
+    "ast_hash": "92dc1580af35d1a6ec5338d103755e19",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime.rs": {
+    "mtime": 1788807820.6826167,
+    "ast_hash": "45ed2ec6676d1daa291ea9fb4fc6fc33",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/config.rs": {
+    "mtime": 1789074867.3543513,
+    "ast_hash": "b20690af3b503454437c0863f469d1e1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/command_handler.rs": {
+    "mtime": 1788885004.324702,
+    "ast_hash": "b5b2a5b88a3c94801447ca32db2c3236",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/runtime_selection.rs": {
+    "mtime": 1789075057.2381537,
+    "ast_hash": "cdad63daa42dc685472545df7649e7b4",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/paths.rs": {
+    "mtime": 1788390593.2885199,
+    "ast_hash": "ec6a0aeec07822177ca7095a610de495",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/config_publish.rs": {
+    "mtime": 1788391696.082868,
+    "ast_hash": "cd21af683355cce9a6f41263a4909d5d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/web_bridge.rs": {
+    "mtime": 1789065281.3024886,
+    "ast_hash": "ddea7e03e83f1bac1a7eb6fd0e701826",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/commands.rs": {
+    "mtime": 1788807522.7130382,
+    "ast_hash": "3d89ad81002ee514d906362fa2b775d0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/web_session_tests.rs": {
+    "mtime": 1789065278.8187635,
+    "ast_hash": "b927fb534b2c7ee669af50df045b0a45",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/models_cmd.rs": {
+    "mtime": 1789075892.4154513,
+    "ast_hash": "9fbbc66d2800694f71b1e11e304cac5f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/runtime_selector.rs": {
+    "mtime": 1789075135.6373565,
+    "ast_hash": "7f73e30ac1bc5d161f452e18a6a80992",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/safety.rs": {
+    "mtime": 1788885004.322399,
+    "ast_hash": "e231eb192f763465d989b360195cd5e9",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/config_probe.rs": {
+    "mtime": 1789076031.5950341,
+    "ast_hash": "20308caca2011b460be68c4fe484a974",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/runtime_session.rs": {
+    "mtime": 1789065185.939784,
+    "ast_hash": "0988ee9932308396a6cd37462f89921d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/permissions.rs": {
+    "mtime": 1788798086.2918458,
+    "ast_hash": "3622bdb484cace996ab15bb19ca28f07",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/args.rs": {
+    "mtime": 1789075690.2706063,
+    "ast_hash": "5d97b3ffafb52c2ae6c9d16bee54ef72",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/session_test_support.rs": {
+    "mtime": 1789065290.7959645,
+    "ast_hash": "8d1019aaad37d21790e0f7e54f6a7491",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/shutdown.rs": {
+    "mtime": 1788717200.3361673,
+    "ast_hash": "b036d6715ab001f6f79a5e130b230b2d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/emit_helpers.rs": {
+    "mtime": 1788799649.7223475,
+    "ast_hash": "15c76e4a266fa34914f71955a23faeb6",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/dispatch.rs": {
+    "mtime": 1788910389.553054,
+    "ast_hash": "c5f046c00c99251bd802c6892a027a1d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/turn.rs": {
+    "mtime": 1789065183.3448117,
+    "ast_hash": "326716ea2f1ef033fdedc14c5674736b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/guidance.rs": {
+    "mtime": 1788717200.335537,
+    "ast_hash": "45920ebab597478654c9974f450bfa03",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/state.rs": {
+    "mtime": 1788807775.1025171,
+    "ast_hash": "74271b9946885e8a963424442adf37f0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/actor.rs": {
+    "mtime": 1788807782.25215,
+    "ast_hash": "3a2f4e8a161127ed1f2d07541a0dc833",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests.rs": {
+    "mtime": 1789065290.795387,
+    "ast_hash": "18059744a2df68fd6f74f9ec79bed7a0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/lifecycle.rs": {
+    "mtime": 1788809071.2912064,
+    "ast_hash": "2e5baa02b8d51b2f93fc4482d40dc031",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/permissions.rs": {
+    "mtime": 1788798279.7954402,
+    "ast_hash": "dd9f7ff1d155a93fc9bfea140d1172dc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/mode.rs": {
+    "mtime": 1788798086.294652,
+    "ast_hash": "3a8c2f5d213ef10726aebfc599487bb1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/view.rs": {
+    "mtime": 1788807843.8449135,
+    "ast_hash": "486d3ed4c4d7bc4c268bb0ebed4c9cc5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/session_identity.rs": {
+    "mtime": 1789065290.7964008,
+    "ast_hash": "e610b59cb663ec29e087c1b253624a28",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/permission_lifecycle.rs": {
+    "mtime": 1789009491.236947,
+    "ast_hash": "318e07d89250464214010ad09dbc1225",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/task_roundtrip.rs": {
+    "mtime": 1788996096.414039,
+    "ast_hash": "8dfec54736e4a285e1da26754b91c338",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/permission_keys.rs": {
+    "mtime": 1788798293.6063542,
+    "ast_hash": "c04af5bd35bc80fae4d17f79a8a762a6",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/tool_evidence.rs": {
+    "mtime": 1788996096.4153469,
+    "ast_hash": "03329cd4d7e23a14cc62db670a56f688",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/tui_runtime/tests/memory_roundtrip.rs": {
+    "mtime": 1788996096.4112482,
+    "ast_hash": "c9185b1d9273abbf4dc3e6090aa815d0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/paths/error.rs": {
+    "mtime": 1788390531.2291234,
+    "ast_hash": "a2a1ef71605a1073035f91ec12951974",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cli/src/paths/environment.rs": {
+    "mtime": 1788390531.0754156,
+    "ast_hash": "10b13052a918713b0c8df373e95e8b00",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/tests/permission_mode.rs": {
+    "mtime": 1788895976.5058932,
+    "ast_hash": "143958db0cdbe5e0dede50134eace73b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/controller.rs": {
+    "mtime": 1788899156.0026486,
+    "ast_hash": "f9f0f76efa485a8f448d0dc32c9f14b3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/render.rs": {
+    "mtime": 1789075804.7703211,
+    "ast_hash": "c6927b7955a4ca80a42f007c05320e6c",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/terminal.rs": {
+    "mtime": 1788899165.6426864,
+    "ast_hash": "94750264811c4eb16764d3042866bd2a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/lib.rs": {
+    "mtime": 1788807032.91457,
+    "ast_hash": "3a830838030b5965b8e3c989e6374af5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/theme.rs": {
+    "mtime": 1788199008.886856,
+    "ast_hash": "973db55d338576ad3fc364d7cb72e755",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/commands.rs": {
+    "mtime": 1788807519.605529,
+    "ast_hash": "3d89ad81002ee514d906362fa2b775d0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/input.rs": {
+    "mtime": 1788899792.3489423,
+    "ast_hash": "c1a75f596d3e7af709a6f0ecb4543bf2",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/app.rs": {
+    "mtime": 1789075815.5976589,
+    "ast_hash": "4bffa82df525487c38cbc61e43c217c7",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tui/src/app_events.rs": {
+    "mtime": 1788809670.0221024,
+    "ast_hash": "9d47d96978e53d21400e0160dd736800",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/tests/public_claims.rs": {
+    "mtime": 1788996096.6413443,
+    "ast_hash": "518458488be117a78b41208418842ffc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/tests/transport.rs": {
+    "mtime": 1788996096.642364,
+    "ast_hash": "a318bf0388c128a4b61aa5024625b634",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/tests/claims_support/mod.rs": {
+    "mtime": 1788996096.6409225,
+    "ast_hash": "15dd63cf9c5477bfc08d28637cff4187",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/handlers.rs": {
+    "mtime": 1788996096.6396475,
+    "ast_hash": "0808bd94a2c166b9bd3d5ea8b9290a34",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/stream.rs": {
+    "mtime": 1788996096.6402686,
+    "ast_hash": "295319dcc74fe314f0a3c88f25a22b49",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/types.rs": {
+    "mtime": 1788996096.6404047,
+    "ast_hash": "3153a37458674541828a10c19f4c868e",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/execution.rs": {
+    "mtime": 1788996096.6393075,
+    "ast_hash": "190d5dbc48f7a0af9ded7994cbfddad1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/lib.rs": {
+    "mtime": 1788996096.6399071,
+    "ast_hash": "0e2ba871fd6dceec38e128f7e1c9774f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/state.rs": {
+    "mtime": 1788996096.6400793,
+    "ast_hash": "89f98091880d5d929c7c55f6406a00c1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-web/src/dashboard.rs": {
+    "mtime": 1788996096.6387565,
+    "ast_hash": "9ed346729577d4c2d0853a8a4ca90dd5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/tests/chat_completions_adapter.rs": {
+    "mtime": 1789074888.1013086,
+    "ast_hash": "ba039fcb30a881ff38fc42fecaa0de87",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/opencode_affinity.rs": {
+    "mtime": 1789072151.468905,
+    "ast_hash": "d17488ab89e413bc402487db1d155a16",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/messaging.rs": {
+    "mtime": 1788137034.8844032,
+    "ast_hash": "361740407609d90aab9561a6d85533cb",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_catalog.rs": {
+    "mtime": 1789072151.4501987,
+    "ast_hash": "007814848bf15a4902598c8431ce1079",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/auth/keepalive.rs": {
+    "mtime": 1789072151.427549,
+    "ast_hash": "d848ef6aab9b2f9e96d5fb63e27253f1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/auth/mod.rs": {
+    "mtime": 1789075448.7076945,
+    "ast_hash": "938f1804177d9a08adbcdf1d2119c7d6",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/auth/nous.rs": {
+    "mtime": 1789075547.18912,
+    "ast_hash": "fdb58e8ee0978628711095d4affbe370",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/budget.rs": {
+    "mtime": 1788467680.0704672,
+    "ast_hash": "664999130c51860cd55edf9249613d99",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/provider.rs": {
+    "mtime": 1789065280.398098,
+    "ast_hash": "a7d344410a562b51d02bdae218462160",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/live_factory.rs": {
+    "mtime": 1789075156.2592082,
+    "ast_hash": "a566a01ef9e623fc47ce893a67662943",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/provider_tests.rs": {
+    "mtime": 1789065182.0073571,
+    "ast_hash": "b5a3cb33e33f0cb7b368d5cd6cd18ecc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/usage.rs": {
+    "mtime": 1788467342.1423542,
+    "ast_hash": "a653ec094e7b04af24b4d74da61317cd",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/profile_tests.rs": {
+    "mtime": 1789065280.3830352,
+    "ast_hash": "b11508632574bcb2c7ca5e9d4c146124",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/compatible_wire_tests.rs": {
+    "mtime": 1789065276.7539685,
+    "ast_hash": "0c23c681c02450086991c1e8d500488d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/wire_decode.rs": {
+    "mtime": 1788889666.75774,
+    "ast_hash": "fe9ddc59c73d08386582d5a070fe8c55",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/chat_completions.rs": {
+    "mtime": 1789074810.5398123,
+    "ast_hash": "a737e71ef701fbee4b5fad2bbc6f307a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/anthropic.rs": {
+    "mtime": 1789011977.2767513,
+    "ast_hash": "7fa726b4b2de3bc9babc6c4c8271a4ce",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/wire.rs": {
+    "mtime": 1789075156.2647495,
+    "ast_hash": "b91c37fc4d3cfceccb93ae862739fba1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/wire_call.rs": {
+    "mtime": 1788459484.892359,
+    "ast_hash": "c25186dc52b29488d9905cacbdb92877",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/openai.rs": {
+    "mtime": 1789074820.08585,
+    "ast_hash": "2f5f88abf65ce0485d61d1dc026b6012",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/budget/reservation.rs": {
+    "mtime": 1788467511.3616261,
+    "ast_hash": "e980e77667cdef6cdc58d714a5772098",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-daemon/src/model_router/budget/allocation.rs": {
+    "mtime": 1788467749.9882424,
+    "ast_hash": "92ded0eee15651a0ce4657f60d192b16",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-safety/src/redact.rs": {
+    "mtime": 1788299333.4658926,
+    "ast_hash": "b3f3de85d5f29b8f80552f63c5b6f8e6",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/tests/conversation_protocol.rs": {
+    "mtime": 1788460357.860854,
+    "ast_hash": "6d13b18fccdea58a551ed4721b9ec3c9",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/tests/session_identity.rs": {
+    "mtime": 1789065204.1200724,
+    "ast_hash": "d3094ca99b72c6e8e844ba205c097cf9",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/tests/agent_loop.rs": {
+    "mtime": 1788798086.3347886,
+    "ast_hash": "f4e0da8ba772b571df0f80129376bd83",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/tests/session_context.rs": {
+    "mtime": 1789065421.9396832,
+    "ast_hash": "d335764923e6f17c0320e4fa5f100fc4",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/tests/support/session_observer.rs": {
+    "mtime": 1789065204.1225815,
+    "ast_hash": "3d05f83899d59bebd843d7457f10435a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/conversation.rs": {
+    "mtime": 1788807719.6063247,
+    "ast_hash": "9935e1fd6f8e0f1bb18a4eea8db87ec8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/system_prompt.rs": {
+    "mtime": 1788460433.1027327,
+    "ast_hash": "622924f77b4ac1daad39bd2814436bec",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_loop.rs": {
+    "mtime": 1789065204.1178653,
+    "ast_hash": "59c544c39e9fb65e74dc5565d3fa4d13",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_visible.rs": {
+    "mtime": 1788467657.9362216,
+    "ast_hash": "12791f06d0c318bfae10f8a2cadc4651",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/subagent.rs": {
+    "mtime": 1788457964.1661928,
+    "ast_hash": "e71551e3d22290bd5711294f7735f2fd",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_outcome.rs": {
+    "mtime": 1788462743.0337756,
+    "ast_hash": "f0f61316a6bf63fca4639582aed8c7c3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_session.rs": {
+    "mtime": 1789065101.4466455,
+    "ast_hash": "a63feb8592b0c16b7fc07a80026d4bca",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_compact.rs": {
+    "mtime": 1788468003.8170116,
+    "ast_hash": "70e1fe944805bbd15e3b123b41242c21",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_events.rs": {
+    "mtime": 1789008318.5511117,
+    "ast_hash": "19be43498b2395e055af9cef5cb6ce0e",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/tool_specs.rs": {
+    "mtime": 1789010971.487015,
+    "ast_hash": "c37abbf8e3d564ae6af2f012ada46856",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_turn.rs": {
+    "mtime": 1789065100.5873108,
+    "ast_hash": "faea6708e174f792a9698da54f715d0c",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/execution_policy.rs": {
+    "mtime": 1788896405.6527624,
+    "ast_hash": "1cf8eba8393a2c9640ef94630d78984c",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_validate.rs": {
+    "mtime": 1788462829.2754817,
+    "ast_hash": "193bf91bfaeaa37d0dd12c00b392ebd8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_exec.rs": {
+    "mtime": 1788798086.3204095,
+    "ast_hash": "e359d7a4090d3d580b4dd7997d44534f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/compress.rs": {
+    "mtime": 1788298977.4839036,
+    "ast_hash": "7623096044ac14adad15ffc1c1d4bcb4",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/ui_events.rs": {
+    "mtime": 1788807567.9861465,
+    "ast_hash": "667a603d60cc3acda24bfa29e498578c",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_finish.rs": {
+    "mtime": 1788462576.1201081,
+    "ast_hash": "0d909076adc94e201b61b3de2e5fa950",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/model.rs": {
+    "mtime": 1789011657.058079,
+    "ast_hash": "062fddf752ff59ffe696b48d89343b85",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/context.rs": {
+    "mtime": 1789065099.3192348,
+    "ast_hash": "981b69a27246ccdf3d8d29425b1cb957",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_visible/values.rs": {
+    "mtime": 1788467673.6944578,
+    "ast_hash": "d1c0488b61880fa6d9b8c36cccaf6fc1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/agent_compact/shrink.rs": {
+    "mtime": 1788467657.9123795,
+    "ast_hash": "0b78b8493cee0816556674b32d878a60",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-cognitive/src/conversation/validate.rs": {
+    "mtime": 1788458133.9248683,
+    "ast_hash": "e40775104f6d4ac4291d41fee3d61285",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/shell_lifetime.rs": {
+    "mtime": 1788885004.3179936,
+    "ast_hash": "1beedde55bb493594976d951359dffa5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/model_schemas.rs": {
+    "mtime": 1788467266.1963427,
+    "ast_hash": "4919948e2e247eff82d28ee10ada5a9d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/model_context.rs": {
+    "mtime": 1788463080.6750627,
+    "ast_hash": "ab95329beccc90d2c9b7ee54034a8ae1",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/stdio_mcp.rs": {
+    "mtime": 1789009491.4039688,
+    "ast_hash": "21d3f4d00eab253f8dafeced4921514d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/spill_roundtrip.rs": {
+    "mtime": 1788996096.6122093,
+    "ast_hash": "b8965ba728bd09e90b4498e536e779b3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/tests/fixtures/mock_mcp.py": {
+    "mtime": 1789008953.8754075,
+    "ast_hash": "34dc835cdee163953cb744eab2890c98",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/search_filter.rs": {
+    "mtime": 1788453398.0276756,
+    "ast_hash": "5e0d4e602378cbafda53876b2c4f88b0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/spec.rs": {
+    "mtime": 1788453408.4162993,
+    "ast_hash": "ac1897837a6d68b1ecd72b4c09a069cc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/search_files.rs": {
+    "mtime": 1788453768.0434802,
+    "ast_hash": "dc0c6f259f1a267d2e34ee67df9a5666",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/path_policy.rs": {
+    "mtime": 1788453768.0430167,
+    "ast_hash": "e5e7a569beef184334146ebc0a32ee33",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/schema_memory.rs": {
+    "mtime": 1788462796.6585088,
+    "ast_hash": "53dbf4a7f25bc118b348b86a3fbddbc9",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/shell.rs": {
+    "mtime": 1788455440.5196507,
+    "ast_hash": "391018654b85b2c68eec82ced0f610ba",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/search_walk.rs": {
+    "mtime": 1788453614.9013226,
+    "ast_hash": "e3e548fc28c86bd724f1fbe66f525861",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/ensure_dirs.rs": {
+    "mtime": 1788453743.5603676,
+    "ast_hash": "d3fbb8de9b319b9774e7d6fba0682fa8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/execution.rs": {
+    "mtime": 1788455365.6576514,
+    "ast_hash": "a215f7a93ec671f0f3d8b33f9c90048a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/model_schemas.rs": {
+    "mtime": 1788465838.8268871,
+    "ast_hash": "9a051949df5312e91bc3b101095e93fc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/process_group.rs": {
+    "mtime": 1788885004.2973518,
+    "ast_hash": "1f2b33e92ba32e9504acfade18929ecd",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/model_dispatch.rs": {
+    "mtime": 1788463100.9426906,
+    "ast_hash": "02bc3cff786dc4748960b7f8c270a933",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/session_keys.rs": {
+    "mtime": 1788456709.011668,
+    "ast_hash": "fd484f244f7d38f83a7194e47adadbf2",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/process_guard.rs": {
+    "mtime": 1788885004.2945063,
+    "ast_hash": "bca30278ae22a76f1e98ccd01c08e2a9",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/create_path.rs": {
+    "mtime": 1788453768.0300689,
+    "ast_hash": "8330f993f02eba70ee58aaae2caf3349",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/model_tools.rs": {
+    "mtime": 1789009491.3981383,
+    "ast_hash": "30e241457b82d468366aa72eb0f48cfd",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/read_file.rs": {
+    "mtime": 1788453465.1838794,
+    "ast_hash": "6e9e9c31f896b284bb65b5e741975d20",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/write_file.rs": {
+    "mtime": 1788895957.5283763,
+    "ast_hash": "63757c3556d3e1c19790b25dcd607552",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/schema_builder.rs": {
+    "mtime": 1788462779.4829879,
+    "ast_hash": "4a07817eb18a244a719fa4ff397e6d6d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/schema_tasks.rs": {
+    "mtime": 1788462829.372439,
+    "ast_hash": "79960114e4679ed3cd561cd978cf219b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-tools/src/mcp.rs": {
+    "mtime": 1789012553.6491187,
+    "ast_hash": "8674e505ab7a624574e878eb7d3a2795",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/tests/public_claims.rs": {
+    "mtime": 1788885155.3185472,
+    "ast_hash": "dbb53c1abab8ab32342c55f3539121a8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/config.rs": {
+    "mtime": 1789073007.6195376,
+    "ast_hash": "5d307fa32fcf1140827fdb9b23a64d60",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/slash.rs": {
+    "mtime": 1788803835.777014,
+    "ast_hash": "ce51cbed4740f0581ee3b1174070f8ed",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/commands.rs": {
+    "mtime": 1788899792.262991,
+    "ast_hash": "e763779c79cb1e098460216a8f77b467",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/runtime_protocol.rs": {
+    "mtime": 1788888402.978917,
+    "ast_hash": "bf0800da1dc3962f88701e2df069ea20",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store.rs": {
+    "mtime": 1789065257.5991943,
+    "ast_hash": "6d5a76c1ebc29a992eb8d487b7bb15b3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers.rs": {
+    "mtime": 1789065181.99882,
+    "ast_hash": "e8d3cd552c44e59d0688e60f577e6a06",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/opencode_go.rs": {
+    "mtime": 1789065182.0012934,
+    "ast_hash": "15c126ea29f968343acd7f736178133d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/openrouter.rs": {
+    "mtime": 1789065182.0018873,
+    "ast_hash": "2844b871ded85d0959c8845ff7ac4fa2",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/profile.rs": {
+    "mtime": 1789067003.8130825,
+    "ast_hash": "5112795f5bdf128ed6bcbc8d135ade88",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/kilocode.rs": {
+    "mtime": 1789065181.999341,
+    "ast_hash": "5fe316ed37cd32cb02af7637312f2793",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/opencode_free.rs": {
+    "mtime": 1789065182.0007348,
+    "ast_hash": "36ab008c273e2e0020fdd93a6b653c75",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/nvidia.rs": {
+    "mtime": 1789065182.0001392,
+    "ast_hash": "aeaa0d000a64dfe561cbac10a4e73a24",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/tests.rs": {
+    "mtime": 1789065244.287798,
+    "ast_hash": "dcd5b9c8fa703e3ac71ae8910c96ece7",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/providers/nous.rs": {
+    "mtime": 1789065138.124693,
+    "ast_hash": "25dc9116f80973e45dfcec5345a0eaed",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/contention_tests.rs": {
+    "mtime": 1789065257.2088063,
+    "ast_hash": "efd24bdbb6a6c7664863f8fa6824ea07",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/error.rs": {
+    "mtime": 1789065228.0701702,
+    "ast_hash": "e9204d37d0e77da6cac40bf693a38bad",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/disk.rs": {
+    "mtime": 1789065180.2023501,
+    "ast_hash": "7cd795ce1696e2277927d901c8e1e51a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/symlink_tests.rs": {
+    "mtime": 1789065229.1215148,
+    "ast_hash": "485b1a777c0f16e49e43c2ef56faad7f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/unix_tests.rs": {
+    "mtime": 1789065229.8248546,
+    "ast_hash": "8b25b9863816e78b5fa1529c39e543c8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/atomic.rs": {
+    "mtime": 1789065180.2010865,
+    "ast_hash": "6f8dfc5f6cd77a164aeb899729f2ebd3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/tests.rs": {
+    "mtime": 1789065180.2032697,
+    "ast_hash": "f64bb3698a60cf16f1fcf62abdac557b",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-core/src/auth_store/lock.rs": {
+    "mtime": 1789065180.2028077,
+    "ast_hash": "6288d5e5ea70a1d18147a6752c4d6f44",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/crates/darius-rlm/src/ipykernel.rs": {
+    "mtime": 1788199899.6397502,
+    "ast_hash": "d5cc028de1991f4dcdee713c4b3732f2",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.omh/state/autopilot-state.json": {
+    "mtime": 1789076710.9295201,
+    "ast_hash": "57fe761ae579bc50dc76cb203ec13da0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.omh/state/ralph-state.json": {
+    "mtime": 1789071331.4364223,
+    "ast_hash": "ae07ac49dcb6580a6caf6ef554859517",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.omh/state/ralph-tasks-state.json": {
+    "mtime": 1789076710.9285543,
+    "ast_hash": "6ff08e0bed344406b0f1548d241b553f",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/install_staged_e2e.sh": {
+    "mtime": 1788994875.0875437,
+    "ast_hash": "cf02b8b7c47dad0dc7617e1d7f5a2af3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/generated_claims_test.py": {
+    "mtime": 1789076290.7769785,
+    "ast_hash": "c747899f3823607b0fc72bc9b60194fc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/release_contract_test.py": {
+    "mtime": 1789011575.344119,
+    "ast_hash": "b2c7adc5091bb30fc1edf61df73eabd0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/public_claims_test.py": {
+    "mtime": 1788885364.1783915,
+    "ast_hash": "a5d978425f9dd0a64315167d4dcc6c3a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/install_hardening_test.py": {
+    "mtime": 1788817173.6250265,
+    "ast_hash": "4789ccedb54ce8bac6c70631d345fc98",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/install_test.sh": {
+    "mtime": 1788885201.4711123,
+    "ast_hash": "541462660fa6a83d5e5dd533d20d51ae",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/live_providers_e2e.rs": {
+    "mtime": 1789011734.8477938,
+    "ast_hash": "3125ca197a0e84720524874b65c43cce",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/tests/release_provenance_test.py": {
+    "mtime": 1788885153.0927594,
+    "ast_hash": "64646aaf2c03068ca26db5452f2346f8",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/audit-public-claims.sh": {
+    "mtime": 1788914974.378309,
+    "ast_hash": "e8d93e953cfe51f43dc2d5c5f7e2b99a",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/claims_runtime.py": {
+    "mtime": 1789076181.358794,
+    "ast_hash": "7f3a13e5e8ae98137c0abaeaac47e1fe",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/release-target.sh": {
+    "mtime": 1789011544.9420083,
+    "ast_hash": "511b16053e7833d54e21c9ed9d98a1ad",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/release-evidence.py": {
+    "mtime": 1789011568.118196,
+    "ast_hash": "32208bc89d493bd22af7dfe0a043ced5",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/pack-release.sh": {
+    "mtime": 1788911260.5269716,
+    "ast_hash": "e5c5ca6e1d32cca1952c9abcfbc98137",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/release-actionlint.sh": {
+    "mtime": 1788817426.256771,
+    "ast_hash": "b43df3fce6059fdacecafb993b392db3",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/release_provenance.py": {
+    "mtime": 1788885111.5461757,
+    "ast_hash": "c45b2e35bc2c532d1644f01491733cf0",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/claims_sources.py": {
+    "mtime": 1788897883.6403239,
+    "ast_hash": "1ceb9651a93d8cc2c5934aabe45b348d",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/release-host.sh": {
+    "mtime": 1788885413.8909123,
+    "ast_hash": "a61d355831c120a02dd6acdf97539615",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/scripts/claims_policy.py": {
+    "mtime": 1789009329.8318667,
+    "ast_hash": "be007dfe97e83627a0d8b0838a843139",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.hermes/todo.json": {
+    "mtime": 1788810767.749861,
+    "ast_hash": "b0037ee71361b3be3402daaca2b0c648",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/CHANGELOG.md": {
+    "mtime": 1789076263.6654897,
+    "ast_hash": "9c7ee828b024f5e67947dec190f31342",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.omh/plans/ralplan-darius-provider-parity.md": {
+    "mtime": 1789071327.484604,
+    "ast_hash": "69e18caecc97afeb692403d9409b7368",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/docs/CAPABILITIES.md": {
+    "mtime": 1789076240.4809484,
+    "ast_hash": "e25efc30df3d11d29f6183fb62759884",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/docs/TROUBLESHOOTING.md": {
+    "mtime": 1789076253.0417268,
+    "ast_hash": "af44ce0d2bf6a8e30ea2a99a40508758",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/docs/superpowers/plans/2026-09-08-darius-fully-complete.md": {
+    "mtime": 1788904781.141373,
+    "ast_hash": "c544743d210129e40a83901da18aac83",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/docs/superpowers/plans/2026-09-08-darius-tui-complete.md": {
+    "mtime": 1788898836.0134654,
+    "ast_hash": "7590eaf1dd05e6c89fdaee5bdd221663",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/docs/superpowers/plans/2026-09-10-darius-provider-parity-and-completion.md": {
+    "mtime": 1789065705.0788593,
+    "ast_hash": "1c52a23533bda0107313cce82323df62",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.github/workflows/release.yml": {
+    "mtime": 1789011564.649027,
+    "ast_hash": "35f8154b172236c7a831769e70e0dffc",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.hermes/plans/2026-08-31_154725-darius-tui-functional-repair.md": {
+    "mtime": 1788206238.572027,
+    "ast_hash": "891fd2722e73c0307b656a0cafa6f825",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.hermes/plans/2026-08-31_110514-darius-v1-1-1-claude-tui-release.md": {
+    "mtime": 1788189408.8526976,
+    "ast_hash": "bf54d043c19f4800ade659cb406a5562",
+    "semantic_hash": ""
+  },
+  "/Users/cmd/workspace/Darius/.hermes/plans/2026-09-01_172500-darius-harness-startup-functional-recovery.md": {
+    "mtime": 1788301867.969958,
+    "ast_hash": "548a6a3a8de4a104a636e81cec7d5df4",
     "semantic_hash": ""
   }
 }

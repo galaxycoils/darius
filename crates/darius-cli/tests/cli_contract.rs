@@ -124,7 +124,7 @@ fn public_help_is_exact_generated_surface() {
     assert!(output.status.success());
     assert_eq!(
         stdout(&output),
-        "Local-first coding agent\n\nUsage: darius [OPTIONS] [COMMAND]\n\nCommands:\n  tui     \n  run     \n  config  \n  memory  \n  serve   Run the Darius web server (CognitiveLoop + SSE)\n\nOptions:\n      --profile <PROFILE>  [default: default]\n      --cwd <CWD>          \n      --offline            \n  -h, --help               Print help\n  -V, --version            Print version\n"
+        "Local-first coding agent\n\nUsage: darius [OPTIONS] [COMMAND]\n\nCommands:\n  tui     \n  run     \n  config  \n  auth    \n  models  List models for the active profile (or --provider) with source annotation\n  memory  \n  serve   Run the Darius web server (CognitiveLoop + SSE)\n\nOptions:\n      --profile <PROFILE>  [default: default]\n      --cwd <CWD>          \n      --offline            \n  -h, --help               Print help\n  -V, --version            Print version\n"
     );
 }
 
@@ -386,7 +386,7 @@ fn runtime_selection_configured_empty_and_whitespace_keys_are_missing() {
 }
 
 #[test]
-fn runtime_selection_no_config_uses_implicit_openai_defaults() {
+fn runtime_selection_no_config_enters_setup_despite_env_keys() {
     let _env = ScopedEnv::new(&[
         ("DARIUS_API_KEY", None),
         ("OPENAI_API_KEY", Some("openai-secret")),
@@ -394,37 +394,26 @@ fn runtime_selection_no_config_uses_implicit_openai_defaults() {
     let temp = TempDir::new().unwrap();
     let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "implicit").unwrap();
 
-    let model = runtime.profile_config.model.as_ref().unwrap();
-    assert_eq!(runtime.metadata.mode, "live");
-    assert_eq!(runtime.metadata.model, "openai_compatible/gpt-4o-mini");
-    assert_eq!(model.provider, "openai_compatible");
-    assert_eq!(model.base_url, "https://api.openai.com/v1");
-    assert_eq!(model.model, "gpt-4o-mini");
-    assert_eq!(model.api_key_env.as_deref(), Some("OPENAI_API_KEY"));
+    // Cutover (1.5): bare env keys never auto-select a provider.
+    assert_eq!(runtime.metadata.mode, "setup");
+    assert_eq!(runtime.metadata.model, "not-configured");
+    assert!(runtime.profile_config.model.is_none());
 }
 
 #[test]
-fn runtime_selection_darius_key_precedes_openai_without_config() {
+fn runtime_selection_darius_key_without_config_enters_setup() {
     let _env = ScopedEnv::new(&[
         ("DARIUS_API_KEY", Some("darius-secret")),
         ("OPENAI_API_KEY", Some("openai-secret")),
     ]);
     let temp = TempDir::new().unwrap();
     let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "precedence").unwrap();
-    assert_eq!(
-        runtime
-            .profile_config
-            .model
-            .as_ref()
-            .unwrap()
-            .api_key_env
-            .as_deref(),
-        Some("DARIUS_API_KEY")
-    );
+    assert_eq!(runtime.metadata.mode, "setup");
+    assert!(runtime.profile_config.model.is_none());
 }
 
 #[test]
-fn runtime_selection_blank_darius_key_falls_through_to_openai() {
+fn runtime_selection_blank_keys_without_config_enter_setup() {
     for darius_value in ["", " \t "] {
         let _env = ScopedEnv::new(&[
             ("DARIUS_API_KEY", Some(darius_value)),
@@ -432,16 +421,8 @@ fn runtime_selection_blank_darius_key_falls_through_to_openai() {
         ]);
         let temp = TempDir::new().unwrap();
         let runtime = SessionRuntime::from_profile(&runtime_paths(&temp), "fallback").unwrap();
-        assert_eq!(
-            runtime
-                .profile_config
-                .model
-                .as_ref()
-                .unwrap()
-                .api_key_env
-                .as_deref(),
-            Some("OPENAI_API_KEY")
-        );
+        assert_eq!(runtime.metadata.mode, "setup");
+        assert!(runtime.profile_config.model.is_none());
     }
 }
 
@@ -509,7 +490,7 @@ fn runtime_selection_config_show_exposes_secret_safe_diagnostics() {
         "OPENAI_API_KEY: missing",
         "Memory: open",
         "Workspace:",
-        "Provider URL: https://api.openai.com/v1",
+        "Provider URL: not configured",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in {text}");
     }

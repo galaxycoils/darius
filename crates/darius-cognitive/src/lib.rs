@@ -6,6 +6,7 @@ pub mod agent_exec;
 mod agent_finish;
 pub mod agent_loop;
 mod agent_outcome;
+mod agent_session;
 pub mod agent_turn;
 mod agent_validate;
 mod agent_visible;

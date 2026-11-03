@@ -1,7 +1,7 @@
 //! Move the entire session in, poll its non-Send future locally, move it back.
 use super::ChannelRunControl;
 use crate::runtime::{SessionRuntime, block_on_turn};
-use darius_cognitive::{AgentLoop, CognitiveError, EventSink, UiEvent};
+use darius_cognitive::{CognitiveError, EventSink, UiEvent};
 use darius_core::runtime_protocol::{RuntimeEvent, TurnId};
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ pub(super) fn spawn(
     let control = Arc::new(control);
     let turn_control = control.clone();
     let join = tokio::task::spawn_blocking(move || {
-        let agent = AgentLoop::new(sink, turn_control);
+        let agent = runtime.agent_loop(sink, turn_control);
         let workspace = runtime.workspace.to_string_lossy().into_owned();
         let outcome = block_on_turn(agent.run_turn_with_extra_tools(
             &runtime.metadata,

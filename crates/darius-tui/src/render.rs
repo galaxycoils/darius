@@ -344,6 +344,19 @@ pub fn render_palette(
     list.render(area, buf);
 }
 
+/// Provider-first group header for the model picker: display name when the
+/// provider is in the six-profile registry (keyless providers annotated),
+/// else the raw provider id for custom entries.
+fn provider_group_label(provider: &str) -> String {
+    match darius_core::providers::resolve(provider) {
+        Some(p) if p.auth_type == darius_core::providers::AuthType::Keyless => {
+            format!("{} (keyless, no key needed)", p.display_name)
+        }
+        Some(p) => p.display_name.to_string(),
+        None => provider.to_string(),
+    }
+}
+
 /// Render the interactive model picker above the composer.
 pub fn render_model_picker(
     area: Rect,
@@ -373,6 +386,15 @@ pub fn render_model_picker(
     ])));
 
     for (i, entry) in filtered.iter().enumerate() {
+        // Provider-first grouping: a header row opens each provider group.
+        // Headers are display-only — the cursor still indexes entries, so
+        // selection math (selected_entry) is untouched.
+        if i == 0 || filtered[i - 1].provider != entry.provider {
+            items.push(ListItem::new(Line::from(vec![Span::styled(
+                format!("─ {} ─", provider_group_label(entry.provider)),
+                Style::default().fg(theme.muted),
+            )])));
+        }
         let marker = if i == picker.cursor { "❯" } else { " " };
         let color = if i == picker.cursor {
             theme.active
@@ -796,7 +818,31 @@ mod tests {
         render_model_picker(area, &mut buffer, &picker, &theme);
         let output = buffer_to_string(&buffer);
         assert!(output.to_lowercase().contains("model"), "{output}");
-        assert!(output.contains("gpt-4o-mini"), "{output}");
+        assert!(output.contains("claude-opus"), "{output}");
+    }
+
+    #[test]
+    fn render_model_picker_groups_by_provider_first() {
+        // Provider-first (4.3): group headers open each provider group in
+        // registry order; keyless providers are annotated; entries stay
+        // selectable with no key gate.
+        let theme = Theme::for_mode(ColorMode::Truecolor);
+        let picker = crate::app::ModelPickerState::new();
+        let area = Rect::new(0, 0, 120, 60);
+        let mut buffer = Buffer::empty(area);
+        render_model_picker(area, &mut buffer, &picker, &theme);
+        let output = buffer_to_string(&buffer);
+        assert!(output.contains("Kilo Code"), "{output}");
+        assert!(
+            output.contains("OpenCode Free (keyless, no key needed)"),
+            "{output}"
+        );
+        let kilo = output.find("Kilo Code").unwrap();
+        let free = output.find("OpenCode Free").unwrap();
+        assert!(kilo < free, "registry order must hold: {output}");
+        // Header rows are display-only: first entry still selects cleanly.
+        let first = picker.selected_entry().expect("catalog non-empty");
+        assert_eq!(first.provider, "kilocode");
     }
 
     #[test]

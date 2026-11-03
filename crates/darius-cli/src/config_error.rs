@@ -17,6 +17,10 @@ pub enum ConfigError {
     InvalidUrlScheme,
     #[error("API key environment variable name is invalid")]
     InvalidApiKeyEnvironment,
+    #[error(
+        "unknown provider preset: '{name}' (expected one of: kilocode, opencode-go, opencode-free, nous, openrouter, nvidia)"
+    )]
+    UnknownPreset { name: String },
     #[error("profile configuration already exists")]
     AlreadyExists { path: PathBuf },
     #[error("could not write profile configuration")]

@@ -687,7 +687,14 @@ fn binary_globals_apply_before_and_after_nested_operations() {
 #[test]
 fn binary_config_presets_and_force_preserve_other_profiles() {
     let ctx = TestContext::new();
-    for preset in ["openai", "openrouter", "ollama", "groq"] {
+    for preset in [
+        "kilocode",
+        "opencode-go",
+        "opencode-free",
+        "nous",
+        "openrouter",
+        "nvidia",
+    ] {
         ctx.command()
             .args(["--profile", preset, "config", "preset", preset])
             .assert()
@@ -700,18 +707,25 @@ fn binary_config_presets_and_force_preserve_other_profiles() {
             .join("config.toml");
         let original = std::fs::read(&path).unwrap();
         ctx.command()
-            .args(["config", "preset", "openai", "--profile", preset])
+            .args(["config", "preset", "openrouter", "--profile", preset])
             .assert()
             .code(1);
         assert_eq!(std::fs::read(&path).unwrap(), original);
         ctx.command()
-            .args(["config", "preset", "openai", "--profile", preset, "--force"])
+            .args([
+                "config",
+                "preset",
+                "openrouter",
+                "--profile",
+                preset,
+                "--force",
+            ])
             .assert()
             .success();
         assert!(
             std::fs::read_to_string(path)
                 .unwrap()
-                .contains("api.openai.com")
+                .contains("openrouter.ai")
         );
     }
     assert!(

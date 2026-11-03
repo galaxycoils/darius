@@ -1,8 +1,11 @@
 //! Model configuration persistence and catalog definitions.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
+
+use crate::providers::AuthType;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -19,7 +22,16 @@ pub struct ModelConfig {
     pub provider: String,
     pub base_url: String,
     pub model: String,
+    #[serde(default)]
     pub api_key_env: String,
+    #[serde(default)]
+    pub auth_type: Option<AuthType>,
+    #[serde(default)]
+    pub default_max_tokens: Option<u32>,
+    #[serde(default)]
+    pub context_length: Option<u32>,
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,58 +49,45 @@ struct ProfileConfigFile {
 }
 
 /// Returns the standard catalog of model options for the interactive picker.
+///
+/// Built from the six Hermes-parity provider profiles: one entry per registry
+/// fallback model, so the picker tracks the registry with no second hardcoded
+/// list. OpenAI/OpenAI-compatible entries are gone from the default story;
+/// explicit custom `openai_compatible` configs still load (see 6.2).
 pub fn default_model_catalog() -> Vec<ModelCatalogEntry> {
-    vec![
-        ModelCatalogEntry {
-            id: "gpt-4o-mini",
-            label: "OpenAI gpt-4o-mini (fast & lean)",
-            provider: "openai",
-            model: "gpt-4o-mini",
-            base_url: "https://api.openai.com/v1",
-        },
-        ModelCatalogEntry {
-            id: "claude-3-5-sonnet",
-            label: "Anthropic Claude 3.5 Sonnet",
-            provider: "anthropic",
-            model: "claude-3-5-sonnet-20241022",
-            base_url: "https://api.anthropic.com/v1",
-        },
-        ModelCatalogEntry {
-            id: "llama3.2",
-            label: "Ollama (local custom model)",
-            provider: "ollama",
-            model: "llama3.2",
-            base_url: "http://localhost:11434/v1",
-        },
-        ModelCatalogEntry {
-            id: "gpt-4o",
-            label: "OpenAI gpt-4o (high capability)",
-            provider: "openai",
-            model: "gpt-4o",
-            base_url: "https://api.openai.com/v1",
-        },
-        ModelCatalogEntry {
-            id: "claude-3-5-haiku",
-            label: "Anthropic Claude 3.5 Haiku (fast)",
-            provider: "anthropic",
-            model: "claude-3-5-haiku-20241022",
-            base_url: "https://api.anthropic.com/v1",
-        },
-    ]
+    crate::providers::all_profiles()
+        .iter()
+        .flat_map(|p| {
+            p.fallback_models.iter().map(move |m| ModelCatalogEntry {
+                id: m,
+                label: m,
+                provider: p.id,
+                model: m,
+                base_url: p.base_url,
+            })
+        })
+        .collect()
 }
 
 /// Converts a catalog entry into an active `ModelConfig`.
 pub fn catalog_entry_to_config(entry: &ModelCatalogEntry) -> ModelConfig {
-    let api_key_env = match entry.provider {
-        "mock" | "ollama" => "NONE".into(),
-        "anthropic" => "ANTHROPIC_API_KEY".into(),
-        _ => "OPENAI_API_KEY".into(),
-    };
+    let profile = crate::providers::resolve(entry.provider);
+    let api_key_env = profile
+        .and_then(|p| p.key_env)
+        .unwrap_or("NONE")
+        .to_string();
+    let (auth_type, default_max_tokens) = profile
+        .map(|p| (Some(p.auth_type), p.default_max_tokens))
+        .unwrap_or((None, None));
     ModelConfig {
         provider: entry.provider.to_string(),
         base_url: entry.base_url.to_string(),
         model: entry.model.to_string(),
         api_key_env,
+        auth_type,
+        default_max_tokens,
+        context_length: None,
+        headers: None,
     }
 }
 
@@ -125,6 +124,10 @@ mod tests {
             base_url: "https://api.openai.com/v1".into(),
             model: "gpt-4o-mini".into(),
             api_key_env: "DARIUS_API_KEY".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
         };
         save_model_config(dir.path(), &cfg).unwrap();
         let loaded = load_model_config(dir.path()).unwrap();
@@ -132,14 +135,76 @@ mod tests {
     }
 
     #[test]
+    fn model_config_optional_fields_default_and_extensions_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("X-Test".into(), "value".into());
+        let cfg = ModelConfig {
+            provider: "openrouter".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model: "test".into(),
+            api_key_env: "NONE".into(),
+            auth_type: Some(AuthType::ApiKey),
+            default_max_tokens: Some(16384),
+            context_length: Some(131072),
+            headers: Some(headers.clone()),
+        };
+        save_model_config(dir.path(), &cfg).unwrap();
+        let loaded = load_model_config(dir.path()).unwrap();
+        assert_eq!(loaded.default_max_tokens, Some(16384));
+        assert_eq!(loaded.context_length, Some(131072));
+        assert_eq!(loaded.auth_type, Some(AuthType::ApiKey));
+        assert_eq!(loaded.headers.as_ref().unwrap()["X-Test"], "value");
+
+        let legacy = ModelConfig {
+            provider: "openai_compatible".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            model: "old".into(),
+            api_key_env: "OPENAI_API_KEY".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
+        };
+        let text = toml::to_string(&legacy).unwrap();
+        let parsed: ModelConfig = toml::from_str(&text).unwrap();
+        assert!(parsed.auth_type.is_none());
+        assert!(parsed.headers.is_none());
+    }
+
+    #[test]
     fn default_model_catalog_has_no_mock_default() {
         let catalog = default_model_catalog();
         assert!(!catalog.is_empty());
-        assert_eq!(catalog[0].id, "gpt-4o-mini");
         assert!(catalog.iter().all(|e| e.id != "mock"));
-        assert!(catalog.iter().any(|e| e.id == "claude-3-5-sonnet"));
-        assert!(catalog.iter().any(|e| e.id == "llama3.2"));
-        assert!(catalog.iter().any(|e| e.id == "gpt-4o"));
-        assert!(catalog.iter().any(|e| e.id == "claude-3-5-haiku"));
+        // Six Hermes-parity providers, no OpenAI-default story.
+        for id in [
+            "kilocode",
+            "opencode-go",
+            "opencode-free",
+            "nous",
+            "openrouter",
+            "nvidia",
+        ] {
+            assert!(
+                catalog.iter().any(|e| e.provider == id),
+                "missing provider {id}"
+            );
+        }
+        assert!(
+            catalog
+                .iter()
+                .all(|e| !e.base_url.contains("api.openai.com")),
+            "no default entry may resolve to api.openai.com"
+        );
+        // Spot-checks against the ported Hermes fallback lists.
+        for model in [
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+            "nvidia/llama-3.3-70b-instruct",
+            "hermes-3-405b",
+            "hermes-3-70b",
+        ] {
+            assert!(catalog.iter().any(|e| e.model == model), "missing {model}");
+        }
     }
 }

@@ -2,6 +2,7 @@ use super::*;
 mod memory_roundtrip;
 mod permission_keys;
 mod permission_lifecycle;
+mod session_identity;
 mod task_roundtrip;
 mod tool_evidence;
 use darius_cognitive::{MockModel, ModelOutput};

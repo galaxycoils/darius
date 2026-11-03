@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0] - 2026-09-10
+
+### Added
+- Hermes-parity provider layer: six-provider registry (`kilocode`, `opencode-go`, `opencode-free`, `nous`, `openrouter`, `nvidia`) with exact Hermes base URLs, aliases, and per-provider wire quirks.
+- Live model listing (`darius models [--provider]`) with live/cached/fallback source annotation, on-disk cache, and models.dev context-length fallback chain.
+- Hermes-style auth: `~/.darius/.env` key loading, credential resolution order (env → file → oauth store), Nous Portal OAuth device-code flow (`darius auth login/logout/status`), single-flight token refresh with revoked-token quarantine, and proactive keepalive for long sessions.
+- Per-provider wire quirks on streaming and non-streaming paths: attribution headers, `x-opencode-session` affinity, OpenCode Go strict tool content, NVIDIA ToolMessage schema strip + 16384 default + `NVIDIA_BASE_URL`, OpenRouter routing prefs, Nous tags + sticky session id.
+- Interactive `darius config setup` wizard (recommends keyless `opencode-free`, never auto-selects) and provider-first TUI `/model` picker.
+- Live probe resolves through the profile/auth stack with credential-source reporting.
+
+### Changed
+- Bare environment keys no longer auto-select an OpenAI-compatible default; unconfigured launches enter setup guidance.
+- `default_model_catalog()` is built from registry fallback lists; legacy `openai_compatible` configs still load with a deprecation notice for `api.openai.com` bases.
+
 ## [1.5.0] - 2026-09-09
 
 ### Added

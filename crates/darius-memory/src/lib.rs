@@ -369,7 +369,9 @@ impl MemoryEngine {
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, MemoryError> {
-        let rows = self.conn.execute("DELETE FROM records WHERE id = ?1", [id])?;
+        let rows = self
+            .conn
+            .execute("DELETE FROM records WHERE id = ?1", [id])?;
         Ok(rows > 0)
     }
 

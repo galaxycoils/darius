@@ -29,10 +29,42 @@ pub async fn run_config_probe(paths: &DariusPaths, profile: &str) -> Result<(), 
         .clone()
         .unwrap_or_else(|| "DARIUS_API_KEY".into());
 
+    let profile = darius_core::providers::resolve(&model_cfg.provider);
+    let is_keyless = profile.is_some_and(|p| {
+        p.auth_type == darius_core::providers::AuthType::Keyless || p.key_env.is_none()
+    }) || key_env.eq_ignore_ascii_case("none");
+    let is_nous =
+        profile.is_some_and(|p| p.auth_type == darius_core::providers::AuthType::NousOAuth);
+
+    // Credential source for reporting (never the secret itself).
+    let mut source = if is_keyless {
+        "keyless (no credential required)".to_string()
+    } else if is_nous {
+        format!("oauth store ({}/auth.json)", paths.home.display())
+    } else {
+        format!("environment variable '{key_env}'")
+    };
+
+    if is_nous {
+        // Resolve (refreshing if expired) so failures name the source here,
+        // not as a bare transport error below.
+        let svc = darius_daemon::NousAuthService::new(&paths.home)
+            .map_err(|e| format!("failed to open oauth store: {e}"))?;
+        if let Err(e) = svc.resolve_token().await {
+            println!("Provider: {}", model_cfg.provider);
+            println!("Endpoint: {}", model_cfg.base_url);
+            println!("Model: {}", model_cfg.model);
+            println!("Credential: {source}");
+            println!("Status: FAILED (nous token unavailable: {e})");
+            return Err(format!("nous token unavailable via {source}: {e}"));
+        }
+        source = format!("oauth store ({}/auth.json, resolved)", paths.home.display());
+    }
+
     let is_local = model_cfg.base_url.contains("localhost")
         || model_cfg.base_url.contains("127.0.0.1")
         || model_cfg.base_url.contains("0.0.0.0")
-        || key_env.eq_ignore_ascii_case("none");
+        || is_keyless;
 
     if !is_local
         && std::env::var(&key_env)
@@ -42,6 +74,7 @@ pub async fn run_config_probe(paths: &DariusPaths, profile: &str) -> Result<(), 
         println!("Provider: {}", model_cfg.provider);
         println!("Endpoint: {}", model_cfg.base_url);
         println!("Model: {}", model_cfg.model);
+        println!("Credential: {source}");
         println!(
             "Status: FAILED (authentication failed: API key environment variable '{}' is not set)",
             key_env
@@ -75,6 +108,7 @@ pub async fn run_config_probe(paths: &DariusPaths, profile: &str) -> Result<(), 
             println!("Provider: {}", model_cfg.provider);
             println!("Endpoint: {}", model_cfg.base_url);
             println!("Model: {}", model_cfg.model);
+            println!("Credential: {source}");
             println!("Status: OK ({}ms)", latency_ms);
             Ok(())
         }
@@ -107,10 +141,20 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn test_paths(temp: &TempDir) -> DariusPaths {
+        // Direct construction: resolve() would read the real $HOME/.darius.
+        let home = temp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        DariusPaths {
+            home,
+            workspace: temp.path().to_path_buf(),
+        }
+    }
+
     #[tokio::test]
     async fn probe_missing_config_returns_error() {
         let temp = TempDir::new().unwrap();
-        let paths = DariusPaths::resolve(&crate::paths::OsEnv, Some(temp.path())).unwrap();
+        let paths = test_paths(&temp);
         let res = run_config_probe(&paths, "nonexistent").await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("No model configured"));
@@ -119,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn probe_missing_key_reports_auth_failure() {
         let temp = TempDir::new().unwrap();
-        let paths = DariusPaths::resolve(&crate::paths::OsEnv, Some(temp.path())).unwrap();
+        let paths = test_paths(&temp);
         let profile = paths.profile("unauth").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
         let toml_str = r#"[model]
@@ -152,7 +196,7 @@ api_key_env = "DARIUS_PROBE_UNSET_KEY_9999"
             .await;
 
         let temp = TempDir::new().unwrap();
-        let paths = DariusPaths::resolve(&crate::paths::OsEnv, Some(temp.path())).unwrap();
+        let paths = test_paths(&temp);
         let profile = paths.profile("test_ok").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
         let toml_str = format!(
@@ -184,7 +228,7 @@ api_key_env = "NONE"
             .await;
 
         let temp = TempDir::new().unwrap();
-        let paths = DariusPaths::resolve(&crate::paths::OsEnv, Some(temp.path())).unwrap();
+        let paths = test_paths(&temp);
         let profile = paths.profile("test_401").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
         let toml_str = format!(
@@ -217,7 +261,7 @@ api_key_env = "NONE"
             .await;
 
         let temp = TempDir::new().unwrap();
-        let paths = DariusPaths::resolve(&crate::paths::OsEnv, Some(temp.path())).unwrap();
+        let paths = test_paths(&temp);
         let profile = paths.profile("test_429").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
         let toml_str = format!(
@@ -233,5 +277,57 @@ api_key_env = "NONE"
         let res = run_config_probe(&paths, "test_429").await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("rate limited"));
+    }
+
+    #[tokio::test]
+    async fn probe_keyless_profile_needs_no_key() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "probe_id",
+                "choices": [{"message": {"role": "assistant", "content": "pong"}}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let temp = TempDir::new().unwrap();
+        let paths = test_paths(&temp);
+        let profile = paths.profile("keyless").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        // No api_key_env at all: opencode-free is keyless by profile.
+        let toml_str = format!(
+            r#"[model]
+provider = "opencode-free"
+base_url = "{}/v1"
+model = "laguna-s-2.1-free"
+"#,
+            server.uri()
+        );
+        std::fs::write(profile.join("config.toml"), toml_str).unwrap();
+        assert!(run_config_probe(&paths, "keyless").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn probe_nous_without_credential_names_oauth_source() {
+        let temp = TempDir::new().unwrap();
+        let paths = test_paths(&temp);
+        let profile = paths.profile("nous_nokey").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        let toml_str = r#"[model]
+provider = "nous"
+base_url = "https://inference-api.nousresearch.com/v1"
+model = "hermes-3-405b"
+api_key_env = "DARIUS_PROBE_NOUS_UNSET_9999"
+"#;
+        std::fs::write(profile.join("config.toml"), toml_str).unwrap();
+        let err = run_config_probe(&paths, "nous_nokey").await.unwrap_err();
+        assert!(err.contains("nous"), "{err}");
+        assert!(err.contains("auth.json"), "{err}");
     }
 }

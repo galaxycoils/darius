@@ -1,4 +1,4 @@
-//! Per-turn cancellation token plus 60-second request deadline.
+//! Per-turn cancellation, deadline, and opaque conversation identity.
 use std::time::{Duration, Instant};
 
 /// Fresh token + deadline per turn; cancel wins ties.
@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 pub struct TurnContext {
     cancel: tokio_util::sync::CancellationToken,
     deadline: Instant,
+    session_id: std::sync::Arc<str>,
 }
 
 impl TurnContext {
@@ -17,6 +18,7 @@ impl TurnContext {
         Self {
             cancel: tokio_util::sync::CancellationToken::new(),
             deadline: Instant::now() + timeout,
+            session_id: "darius-default-session".into(),
         }
     }
 
@@ -25,6 +27,17 @@ impl TurnContext {
             cancel,
             ..Self::new()
         }
+    }
+
+    /// Attach an opaque identity without changing cancellation or deadline.
+    pub fn with_session_id(mut self, session_id: impl Into<std::sync::Arc<str>>) -> Self {
+        self.session_id = session_id.into();
+        self
+    }
+
+    /// Stable fallback for callers without a session; runtime callers supply their own ID.
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     pub fn cancel(&self) {

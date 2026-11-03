@@ -21,9 +21,12 @@ impl Default for SubagentId {
     }
 }
 
+pub mod auth_store;
 pub mod commands;
 pub mod config;
+pub mod credentials;
 pub mod plugins;
+pub mod providers;
 pub mod runtime_protocol;
 pub mod slash;
 

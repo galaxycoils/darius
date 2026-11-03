@@ -17,6 +17,8 @@ fn metadata() -> ProviderMetadata {
         base_url: "https://api.example.test/v1".into(),
         model: "test-model".into(),
         api_key_env: Some("DARIUS_TEST_API_KEY".into()),
+        auth_type: None,
+        default_max_tokens: None,
     }
 }
 

@@ -1607,22 +1607,38 @@ mod tests {
     }
 
     #[test]
+    fn model_picker_keyless_entries_selectable_without_key_gate() {
+        // 4.3: keyless (opencode-free) entries select with no credential.
+        let picker = ModelPickerState::with_filter("laguna");
+        let entry = picker
+            .selected_entry()
+            .expect("fallback catalog has laguna entries");
+        assert_eq!(entry.provider, "opencode-free");
+        let config = catalog_entry_to_config(entry);
+        assert_eq!(config.api_key_env, "NONE");
+        // Provider-first: unfiltered picker opens on the first registry
+        // provider group (kilocode), matching the PTY journey's Enter-select.
+        let open = ModelPickerState::new();
+        assert_eq!(open.selected_entry().unwrap().provider, "kilocode");
+    }
+
+    #[test]
     fn model_command_with_unique_arg_selects_without_picker() {
         let mut state = AppState::default();
-        state.composer.input = "/model gpt-4o-mini".into();
+        state.composer.input = "/model hermes-3-405b".into();
         let effect = state.reduce(Action::Submit);
         assert!(state.model_picker.is_none());
-        assert_eq!(state.model, "gpt-4o-mini");
-        assert!(matches!(effect, Some(Effect::SelectModel(cfg)) if cfg.model == "gpt-4o-mini"));
+        assert_eq!(state.model, "hermes-3-405b");
+        assert!(matches!(effect, Some(Effect::SelectModel(cfg)) if cfg.model == "hermes-3-405b"));
     }
 
     #[test]
     fn model_command_with_ambiguous_arg_opens_picker_with_filter() {
         let mut state = AppState::default();
-        state.composer.input = "/model gpt".into();
+        state.composer.input = "/model openai/gpt-5.4".into();
         state.reduce(Action::Submit);
         assert!(state.model_picker.is_some());
-        assert_eq!(state.model_picker.unwrap().filter, "gpt");
+        assert_eq!(state.model_picker.unwrap().filter, "openai/gpt-5.4");
     }
 
     #[test]

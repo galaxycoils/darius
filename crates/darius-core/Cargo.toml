@@ -16,6 +16,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = "0.12"
 toml = "0.8"
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 darius-rlm = { path = "../darius-rlm" }

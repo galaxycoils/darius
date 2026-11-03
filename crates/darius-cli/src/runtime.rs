@@ -67,7 +67,7 @@ fn resolve_profile(
     profile: &str,
     options: RuntimeOptions,
 ) -> Result<ResolvedProfile, RuntimeError> {
-    crate::runtime_selector::load_dotenv_if_present(Some(&paths.workspace));
+    crate::runtime_selector::load_dotenv_if_present(paths);
     let config = RuntimeConfig::from_profile(paths, profile)?;
     let config_path = ProfileConfig::config_path(paths, profile)?;
     let config_exists = config_path.try_exists()?;
@@ -99,6 +99,7 @@ pub use crate::permissions::SessionPermissions;
 /// There is deliberately no direct model-call dispatch API on the session;
 /// see `AgentLoop::run_turn` for the policy-checked path.
 pub struct SessionRuntime {
+    pub(crate) session_id: Arc<str>,
     pub mode: darius_core::runtime_protocol::Mode,
     pub permissions: SessionPermissions,
     pub config: RuntimeConfig,
@@ -198,6 +199,7 @@ impl SessionRuntime {
         let conversation =
             Conversation::from_messages(vec![]).map_err(|e| RuntimeError::Model(e.to_string()))?;
         Ok(Self {
+            session_id: uuid::Uuid::new_v4().to_string().into(),
             mode: darius_core::runtime_protocol::Mode::Auto,
             permissions: Arc::default(),
             config: resolved.config,
@@ -336,6 +338,11 @@ impl SessionRuntime {
             ));
         }
 
+        let routing = self
+            .profile_config
+            .openrouter
+            .as_ref()
+            .and_then(|o| o.provider_routing());
         let model = darius_daemon::LiveModel::for_provider(darius_daemon::Provider {
             name: cfg.provider.clone(),
             model: cfg.model.clone(),
@@ -343,6 +350,7 @@ impl SessionRuntime {
             enabled: true,
             api_key_env: cfg.api_key_env.clone(),
         })
+        .map(|m| m.with_provider_routing(routing))
         .map_err(|e| e.to_string())?;
 
         self.model = Box::new(model);
@@ -361,13 +369,18 @@ impl Drop for SessionRuntime {
 fn model_for(state: &RuntimeState) -> Result<Box<dyn AsyncModel>, String> {
     match state {
         RuntimeState::Live(provider) => {
+            let routing = provider
+                .openrouter
+                .as_ref()
+                .and_then(|o| o.provider_routing());
             darius_daemon::LiveModel::for_provider(darius_daemon::Provider {
-                name: "default".into(),
+                name: provider.provider.clone(),
                 model: provider.model.clone(),
                 base_url: provider.base_url.clone(),
                 enabled: true,
                 api_key_env: provider.key_env.clone(),
             })
+            .map(|m| m.with_provider_routing(routing))
             .map(|m| Box::new(m) as Box<dyn AsyncModel>)
             .map_err(|e| e.to_string())
         }
@@ -472,6 +485,10 @@ mod tests {
             base_url: "http://localhost:8080/v1".into(),
             model: "mock".into(),
             api_key_env: "NONE".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
         };
         let err = runtime.apply_model_config(&cfg).unwrap_err();
         assert!(err.contains("mock provider is only allowed with explicit --offline flag"));
@@ -491,6 +508,10 @@ mod tests {
             base_url: "http://localhost:8080/v1".into(),
             model: "mock".into(),
             api_key_env: "NONE".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
         };
         let res = runtime.apply_model_config(&cfg).unwrap();
         assert_eq!(res, None);
@@ -506,6 +527,10 @@ mod tests {
             base_url: "https://api.openai.com/v1".into(),
             model: "gpt-4o-mini".into(),
             api_key_env: "DARIUS_UNSET_KEY_FOR_TEST_12345".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
         };
         let err = runtime.apply_model_config(&cfg).unwrap_err();
         assert!(err.contains("DARIUS_UNSET_KEY_FOR_TEST_12345"));
@@ -522,6 +547,10 @@ mod tests {
             base_url: "https://api.openai.com/v1".into(),
             model: "gpt-4o-mini".into(),
             api_key_env: "DARIUS_TEST_LIVE_KEY_ENV".into(),
+            auth_type: None,
+            default_max_tokens: None,
+            context_length: None,
+            headers: None,
         };
         let res = runtime.apply_model_config(&cfg).unwrap();
         assert_eq!(res, None);
@@ -542,6 +571,10 @@ mod tests {
                 base_url: "https://api.openai.com/v1".into(),
                 model: "gpt-4o-mini".into(),
                 api_key_env: "OPENAI_API_KEY".into(),
+                auth_type: None,
+                default_max_tokens: None,
+                context_length: None,
+                headers: None,
             };
             let res = runtime.apply_model_config(&cfg).unwrap();
             assert_eq!(res, None);

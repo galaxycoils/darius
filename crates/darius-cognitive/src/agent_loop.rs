@@ -8,10 +8,15 @@ pub const MAX_ROUNDS: usize = 12;
 pub struct AgentLoop {
     pub(crate) sink: Arc<dyn EventSink>,
     pub(crate) control: Arc<dyn RunControl>,
+    pub(crate) session_id: Option<Arc<str>>,
 }
 impl AgentLoop {
     pub fn new(sink: Arc<dyn EventSink>, control: Arc<dyn RunControl>) -> Self {
-        Self { sink, control }
+        Self {
+            sink,
+            control,
+            session_id: None,
+        }
     }
     /// Run one user turn; transcript persists only on terminal text.
     #[allow(clippy::too_many_arguments)]

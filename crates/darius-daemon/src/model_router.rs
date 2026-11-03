@@ -2,8 +2,16 @@
 
 pub mod anthropic;
 pub mod budget;
+pub mod chat_completions;
+#[cfg(test)]
+mod compatible_wire_tests;
 pub mod live_factory;
 pub mod openai;
+#[cfg(test)]
+mod profile_tests;
+mod provider;
+#[cfg(test)]
+mod provider_tests;
 mod usage;
 pub mod wire;
 pub mod wire_call;
@@ -12,12 +20,14 @@ pub mod wire_decode;
 use crate::cache::{CacheCoordinator, CacheMetrics};
 pub use anthropic::AnthropicModel;
 pub use budget::{BudgetEnforcer, BudgetScope};
-pub use live_factory::LiveModel;
-pub use openai::OpenAiModel;
+pub use chat_completions::ChatCompletionsModel;
+pub use chat_completions::ChatCompletionsModel as OpenAiModel;
+pub use live_factory::{LiveBackend, LiveModel};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
+pub use wire::ProviderRouting;
 
 #[derive(Debug, Error)]
 pub enum RouterError {
@@ -47,18 +57,10 @@ pub struct TokenAccounting {
     pub cached_input: u64,
 }
 
-/// Model provider.
-#[derive(Debug, Clone)]
-pub struct Provider {
-    pub name: String,
-    pub model: String,
-    pub base_url: String,
-    pub enabled: bool,
-    /// Environment variable name holding the API key. Never store the key itself.
-    pub api_key_env: String,
-}
+pub use provider::Provider;
 
-/// Provider registry.
+/// Configured runtime instances (including role names), not provider metadata.
+/// Canonical metadata lives only in `darius_core::providers`.
 pub struct ProviderRegistry {
     providers: Arc<Mutex<HashMap<String, Provider>>>,
 }

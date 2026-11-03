@@ -3,7 +3,10 @@ use crate::{
     paths::DariusPaths,
     runtime::{RuntimeOptions, SessionRuntime, block_on_turn},
 };
-use darius_cognitive::{AgentLoop, EventSink};
+#[cfg(test)]
+#[path = "web_session_tests.rs"]
+mod session_tests;
+use darius_cognitive::EventSink;
 use darius_web::{GoalExecutor, ServerState};
 use std::sync::{Arc, atomic::Ordering};
 pub fn server_state(
@@ -34,7 +37,7 @@ fn execute(
         return Err("execution unavailable: runtime no longer configured".into());
     }
     let control = Arc::new(crate::permissions::HeadlessRunControl::default());
-    let agent = AgentLoop::new(sink, control.clone());
+    let agent = runtime.agent_loop(sink, control.clone());
     let workspace = runtime.workspace.to_string_lossy().into_owned();
     let result = block_on_turn(agent.run_turn_with_extra_tools(
         &runtime.metadata,

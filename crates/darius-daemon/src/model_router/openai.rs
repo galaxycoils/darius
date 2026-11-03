@@ -1,67 +1,39 @@
-//! OpenAiModel owns one validated provider; exact cancellable protocol, no fallback.
-use crate::model_router::{BudgetEnforcer, BudgetScope, usage, wire, wire_decode};
+//! ChatCompletionsModel owns one validated provider; exact cancellable protocol, no fallback.
+#[cfg(test)]
+use crate::model_router::{BudgetEnforcer, BudgetScope};
+use crate::model_router::{usage, wire, wire_decode};
 use darius_cognitive::{AsyncModel, CognitiveError, Message, ModelOutput, ToolSpec, TurnContext};
-const MAX_OUTPUT_TOKENS: u64 = 4096;
 
-pub struct OpenAiModel {
-    pub model: String,
-    pub base_url: String,
-    pub key_env: String,
-    pub client: reqwest::Client,
-    pub budget: BudgetEnforcer,
-    pub scope: BudgetScope,
-}
+pub use super::chat_completions::ChatCompletionsModel;
+/// Compatibility name for callers using the original transport.
+pub use ChatCompletionsModel as OpenAiModel;
 
 pub type LiveModel = crate::model_router::LiveModel;
 
 #[async_trait::async_trait]
-impl AsyncModel for OpenAiModel {
+impl AsyncModel for ChatCompletionsModel {
     async fn complete(
         &mut self,
         messages: &[Message],
         tools: &[ToolSpec],
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
-        let is_local = self.base_url.contains("localhost")
-            || self.base_url.contains("127.0.0.1")
-            || self.base_url.contains("0.0.0.0")
-            || self.key_env.eq_ignore_ascii_case("NONE");
-        let key = match std::env::var(&self.key_env) {
-            Ok(k) if !k.trim().is_empty() => k,
-            _ if is_local => "ollama".to_string(),
-            _ => return Err(CognitiveError::Loop("authentication failed".into())),
-        };
         let input = usage::estimate_input(messages, tools).max(1);
         let mut reservation = self
             .budget
-            .reserve(self.scope, input, MAX_OUTPUT_TOKENS)
+            .reserve(self.scope, input, self.output_budget())
             .map_err(|error| CognitiveError::Loop(error.to_string()))?;
-        let body = wire::encode_request(&self.model, messages, tools, reservation.output_limit());
+        let body = wire::encode_request_with_profile(
+            self.profile,
+            &self.model,
+            messages,
+            tools,
+            reservation.output_limit(),
+        );
         let url = format!("{}/chat/completions", self.base_url);
         let fetch = async {
             reservation.mark_dispatched();
-            let response = self
-                .client
-                .post(url)
-                .bearer_auth(key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|error| {
-                    if error.is_timeout() {
-                        CognitiveError::Loop(
-                            "provider request timed out: check network connectivity, \
-                             then retry or try again"
-                                .into(),
-                        )
-                    } else {
-                        CognitiveError::Loop(
-                            "provider request failed: check network connectivity and base_url, \
-                             then retry or try again"
-                                .into(),
-                        )
-                    }
-                })?;
+            let response = self.post_chat(url, body, ctx.session_id()).await?;
             wire_decode::read_response(response).await
         };
         let cancel = ctx.token();
@@ -93,47 +65,22 @@ impl AsyncModel for OpenAiModel {
         ctx: &TurnContext,
     ) -> Result<ModelOutput, CognitiveError> {
         use tokio_stream::StreamExt;
-        let is_local = self.base_url.contains("localhost")
-            || self.base_url.contains("127.0.0.1")
-            || self.base_url.contains("0.0.0.0")
-            || self.key_env.eq_ignore_ascii_case("NONE");
-        let key = match std::env::var(&self.key_env) {
-            Ok(k) if !k.trim().is_empty() => k,
-            _ if is_local => "ollama".to_string(),
-            _ => return Err(CognitiveError::Loop("authentication failed".into())),
-        };
         let input = usage::estimate_input(messages, tools).max(1);
         let mut reservation = self
             .budget
-            .reserve(self.scope, input, MAX_OUTPUT_TOKENS)
+            .reserve(self.scope, input, self.output_budget())
             .map_err(|error| CognitiveError::Loop(error.to_string()))?;
-        let body =
-            wire::encode_stream_request(&self.model, messages, tools, reservation.output_limit());
+        let body = wire::encode_stream_request_with_profile(
+            self.profile,
+            &self.model,
+            messages,
+            tools,
+            reservation.output_limit(),
+        );
         let url = format!("{}/chat/completions", self.base_url);
         let fetch = async {
             reservation.mark_dispatched();
-            let response = self
-                .client
-                .post(url)
-                .bearer_auth(key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|error| {
-                    if error.is_timeout() {
-                        CognitiveError::Loop(
-                            "provider request timed out: check network connectivity, \
-                             then retry or try again"
-                                .into(),
-                        )
-                    } else {
-                        CognitiveError::Loop(
-                            "provider request failed: check network connectivity and base_url, \
-                             then retry or try again"
-                                .into(),
-                        )
-                    }
-                })?;
+            let response = self.post_chat(url, body, ctx.session_id()).await?;
             if !response.status().is_success() {
                 return wire_decode::read_response(response).await;
             }
@@ -271,11 +218,51 @@ impl AsyncModel for OpenAiModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model_router::chat_completions::DEFAULT_OUTPUT_TOKENS;
     use darius_cognitive::Message;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{header, method, path},
     };
+
+    fn test_model(
+        profile: Option<&'static darius_core::providers::ProviderProfile>,
+    ) -> ChatCompletionsModel {
+        ChatCompletionsModel {
+            profile,
+            model: "test-model".into(),
+            base_url: "http://localhost:1/v1".into(),
+            key_env: "DARIUS_TEST_WU06_NEVER_SET".into(),
+            client: reqwest::Client::new(),
+            budget: BudgetEnforcer::new(),
+            scope: BudgetScope::Session,
+            max_output_tokens: None,
+            provider_routing: None,
+        }
+    }
+
+    #[test]
+    fn output_budget_prefers_explicit_config_over_profile_default() {
+        let nvidia = darius_core::providers::resolve("nvidia").unwrap();
+        assert_eq!(nvidia.default_max_tokens, Some(16384));
+        let mut model = test_model(Some(nvidia));
+        // Config absent: profile default threads through.
+        assert_eq!(model.output_budget(), 16384);
+        // Explicit config value wins over the profile default.
+        model.max_output_tokens = Some(1024);
+        assert_eq!(model.output_budget(), 1024);
+    }
+
+    #[test]
+    fn output_budget_falls_back_to_transport_default() {
+        let model = test_model(None);
+        assert_eq!(model.output_budget(), DEFAULT_OUTPUT_TOKENS);
+        assert_eq!(model.output_budget(), 4096);
+        let openrouter = darius_core::providers::resolve("openrouter").unwrap();
+        assert_eq!(openrouter.default_max_tokens, None);
+        let model = test_model(Some(openrouter));
+        assert_eq!(model.output_budget(), 4096);
+    }
 
     #[tokio::test]
     async fn openai_complete_stream_emits_deltas_and_accumulates_tools() {
@@ -302,13 +289,16 @@ data: [DONE]\n\n";
             .mount(&server)
             .await;
 
-        let mut model = OpenAiModel {
+        let mut model = ChatCompletionsModel {
+            profile: None,
             model: "gpt-4o-mini".into(),
             base_url: format!("{}/v1", server.uri()),
             key_env: key_env.into(),
             client: reqwest::Client::new(),
             budget: BudgetEnforcer::new(),
             scope: BudgetScope::Session,
+            max_output_tokens: None,
+            provider_routing: None,
         };
 
         struct CollectSink(std::sync::Arc<parking_lot::Mutex<Vec<String>>>);
